@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { protect, admin } = require("../middleware/authMiddleware"); // fixed capitalization
+const { protect, admin } = require("../middleware/AuthMiddleware"); // fixed capitalization
 const { adminCreditCoins } = require("../controller/AccountController");
 const CoinTransaction = require("../models/CoinTransaction");
 const { playersByUser } = require("../games/gameState");
@@ -57,3 +57,4 @@ router.get("/transactions", protect, admin, async (req, res) => {
 });
 
 module.exports = router;
+

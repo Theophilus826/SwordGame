@@ -9,7 +9,7 @@ const {
   userAttackEnemy,
   finishGameBackend,
   addToPot,
-} = require("../controllers/gameController");
+} = require("../controller/GameController");
 
 router.post("/create", createGame);
 router.post("/configure-enemies", configureEnemies);
@@ -20,3 +20,4 @@ router.post("/add-to-pot", addToPot);
 router.get("/:gameId", getGameState);
 
 module.exports = router;
+

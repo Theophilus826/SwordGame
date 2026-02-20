@@ -11,7 +11,8 @@ const {
     creditGameWin,
 } = require('../controller/AccountController');
 
-const { protect, admin } = require('../middleware/authMiddleware');
+const { protect, admin } = require('../middleware/AuthMiddleware');
+
 
 // ================= USER WALLET =================
 router.post('/credit', protect, creditCoins);
@@ -28,3 +29,4 @@ router.post('/daily-reward', protect, dailyLoginReward);
 router.post('/admin/update', protect, admin, adminCreditCoins);
 
 module.exports = router;
+

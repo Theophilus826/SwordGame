@@ -4,7 +4,6 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 
 const User = require('../models/UserModels');
-const sendEmail = require('../utils/sendEmail');
 
 // ================= TOKEN GENERATOR =================
 const generateToken = (id, expiresIn = '1d') => {
@@ -69,7 +68,7 @@ const loginUser = asyncHandler(async (req, res) => {
         throw new Error("Invalid credentials");
     }
 
-    // ✅ Mark user online (recommended)
+    // ✅ Mark user online
     user.online = true;
     await user.save();
 
@@ -77,7 +76,7 @@ const loginUser = asyncHandler(async (req, res) => {
     req.io.emit("activity:event", {
         type: "USER_ONLINE",
         user: user.name,
-        userId: user._id, // useful for admin UI
+        userId: user._id,
         timestamp: Date.now(),
     });
 
@@ -99,8 +98,8 @@ const loginUser = asyncHandler(async (req, res) => {
     });
 });
 
-
 // ================= FORGOT PASSWORD =================
+// Temporarily disable email sending
 const forgotPassword = asyncHandler(async (req, res) => {
     const { email } = req.body;
 
@@ -116,21 +115,10 @@ const forgotPassword = asyncHandler(async (req, res) => {
 
     await user.save();
 
-    const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
-
-    await sendEmail({
-        email: user.email,
-        subject: 'Password Reset Request',
-        message: `
-            <h2>Password Reset</h2>
-            <p>You requested a password reset.</p>
-            <a href="${resetUrl}">Reset Password</a>
-            <p>This link expires in 10 minutes.</p>
-        `,
-    });
-
+    // Skip sending email
     res.status(200).json({
-        message: 'Password reset link sent to email',
+        message: 'Password reset token generated (email sending disabled in this build).',
+        resetToken, // optional: return token for dev/testing
     });
 });
 

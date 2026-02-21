@@ -35,7 +35,7 @@ app.use(express.urlencoded({ extended: true }));
 // CORS
 // ==========================
 // Update the origin to your frontend Railway URL when deploying
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+const FRONTEND_URL = process.env.FRONTEND_URL || "http://harmonious-meerkat-a1ebc7.netlify.app";
 app.use(
   cors({
     origin: [FRONTEND_URL],
@@ -164,3 +164,4 @@ const PORT = process.env.PORT || 5000;
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on port ${PORT}`.cyan.bold);
 });
+

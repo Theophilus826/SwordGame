@@ -33,20 +33,18 @@ app.use(express.urlencoded({ extended: true }));
 // ==========================
 // CORS
 // ==========================
-const FRONTEND_URL = process.env.FRONTEND_URL || "https://harmonious-meerkat-a1ebc7.netlify.app";
+const FRONTEND_URL =
+  process.env.FRONTEND_URL || "https://harmonious-meerkat-a1ebc7.netlify.app";
 
 const corsOptions = {
-  origin: FRONTEND_URL,            // Only allow your frontend
+  origin: FRONTEND_URL,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  credentials: true,               // Needed for cookies
-  allowedHeaders: ["Content-Type", "Authorization"], // Include your headers
+  credentials: true,
+  allowedHeaders: ["Content-Type", "Authorization"],
 };
 
-// 1️⃣ Apply CORS BEFORE routes
-app.use(cors(corsOptions));
+app.use(cors(corsOptions)); // ✅ handles preflight automatically
 
-// 2️⃣ Handle preflight requests for all routes
-app.options("*", cors(corsOptions));
 // ==========================
 // Connect DB
 // ==========================
@@ -67,6 +65,7 @@ app.use((req, res, next) => {
 app.get("/", (req, res) => {
   res.status(200).json({ message: "Welcome to Game Backend API" });
 });
+
 app.use("/api/users", require("./routes/UserRoutes"));
 app.use("/api/coins", require("./routes/AccountRoutes"));
 app.use("/api/admin", require("./routes/AdminRoutes"));
@@ -84,7 +83,7 @@ const server = http.createServer(app);
 
 io = new Server(server, {
   cors: {
-    origin: allowedOrigins,
+    origin: FRONTEND_URL, // ✅ use FRONTEND_URL here
     credentials: true,
   },
 });
@@ -155,6 +154,3 @@ const PORT = process.env.PORT || 5000;
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on port ${PORT}`.cyan.bold);
 });
-
-
-

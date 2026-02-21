@@ -1,4 +1,3 @@
-// server.js
 const express = require("express");
 const cookieParser = require("cookie-parser");
 const cors = require("cors");
@@ -11,7 +10,7 @@ const connectDB = require("./config/Db");
 const { errorHandler } = require("./middleware/ErrorMiddleware");
 const socketAuth = require("./middleware/socketAuth");
 const { registerGameSockets } = require("./games/socketHandler");
-const User = require("./models/UserModels"); // Needed for user list + status
+const User = require("./models/UserModels");
 const { getUsersFromDB } = require("./controller/UserHelpers");
 
 // ==========================
@@ -34,13 +33,19 @@ app.use(express.urlencoded({ extended: true }));
 // ==========================
 // CORS
 // ==========================
-// Update the origin to your frontend Railway URL when deploying
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://harmonious-meerkat-a1ebc7.netlify.app";
+const allowedOrigins = [
+  "http://localhost:5173", // Vite dev
+  "https://harmonious-meerkat-a1ebc7.netlify.app", // production
+];
 app.use(
   cors({
-    origin: [FRONTEND_URL],
-    methods: "GET,POST,PUT,DELETE,PATCH,HEAD",
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true); // allow non-browser requests (e.g., Postman)
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      callback(new Error("CORS blocked: " + origin));
+    },
     credentials: true,
+    methods: "GET,POST,PUT,DELETE,PATCH,HEAD",
   })
 );
 
@@ -50,10 +55,9 @@ app.use(
 connectDB();
 
 // ==========================
-// Attach io to requests 🔥
+// Attach io to requests
 // ==========================
-let io; // declared early
-
+let io;
 app.use((req, res, next) => {
   req.io = io;
   next();
@@ -65,7 +69,6 @@ app.use((req, res, next) => {
 app.get("/", (req, res) => {
   res.status(200).json({ message: "Welcome to Game Backend API" });
 });
-
 app.use("/api/users", require("./routes/UserRoutes"));
 app.use("/api/coins", require("./routes/AccountRoutes"));
 app.use("/api/admin", require("./routes/AdminRoutes"));
@@ -83,13 +86,13 @@ const server = http.createServer(app);
 
 io = new Server(server, {
   cors: {
-    origin: FRONTEND_URL,
+    origin: allowedOrigins,
     credentials: true,
   },
 });
 
 // ==========================
-// Admin Namespace 🔥
+// Admin Namespace
 // ==========================
 const adminNamespace = io.of("/admin");
 
@@ -102,7 +105,6 @@ adminNamespace.use((socket, next) => {
 adminNamespace.on("connection", (socket) => {
   console.log(`🖥 Admin ${socket.user.name} connected`);
 
-  // Admin User List Request
   socket.on("admin:getUsers", async () => {
     const users = await getUsersFromDB();
     socket.emit("users:list", users);
@@ -114,19 +116,15 @@ adminNamespace.on("connection", (socket) => {
 });
 
 // ==========================
-// Main Namespace 🔥
+// Main Namespace
 // ==========================
 io.use(socketAuth);
 
 io.on("connection", async (socket) => {
   console.log(`🟢 ${socket.user.name} connected`);
-
   socket.userId = socket.user._id;
 
-  // Mark user online
   await User.findByIdAndUpdate(socket.userId, { online: true });
-
-  // Broadcast status
   io.emit("user:status", { userId: socket.userId, online: true });
 
   io.of("/admin").emit("activity:event", {
@@ -136,14 +134,11 @@ io.on("connection", async (socket) => {
     timestamp: Date.now(),
   });
 
-  // Register game sockets
   registerGameSockets(io, socket);
 
   socket.on("disconnect", async () => {
     console.log(`🔴 ${socket.user.name} disconnected`);
-
     await User.findByIdAndUpdate(socket.userId, { online: false });
-
     io.emit("user:status", { userId: socket.userId, online: false });
 
     io.of("/admin").emit("activity:event", {
@@ -156,11 +151,9 @@ io.on("connection", async (socket) => {
 });
 
 // ==========================
-// START SERVER 🚀
+// START SERVER
 // ==========================
 const PORT = process.env.PORT || 5000;
-
-// Important: bind to 0.0.0.0 for Railway
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on port ${PORT}`.cyan.bold);
 });

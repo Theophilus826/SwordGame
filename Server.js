@@ -33,21 +33,20 @@ app.use(express.urlencoded({ extended: true }));
 // ==========================
 // CORS
 // ==========================
-const allowedOrigins = [
-  "http://localhost:5173", // Vite dev
-  "https://harmonious-meerkat-a1ebc7.netlify.app", // production
-];
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      if (!origin) return callback(null, true); // allow non-browser requests (e.g., Postman)
-      if (allowedOrigins.includes(origin)) return callback(null, true);
-      callback(new Error("CORS blocked: " + origin));
-    },
-    credentials: true,
-    methods: "GET,POST,PUT,DELETE,PATCH,HEAD",
-  })
-);
+const FRONTEND_URL = process.env.FRONTEND_URL || "https://harmonious-meerkat-a1ebc7.netlify.app";
+
+const corsOptions = {
+  origin: FRONTEND_URL,      // Only allow your frontend
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  credentials: true,         // Needed if you use cookies
+  allowedHeaders: ["Content-Type", "Authorization"],
+};
+
+// Apply CORS middleware BEFORE routes
+app.use(cors(corsOptions));
+
+// Handle preflight requests for all routes
+app.options("*", cors(corsOptions));
 
 // ==========================
 // Connect DB
@@ -157,4 +156,5 @@ const PORT = process.env.PORT || 5000;
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on port ${PORT}`.cyan.bold);
 });
+
 

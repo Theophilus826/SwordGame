@@ -36,18 +36,17 @@ app.use(express.urlencoded({ extended: true }));
 const FRONTEND_URL = process.env.FRONTEND_URL || "https://harmonious-meerkat-a1ebc7.netlify.app";
 
 const corsOptions = {
-  origin: FRONTEND_URL,      // Only allow your frontend
+  origin: FRONTEND_URL,            // Only allow your frontend
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  credentials: true,         // Needed if you use cookies
-  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true,               // Needed for cookies
+  allowedHeaders: ["Content-Type", "Authorization"], // Include your headers
 };
 
-// Apply CORS middleware BEFORE routes
+// 1️⃣ Apply CORS BEFORE routes
 app.use(cors(corsOptions));
 
-// Handle preflight requests for all routes
+// 2️⃣ Handle preflight requests for all routes
 app.options("*", cors(corsOptions));
-
 // ==========================
 // Connect DB
 // ==========================
@@ -156,5 +155,6 @@ const PORT = process.env.PORT || 5000;
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on port ${PORT}`.cyan.bold);
 });
+
 
 

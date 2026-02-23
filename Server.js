@@ -57,12 +57,13 @@ connectDB();
 // CREATE SERVER + SOCKET.IO
 // ==========================
 const server = http.createServer(app);
+
 const io = new Server(server, {
   cors: {
     origin: FRONTEND_URL,
     credentials: true,
   },
-  transports: ["websocket"], // enforce WebSocket only
+  transports: ["websocket", "polling"], // ✅ allow fallback for mobile/Render
 });
 
 // ==========================
@@ -143,7 +144,7 @@ io.on("connection", async (socket) => {
       });
     }
 
-    // ✅ Register game-specific socket events
+    // ✅ Register game sockets
     registerGameSockets(io, socket);
   } catch (err) {
     console.error("Error during connection setup:", err);

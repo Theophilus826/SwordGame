@@ -1,3 +1,6 @@
+// ==========================
+// IMPORTS
+// ==========================
 const asyncHandler = require('express-async-handler');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -41,12 +44,23 @@ const registerUser = asyncHandler(async (req, res) => {
 
     const token = generateToken(user._id, '1d');
 
+    // ✅ Set cookie
     res.cookie("token", token, {
         httpOnly: true,
         sameSite: "lax",
-        secure: false,
+        secure: process.env.NODE_ENV === "production",
         maxAge: 24 * 60 * 60 * 1000,
     });
+
+    // ✅ Emit activity if io available
+    if (req.io) {
+        req.io.emit("activity:event", {
+            type: "USER_ONLINE",
+            user: user.name,
+            userId: user._id,
+            timestamp: Date.now(),
+        });
+    }
 
     res.status(201).json({
         message: 'Registration successful. You are now logged in.',
@@ -54,6 +68,7 @@ const registerUser = asyncHandler(async (req, res) => {
         name: user.name,
         email: user.email,
         token,
+        isAdmin: user.isAdmin,
     });
 });
 
@@ -62,7 +77,6 @@ const loginUser = asyncHandler(async (req, res) => {
     const { email, password } = req.body;
 
     const user = await User.findOne({ email });
-
     if (!user || !(await bcrypt.compare(password, user.password))) {
         res.status(401);
         throw new Error("Invalid credentials");
@@ -72,20 +86,22 @@ const loginUser = asyncHandler(async (req, res) => {
     user.online = true;
     await user.save();
 
-    // ✅ Emit Live Activity
-    req.io.emit("activity:event", {
-        type: "USER_ONLINE",
-        user: user.name,
-        userId: user._id,
-        timestamp: Date.now(),
-    });
+    // ✅ Emit live activity (safely)
+    if (req.io) {
+        req.io.emit("activity:event", {
+            type: "USER_ONLINE",
+            user: user.name,
+            userId: user._id,
+            timestamp: Date.now(),
+        });
+    }
 
     const token = generateToken(user._id, "1d");
 
     res.cookie("token", token, {
         httpOnly: true,
         sameSite: "lax",
-        secure: false, // switch to true in production
+        secure: process.env.NODE_ENV === "production",
         maxAge: 24 * 60 * 60 * 1000,
     });
 
@@ -99,7 +115,7 @@ const loginUser = asyncHandler(async (req, res) => {
 });
 
 // ================= FORGOT PASSWORD =================
-// Temporarily disable email sending
+// Email sending temporarily disabled
 const forgotPassword = asyncHandler(async (req, res) => {
     const { email } = req.body;
 
@@ -115,10 +131,9 @@ const forgotPassword = asyncHandler(async (req, res) => {
 
     await user.save();
 
-    // Skip sending email
     res.status(200).json({
-        message: 'Password reset token generated (email sending disabled in this build).',
-        resetToken, // optional: return token for dev/testing
+        message: 'Password reset token generated (email sending disabled).',
+        resetToken, // optional: for dev/testing
     });
 });
 
@@ -168,5 +183,5 @@ module.exports = {
     forgotPassword,
     resetPassword,
     welcome,
-    generateToken, // export token generator
+    generateToken,
 };

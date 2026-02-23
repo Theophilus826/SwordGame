@@ -1,3 +1,6 @@
+// ==========================
+// IMPORTS
+// ==========================
 const express = require("express");
 const cookieParser = require("cookie-parser");
 const cors = require("cors");
@@ -14,21 +17,21 @@ const User = require("./models/UserModels");
 const { getUsersFromDB } = require("./controller/UserHelpers");
 
 // ==========================
-// Load env variables
+// LOAD ENV
 // ==========================
 dotenv.config();
 
 // ==========================
-// Initialize app
+// INIT EXPRESS
 // ==========================
 const app = express();
 
 // ==========================
-// Middleware
+// MIDDLEWARE
 // ==========================
 app.use(express.json());
-app.use(cookieParser());
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
 
 // ==========================
 // CORS
@@ -36,31 +39,22 @@ app.use(express.urlencoded({ extended: true }));
 const FRONTEND_URL =
   process.env.FRONTEND_URL || "https://face-reward.netlify.app";
 
-const corsOptions = {
-  origin: FRONTEND_URL,
-  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  credentials: true,
-  allowedHeaders: ["Content-Type", "Authorization"],
-};
-
-app.use(cors(corsOptions)); // ✅ handles preflight automatically
+app.use(
+  cors({
+    origin: FRONTEND_URL,
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
 
 // ==========================
-// Connect DB
+// CONNECT DB
 // ==========================
 connectDB();
 
 // ==========================
-// Attach io to requests
-// ==========================
-let io;
-app.use((req, res, next) => {
-  req.io = io;
-  next();
-});
-
-// ==========================
-// Routes
+// HTTP ROUTES
 // ==========================
 app.get("/", (req, res) => {
   res.status(200).json({ message: "Welcome to Game Backend API" });
@@ -72,24 +66,30 @@ app.use("/api/admin", require("./routes/AdminRoutes"));
 app.use("/api/feedbacks", require("./routes/FeedbackRoutes"));
 
 // ==========================
-// Error Handler
+// ERROR HANDLER
 // ==========================
 app.use(errorHandler);
 
 // ==========================
-// HTTP + Socket.IO
+// CREATE SERVER + SOCKET.IO
 // ==========================
 const server = http.createServer(app);
-
-io = new Server(server, {
+const io = new Server(server, {
   cors: {
-    origin: FRONTEND_URL, // ✅ use FRONTEND_URL here
+    origin: FRONTEND_URL,
     credentials: true,
   },
+  transports: ["websocket"], // enforce WebSocket only
+});
+
+// Make io available in routes
+app.use((req, res, next) => {
+  req.io = io;
+  next();
 });
 
 // ==========================
-// Admin Namespace
+// ADMIN NAMESPACE
 // ==========================
 const adminNamespace = io.of("/admin");
 
@@ -103,8 +103,13 @@ adminNamespace.on("connection", (socket) => {
   console.log(`🖥 Admin ${socket.user.name} connected`);
 
   socket.on("admin:getUsers", async () => {
-    const users = await getUsersFromDB();
-    socket.emit("users:list", users);
+    try {
+      const users = await getUsersFromDB();
+      socket.emit("users:list", users);
+    } catch (err) {
+      console.error("Error fetching users for admin:", err);
+      socket.emit("error", { message: "Failed to get users" });
+    }
   });
 
   socket.on("disconnect", () => {
@@ -113,37 +118,45 @@ adminNamespace.on("connection", (socket) => {
 });
 
 // ==========================
-// Main Namespace
+// MAIN NAMESPACE
 // ==========================
 io.use(socketAuth);
 
 io.on("connection", async (socket) => {
-  console.log(`🟢 ${socket.user.name} connected`);
-  socket.userId = socket.user._id;
+  try {
+    console.log(`🟢 ${socket.user.name} connected`);
+    socket.userId = socket.user._id;
 
-  await User.findByIdAndUpdate(socket.userId, { online: true });
-  io.emit("user:status", { userId: socket.userId, online: true });
+    await User.findByIdAndUpdate(socket.userId, { online: true });
+    io.emit("user:status", { userId: socket.userId, online: true });
 
-  io.of("/admin").emit("activity:event", {
-    type: "USER_ONLINE",
-    userId: socket.userId,
-    username: socket.user.name,
-    timestamp: Date.now(),
-  });
-
-  registerGameSockets(io, socket);
-
-  socket.on("disconnect", async () => {
-    console.log(`🔴 ${socket.user.name} disconnected`);
-    await User.findByIdAndUpdate(socket.userId, { online: false });
-    io.emit("user:status", { userId: socket.userId, online: false });
-
-    io.of("/admin").emit("activity:event", {
-      type: "USER_OFFLINE",
+    adminNamespace.emit("activity:event", {
+      type: "USER_ONLINE",
       userId: socket.userId,
       username: socket.user.name,
       timestamp: Date.now(),
     });
+
+    registerGameSockets(io, socket);
+  } catch (err) {
+    console.error("Error during connection setup:", err);
+  }
+
+  socket.on("disconnect", async () => {
+    try {
+      console.log(`🔴 ${socket.user.name} disconnected`);
+      await User.findByIdAndUpdate(socket.userId, { online: false });
+      io.emit("user:status", { userId: socket.userId, online: false });
+
+      adminNamespace.emit("activity:event", {
+        type: "USER_OFFLINE",
+        userId: socket.userId,
+        username: socket.user.name,
+        timestamp: Date.now(),
+      });
+    } catch (err) {
+      console.error("Error during disconnect:", err);
+    }
   });
 });
 
@@ -154,6 +167,3 @@ const PORT = process.env.PORT || 5000;
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on port ${PORT}`.cyan.bold);
 });
-
-
-

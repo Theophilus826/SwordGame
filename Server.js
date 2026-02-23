@@ -54,6 +54,26 @@ app.use(
 connectDB();
 
 // ==========================
+// CREATE SERVER + SOCKET.IO
+// ==========================
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: FRONTEND_URL,
+    credentials: true,
+  },
+  transports: ["websocket"], // enforce WebSocket only
+});
+
+// ==========================
+// MAKE IO AVAILABLE IN ROUTES
+// ==========================
+app.use((req, res, next) => {
+  req.io = io;
+  next();
+});
+
+// ==========================
 // HTTP ROUTES
 // ==========================
 app.get("/", (req, res) => {
@@ -69,24 +89,6 @@ app.use("/api/feedbacks", require("./routes/FeedbackRoutes"));
 // ERROR HANDLER
 // ==========================
 app.use(errorHandler);
-
-// ==========================
-// CREATE SERVER + SOCKET.IO
-// ==========================
-const server = http.createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: FRONTEND_URL,
-    credentials: true,
-  },
-  transports: ["websocket"], // enforce WebSocket only
-});
-
-// Make io available in routes
-app.use((req, res, next) => {
-  req.io = io;
-  next();
-});
 
 // ==========================
 // ADMIN NAMESPACE
@@ -127,16 +129,21 @@ io.on("connection", async (socket) => {
     console.log(`🟢 ${socket.user.name} connected`);
     socket.userId = socket.user._id;
 
+    // ✅ Mark user online
     await User.findByIdAndUpdate(socket.userId, { online: true });
     io.emit("user:status", { userId: socket.userId, online: true });
 
-    adminNamespace.emit("activity:event", {
-      type: "USER_ONLINE",
-      userId: socket.userId,
-      username: socket.user.name,
-      timestamp: Date.now(),
-    });
+    // ✅ Notify admin namespace
+    if (adminNamespace) {
+      adminNamespace.emit("activity:event", {
+        type: "USER_ONLINE",
+        userId: socket.userId,
+        username: socket.user.name,
+        timestamp: Date.now(),
+      });
+    }
 
+    // ✅ Register game-specific socket events
     registerGameSockets(io, socket);
   } catch (err) {
     console.error("Error during connection setup:", err);
@@ -145,15 +152,20 @@ io.on("connection", async (socket) => {
   socket.on("disconnect", async () => {
     try {
       console.log(`🔴 ${socket.user.name} disconnected`);
+
+      // ✅ Mark user offline
       await User.findByIdAndUpdate(socket.userId, { online: false });
       io.emit("user:status", { userId: socket.userId, online: false });
 
-      adminNamespace.emit("activity:event", {
-        type: "USER_OFFLINE",
-        userId: socket.userId,
-        username: socket.user.name,
-        timestamp: Date.now(),
-      });
+      // ✅ Notify admin namespace
+      if (adminNamespace) {
+        adminNamespace.emit("activity:event", {
+          type: "USER_OFFLINE",
+          userId: socket.userId,
+          username: socket.user.name,
+          timestamp: Date.now(),
+        });
+      }
     } catch (err) {
       console.error("Error during disconnect:", err);
     }

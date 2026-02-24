@@ -1,5 +1,5 @@
 const asyncHandler = require("express-async-handler");
-const { creditCoins } = require("./coinsController");
+const { creditCoins } = require("./AccountController");
 const { v4: uuidv4 } = require("uuid");
 
 // In-memory game storage
@@ -245,3 +245,4 @@ module.exports = {
   finishGameBackend,
   addToPot,
 };
+

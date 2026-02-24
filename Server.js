@@ -36,29 +36,17 @@ app.use(cookieParser());
 // ==========================
 // CORS
 // ==========================
-const allowedOrigins = [
-  "https://face-reward.netlify.app",
-  "https://face-rite.onrender.com",
-];
+const FRONTEND_URL =
+  process.env.FRONTEND_URL || "https://face-rite.onrender.com";
 
 app.use(
   cors({
-    origin: (origin, callback) => {
-      // ✅ Allow non-browser requests (Postman, mobile apps, curl)
-      if (!origin) return callback(null, true);
-
-      if (allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error("Not allowed by CORS"));
-      }
-    },
+    origin: FRONTEND_URL,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     credentials: true,
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
-
 // ==========================
 // CONNECT DB
 // ==========================
@@ -191,4 +179,5 @@ const PORT = process.env.PORT || 5000;
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on port ${PORT}`.cyan.bold);
 });
+
 

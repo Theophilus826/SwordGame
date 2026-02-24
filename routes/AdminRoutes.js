@@ -4,7 +4,7 @@ const { protect, admin } = require("../middleware/AuthMiddleware"); // fixed cap
 const { adminCreditCoins } = require("../controller/AccountController");
 const CoinTransaction = require("../models/CoinTransaction");
 const { playersByUser } = require("../games/gameState");
-
+const { games } = require("../controller/GameController");
 // -------------------- Admin Credit/Debit Coins --------------------
 router.put("/credit-coins", protect, admin, adminCreditCoins);
 
@@ -55,6 +55,20 @@ router.get("/transactions", protect, admin, async (req, res) => {
         res.status(500).json({ message: "Server error" });
     }
 });
+router.get("/games", protect, admin, (req, res) => {
+    const allGames = Array.from(games.values());
 
+    res.json({
+        games: allGames.map(game => ({
+            gameId: game.id,
+            userId: game.userId,
+            pot: game.pot,
+            status: game.status,
+            enemies: game.enemies,
+            createdAt: game.createdAt,
+        }))
+    });
+});
 module.exports = router;
+
 

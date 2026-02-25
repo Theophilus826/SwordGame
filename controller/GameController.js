@@ -6,35 +6,38 @@ const { v4: uuidv4 } = require("uuid");
 const games = new Map();
 
 /* =========================================================
-   CREATE GAME (NOW WAITS FOR ADMIN)
+   CREATE GAME (WAITING FOR ADMIN)
 ========================================================= */
 const createGame = asyncHandler(async (req, res) => {
   const { userId, pot = 10 } = req.body;
 
+  if (!userId)
+    return res.status(400).json({ message: "Invalid user" });
+
   const game = {
     id: uuidv4(),
     userId,
-    enemies: [],                 // ← EMPTY initially
+    enemies: [],
     pot,
-    status: "waiting",           // ← IMPORTANT CHANGE
+    status: "waiting",
     winnerId: null,
     createdAt: new Date(),
   };
 
   games.set(game.id, game);
 
-  req.io.emit("activity:event", {
+  // ✅ Admin dashboard only
+  req.adminNamespace.emit("activity:event", {
     type: "GAME_CREATED",
     userId,
     gameId: game.id,
     pot,
-    status: "waiting",
+    status: game.status,
     timestamp: Date.now(),
   });
 
   res.json({ game });
 });
-
 
 /* =========================================================
    ADMIN CONFIGURES ENEMIES
@@ -61,16 +64,22 @@ const configureEnemies = asyncHandler(async (req, res) => {
       },
   }));
 
-  req.io.emit("activity:event", {
+  // ✅ Admin dashboard
+  req.adminNamespace.emit("activity:event", {
     type: "ADMIN_CONFIG_ENEMIES",
     gameId,
     numEnemies,
     timestamp: Date.now(),
   });
 
+  // ✅ Players in THIS GAME ONLY
+  req.io.to(gameId).emit("game:enemiesConfigured", {
+    gameId,
+    enemies: game.enemies,
+  });
+
   res.json({ enemies: game.enemies });
 });
-
 
 /* =========================================================
    ADMIN STARTS GAME
@@ -91,9 +100,11 @@ const startGame = asyncHandler(async (req, res) => {
 
   game.status = "started";
 
-  req.io.emit("game:started", { gameId });
+  // ✅ Players only
+  req.io.to(gameId).emit("game:started", { gameId });
 
-  req.io.emit("activity:event", {
+  // ✅ Admin dashboard
+  req.adminNamespace.emit("activity:event", {
     type: "GAME_STARTED",
     gameId,
     timestamp: Date.now(),
@@ -101,7 +112,6 @@ const startGame = asyncHandler(async (req, res) => {
 
   res.json({ message: "Game started" });
 });
-
 
 /* =========================================================
    GET GAME STATE
@@ -116,7 +126,6 @@ const getGameState = asyncHandler(async (req, res) => {
 
   res.json(game);
 });
-
 
 /* =========================================================
    USER ATTACKS ENEMY
@@ -139,7 +148,16 @@ const userAttackEnemy = asyncHandler(async (req, res) => {
 
   enemy.health = Math.max(0, enemy.health - damage);
 
-  req.io.emit("activity:event", {
+  // ✅ Players only
+  req.io.to(gameId).emit("game:enemyDamaged", {
+    gameId,
+    enemyId,
+    damage,
+    remainingHealth: enemy.health,
+  });
+
+  // ✅ Admin dashboard
+  req.adminNamespace.emit("activity:event", {
     type: "PLAYER_ATTACK",
     gameId,
     enemyId,
@@ -154,7 +172,6 @@ const userAttackEnemy = asyncHandler(async (req, res) => {
     damage,
   });
 });
-
 
 /* =========================================================
    FINISH GAME
@@ -184,7 +201,15 @@ const finishGameBackend = asyncHandler(async (req, res) => {
     creditedCoins = result.coins;
   }
 
-  req.io.emit("activity:event", {
+  // ✅ Players only
+  req.io.to(gameId).emit("game:finished", {
+    gameId,
+    winnerId,
+    creditedCoins,
+  });
+
+  // ✅ Admin dashboard
+  req.adminNamespace.emit("activity:event", {
     type: "GAME_RESULT",
     gameId,
     winnerId,
@@ -200,9 +225,8 @@ const finishGameBackend = asyncHandler(async (req, res) => {
   });
 });
 
-
 /* =========================================================
-   ADMIN ADD TO POT (WORKS IN ANY STATE EXCEPT FINISHED)
+   ADMIN ADD TO POT
 ========================================================= */
 const addToPot = asyncHandler(async (req, res) => {
   const { gameId, amount } = req.body;
@@ -220,7 +244,14 @@ const addToPot = asyncHandler(async (req, res) => {
 
   game.pot += amount;
 
-  req.io.emit("activity:event", {
+  // ✅ Players only
+  req.io.to(gameId).emit("game:potUpdated", {
+    gameId,
+    newPot: game.pot,
+  });
+
+  // ✅ Admin dashboard
+  req.adminNamespace.emit("activity:event", {
     type: "ADMIN_ADD_POT",
     gameId,
     amount,
@@ -234,15 +265,13 @@ const addToPot = asyncHandler(async (req, res) => {
   });
 });
 
-
 module.exports = {
   games,
   createGame,
-  configureEnemies,   // ✅ NEW
-  startGame,          // ✅ NEW
+  configureEnemies,
+  startGame,
   getGameState,
   userAttackEnemy,
   finishGameBackend,
   addToPot,
 };
-

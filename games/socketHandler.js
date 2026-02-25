@@ -1,9 +1,10 @@
 const { players, playersByUser, getOrCreatePlayer } = require("./gameState");
 const { handlePvPAttack } = require("./combat");
 
-/**
- * Emit live tactical data to admin namespace
- */
+/* =========================================================
+   ADMIN EMITTERS
+========================================================= */
+
 function emitTacticalUpdate(io) {
   const data = [];
 
@@ -22,9 +23,6 @@ function emitTacticalUpdate(io) {
   io.of("/admin").emit("tacticalUpdate", { players: data });
 }
 
-/**
- * Emit activity events to admin monitor
- */
 function emitActivity(io, payload) {
   io.of("/admin").emit("activity:event", {
     ...payload,
@@ -32,27 +30,50 @@ function emitActivity(io, payload) {
   });
 }
 
-/**
- * Register game socket logic
- */
+/* =========================================================
+   REGISTER GAME SOCKETS
+========================================================= */
+
 function registerGameSockets(io, socket) {
 
-  // 🔐 Create / restore player (reconnect-safe)
+  /* =========================
+     CREATE / RESTORE PLAYER
+  ========================= */
+
   const player = getOrCreatePlayer(socket);
+
+  // ✅ Prevent duplicate socket ghosts
+  if (player.socketId && player.socketId !== socket.id) {
+    const oldSocket = io.sockets.sockets.get(player.socketId);
+
+    if (oldSocket) {
+      oldSocket.disconnect(true);
+    }
+  }
+
+  player.socketId = socket.id;
+
   players.set(socket.id, player);
 
-  // Join room
-  socket.join(player.room);
+  /* =========================
+     SAFE ROOM JOIN
+  ========================= */
 
-  // Send initial state
+  if (player.room) {
+    socket.join(player.room);
+  }
+
+  /* =========================
+     INITIAL STATE SYNC
+  ========================= */
+
   socket.emit("init", {
     self: player,
-    players: [...playersByUser.values()],
+    players: [...playersByUser.values()].filter(p => p.room === player.room),
   });
 
   socket.to(player.room).emit("playerJoined", player);
 
-  // ✅ Admin Activity → Player Joined
   emitActivity(io, {
     type: "PLAYER_JOINED",
     userId: player.userId,
@@ -62,40 +83,38 @@ function registerGameSockets(io, socket) {
 
   emitTacticalUpdate(io);
 
-  // =========================
-  // MOVEMENT
-  // =========================
+  /* =========================================================
+     MOVEMENT
+  ========================================================= */
+
   socket.on("move", data => {
     const p = players.get(socket.id);
     if (!p) return;
 
+    if (!data?.position) return;
+
     p.position = data.position;
     p.rotation = data.rotation;
 
-    socket.to(p.room).emit("playerMoved", p);
-
-    // ✅ Admin Activity → Movement
-    emitActivity(io, {
-      type: "PLAYER_MOVED",
+    socket.to(p.room).emit("playerMoved", {
       userId: p.userId,
-      username: p.username,
-      room: p.room,
       position: p.position,
+      rotation: p.rotation,
     });
 
     emitTacticalUpdate(io);
   });
 
-  // =========================
-  // ATTACK (PvP)
-  // =========================
+  /* =========================================================
+     ATTACK (PvP)
+  ========================================================= */
+
   socket.on("attack", () => {
     const attacker = players.get(socket.id);
-    if (!attacker) return;
+    if (!attacker || attacker.health <= 0) return;
 
     const hits = handlePvPAttack(attacker, playersByUser);
 
-    // ✅ Admin Activity → Attack Initiated
     emitActivity(io, {
       type: "PLAYER_ATTACK",
       attacker: attacker.username,
@@ -105,10 +124,8 @@ function registerGameSockets(io, socket) {
 
     hits.forEach(hit => {
 
-      // Notify players in room
       io.to(attacker.room).emit("playerDamaged", hit);
 
-      // ✅ Admin Activity → Damage Event
       emitActivity(io, {
         type: "PLAYER_DAMAGED",
         attacker: attacker.username,
@@ -118,7 +135,6 @@ function registerGameSockets(io, socket) {
         room: attacker.room,
       });
 
-      // ✅ Kill Detection 🔥
       if (hit.health <= 0) {
         emitActivity(io, {
           type: "PLAYER_KILLED",
@@ -132,23 +148,31 @@ function registerGameSockets(io, socket) {
     emitTacticalUpdate(io);
   });
 
-  // =========================
-  // ROOM JOIN
-  // =========================
+  /* =========================================================
+     JOIN ROOM (CRITICAL FIXED LOGIC)
+  ========================================================= */
+
   socket.on("joinRoom", roomName => {
     const p = players.get(socket.id);
-    if (!p) return;
+    if (!p || !roomName) return;
 
     const oldRoom = p.room;
+
+    if (oldRoom === roomName) return;
 
     socket.leave(oldRoom);
     socket.join(roomName);
 
     p.room = roomName;
 
-    socket.emit("roomJoined", roomName);
+    // ✅ Send clean room state
+    socket.emit("roomJoined", {
+      room: roomName,
+      players: [...playersByUser.values()].filter(pl => pl.room === roomName),
+    });
 
-    // ✅ Admin Activity → Room Change
+    socket.to(roomName).emit("playerJoined", p);
+
     emitActivity(io, {
       type: "ROOM_CHANGED",
       userId: p.userId,
@@ -160,17 +184,21 @@ function registerGameSockets(io, socket) {
     emitTacticalUpdate(io);
   });
 
-  // =========================
-  // DISCONNECT
-  // =========================
+  /* =========================================================
+     DISCONNECT (RECONNECT-SAFE)
+  ========================================================= */
+
   socket.on("disconnect", () => {
     const p = players.get(socket.id);
     if (!p) return;
 
     players.delete(socket.id);
+
+    // ✅ DO NOT delete playersByUser
+    // Allows reconnect recovery
+
     socket.to(p.room).emit("playerLeft", p.userId);
 
-    // ✅ Admin Activity → Disconnect
     emitActivity(io, {
       type: "PLAYER_DISCONNECTED",
       userId: p.userId,

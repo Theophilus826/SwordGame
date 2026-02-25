@@ -47,6 +47,7 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
+
 // ==========================
 // CONNECT DB
 // ==========================
@@ -62,33 +63,8 @@ const io = new Server(server, {
     origin: FRONTEND_URL,
     credentials: true,
   },
-  transports: ["websocket", "polling"], // ✅ allow fallback for mobile/Render
+  transports: ["websocket", "polling"],
 });
-
-// ==========================
-// MAKE IO AVAILABLE IN ROUTES
-// ==========================
-app.use((req, res, next) => {
-  req.io = io;
-  next();
-});
-
-// ==========================
-// HTTP ROUTES
-// ==========================
-app.get("/", (req, res) => {
-  res.status(200).json({ message: "Welcome to Game Backend API" });
-});
-
-app.use("/api/users", require("./routes/UserRoutes"));
-app.use("/api/coins", require("./routes/AccountRoutes"));
-app.use("/api/admin", require("./routes/AdminRoutes"));
-app.use("/api/feedbacks", require("./routes/FeedbackRoutes"));
-
-// ==========================
-// ERROR HANDLER
-// ==========================
-app.use(errorHandler);
 
 // ==========================
 // ADMIN NAMESPACE
@@ -120,6 +96,32 @@ adminNamespace.on("connection", (socket) => {
 });
 
 // ==========================
+// MAKE IO AVAILABLE IN ROUTES
+// ==========================
+app.use((req, res, next) => {
+  req.io = io;
+  req.adminNamespace = adminNamespace;   // ✅ FIX
+  next();
+});
+
+// ==========================
+// HTTP ROUTES
+// ==========================
+app.get("/", (req, res) => {
+  res.status(200).json({ message: "Welcome to Game Backend API" });
+});
+
+app.use("/api/users", require("./routes/UserRoutes"));
+app.use("/api/coins", require("./routes/AccountRoutes"));
+app.use("/api/admin", require("./routes/AdminRoutes"));
+app.use("/api/feedbacks", require("./routes/FeedbackRoutes"));
+
+// ==========================
+// ERROR HANDLER
+// ==========================
+app.use(errorHandler);
+
+// ==========================
 // MAIN NAMESPACE
 // ==========================
 io.use(socketAuth);
@@ -131,19 +133,20 @@ io.on("connection", async (socket) => {
 
     // ✅ Mark user online
     await User.findByIdAndUpdate(socket.userId, { online: true });
-    io.emit("user:status", { userId: socket.userId, online: true });
 
-    // ✅ Notify admin namespace
-    if (adminNamespace) {
-      adminNamespace.emit("activity:event", {
-        type: "USER_ONLINE",
-        userId: socket.userId,
-        username: socket.user.name,
-        timestamp: Date.now(),
-      });
-    }
+    io.emit("user:status", {
+      userId: socket.userId,
+      online: true,
+    });
 
-    // ✅ Register game sockets
+    // ✅ Notify admin dashboard
+    adminNamespace.emit("activity:event", {
+      type: "USER_ONLINE",
+      userId: socket.userId,
+      username: socket.user.name,
+      timestamp: Date.now(),
+    });
+
     registerGameSockets(io, socket);
   } catch (err) {
     console.error("Error during connection setup:", err);
@@ -153,19 +156,19 @@ io.on("connection", async (socket) => {
     try {
       console.log(`🔴 ${socket.user.name} disconnected`);
 
-      // ✅ Mark user offline
       await User.findByIdAndUpdate(socket.userId, { online: false });
-      io.emit("user:status", { userId: socket.userId, online: false });
 
-      // ✅ Notify admin namespace
-      if (adminNamespace) {
-        adminNamespace.emit("activity:event", {
-          type: "USER_OFFLINE",
-          userId: socket.userId,
-          username: socket.user.name,
-          timestamp: Date.now(),
-        });
-      }
+      io.emit("user:status", {
+        userId: socket.userId,
+        online: false,
+      });
+
+      adminNamespace.emit("activity:event", {
+        type: "USER_OFFLINE",
+        userId: socket.userId,
+        username: socket.user.name,
+        timestamp: Date.now(),
+      });
     } catch (err) {
       console.error("Error during disconnect:", err);
     }
@@ -176,8 +179,7 @@ io.on("connection", async (socket) => {
 // START SERVER
 // ==========================
 const PORT = process.env.PORT || 5000;
+
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on port ${PORT}`.cyan.bold);
 });
-
-

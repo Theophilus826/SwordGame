@@ -1,14 +1,13 @@
 const { players, playersByUser, getOrCreatePlayer } = require("./gameState");
 const { handlePvPAttack } = require("./combat");
 
-/* =========================================================
-   ADMIN EMITTERS
-========================================================= */
-
+// ==========================
+// ADMIN EMITTERS
+// ==========================
 function emitTacticalUpdate(io) {
   const data = [];
 
-  playersByUser.forEach(player => {
+  playersByUser.forEach((player) => {
     if (!player.room) return;
 
     data.push({
@@ -30,46 +29,35 @@ function emitActivity(io, payload) {
   });
 }
 
-/* =========================================================
-   REGISTER GAME SOCKETS
-========================================================= */
+function emitGameEvent(io, payload) {
+  io.of("/admin").emit("game:event", {
+    ...payload,
+    timestamp: Date.now(),
+  });
+}
 
+// ==========================
+// REGISTER GAME SOCKETS
+// ==========================
 function registerGameSockets(io, socket) {
-
-  /* =========================
-     CREATE / RESTORE PLAYER
-  ========================= */
-
+  // =========================
+  // CREATE / RESTORE PLAYER
+  // =========================
   const player = getOrCreatePlayer(socket);
 
-  // ✅ Prevent duplicate socket ghosts
   if (player.socketId && player.socketId !== socket.id) {
     const oldSocket = io.sockets.sockets.get(player.socketId);
-
-    if (oldSocket) {
-      oldSocket.disconnect(true);
-    }
+    if (oldSocket) oldSocket.disconnect(true);
   }
 
   player.socketId = socket.id;
-
   players.set(socket.id, player);
 
-  /* =========================
-     SAFE ROOM JOIN
-  ========================= */
-
-  if (player.room) {
-    socket.join(player.room);
-  }
-
-  /* =========================
-     INITIAL STATE SYNC
-  ========================= */
+  if (player.room) socket.join(player.room);
 
   socket.emit("init", {
     self: player,
-    players: [...playersByUser.values()].filter(p => p.room === player.room),
+    players: [...playersByUser.values()].filter((p) => p.room === player.room),
   });
 
   socket.to(player.room).emit("playerJoined", player);
@@ -83,15 +71,12 @@ function registerGameSockets(io, socket) {
 
   emitTacticalUpdate(io);
 
-  /* =========================================================
-     MOVEMENT
-  ========================================================= */
-
-  socket.on("move", data => {
+  // =========================
+  // MOVEMENT
+  // =========================
+  socket.on("move", (data) => {
     const p = players.get(socket.id);
-    if (!p) return;
-
-    if (!data?.position) return;
+    if (!p || !data?.position) return;
 
     p.position = data.position;
     p.rotation = data.rotation;
@@ -105,10 +90,9 @@ function registerGameSockets(io, socket) {
     emitTacticalUpdate(io);
   });
 
-  /* =========================================================
-     ATTACK (PvP)
-  ========================================================= */
-
+  // =========================
+  // ATTACK (PvP)
+  // =========================
   socket.on("attack", () => {
     const attacker = players.get(socket.id);
     if (!attacker || attacker.health <= 0) return;
@@ -122,8 +106,7 @@ function registerGameSockets(io, socket) {
       room: attacker.room,
     });
 
-    hits.forEach(hit => {
-
+    hits.forEach((hit) => {
       io.to(attacker.room).emit("playerDamaged", hit);
 
       emitActivity(io, {
@@ -148,16 +131,14 @@ function registerGameSockets(io, socket) {
     emitTacticalUpdate(io);
   });
 
-  /* =========================================================
-     JOIN ROOM (CRITICAL FIXED LOGIC)
-  ========================================================= */
-
-  socket.on("joinRoom", roomName => {
+  // =========================
+  // JOIN ROOM
+  // =========================
+  socket.on("joinRoom", (roomName) => {
     const p = players.get(socket.id);
     if (!p || !roomName) return;
 
     const oldRoom = p.room;
-
     if (oldRoom === roomName) return;
 
     socket.leave(oldRoom);
@@ -165,10 +146,9 @@ function registerGameSockets(io, socket) {
 
     p.room = roomName;
 
-    // ✅ Send clean room state
     socket.emit("roomJoined", {
       room: roomName,
-      players: [...playersByUser.values()].filter(pl => pl.room === roomName),
+      players: [...playersByUser.values()].filter((pl) => pl.room === roomName),
     });
 
     socket.to(roomName).emit("playerJoined", p);
@@ -184,18 +164,70 @@ function registerGameSockets(io, socket) {
     emitTacticalUpdate(io);
   });
 
-  /* =========================================================
-     DISCONNECT (RECONNECT-SAFE)
-  ========================================================= */
+  // =========================
+  // GAME START / POT UPDATE
+  // =========================
+  socket.on("host:startGame", ({ gameId, pot }) => {
+    emitActivity(io, {
+      type: "GAME_STARTED",
+      gameId,
+      pot,
+    });
 
+    emitGameEvent(io, {
+      type: "GAME_STARTED",
+      gameId,
+      status: "started",
+      pot,
+    });
+  });
+
+  socket.on("host:addToPot", ({ gameId, amount, newPot }) => {
+    emitActivity(io, {
+      type: "ADMIN_ADD_POT",
+      gameId,
+      amount,
+      newPot,
+    });
+
+    emitGameEvent(io, {
+      type: "ADMIN_ADD_POT",
+      gameId,
+      amount,
+      newPot,
+    });
+  });
+
+  // =========================
+  // GAME RESULT
+  // =========================
+  socket.on("host:endGame", ({ gameId, winnerId, creditedCoins, pot }) => {
+    emitActivity(io, {
+      type: "GAME_RESULT",
+      gameId,
+      winnerId,
+      creditedCoins,
+      pot,
+    });
+
+    emitGameEvent(io, {
+      type: "GAME_RESULT",
+      gameId,
+      winnerId,
+      creditedCoins,
+      status: "finished",
+      pot,
+    });
+  });
+
+  // =========================
+  // DISCONNECT
+  // =========================
   socket.on("disconnect", () => {
     const p = players.get(socket.id);
     if (!p) return;
 
     players.delete(socket.id);
-
-    // ✅ DO NOT delete playersByUser
-    // Allows reconnect recovery
 
     socket.to(p.room).emit("playerLeft", p.userId);
 
@@ -213,4 +245,6 @@ function registerGameSockets(io, socket) {
 module.exports = {
   registerGameSockets,
   emitTacticalUpdate,
+  emitActivity,
+  emitGameEvent,
 };

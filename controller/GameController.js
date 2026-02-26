@@ -2,8 +2,23 @@ const asyncHandler = require("express-async-handler");
 const { creditCoins } = require("./AccountController");
 const { v4: uuidv4 } = require("uuid");
 
-// In-memory game storage
+// ==========================
+// IN-MEMORY GAME STORAGE
+// ==========================
 const games = new Map();
+
+// ==========================
+// HELPER: EMIT BOTH EVENTS
+// ==========================
+function emitAdminEvents(req, payload) {
+  const data = {
+    ...payload,
+    timestamp: Date.now(),
+  };
+
+  req.adminNamespace.emit("activity:event", data);
+  req.adminNamespace.emit("game:event", data);
+}
 
 /* =========================================================
    CREATE GAME (WAITING FOR ADMIN)
@@ -26,30 +41,25 @@ const createGame = asyncHandler(async (req, res) => {
 
   games.set(game.id, game);
 
-  // ✅ Admin dashboard only
-  req.adminNamespace.emit("activity:event", {
+  emitAdminEvents(req, {
     type: "GAME_CREATED",
     userId,
     gameId: game.id,
     pot,
     status: game.status,
-    timestamp: Date.now(),
   });
 
   res.json({ game });
 });
 
 /* =========================================================
-   ADMIN CONFIGURES ENEMIES
+   CONFIGURE ENEMIES
 ========================================================= */
 const configureEnemies = asyncHandler(async (req, res) => {
   const { gameId, numEnemies = 3, positions } = req.body;
 
   const game = games.get(gameId);
-
-  if (!game)
-    return res.status(404).json({ message: "Game not found" });
-
+  if (!game) return res.status(404).json({ message: "Game not found" });
   if (game.status !== "waiting")
     return res.status(400).json({ message: "Game already started" });
 
@@ -64,15 +74,12 @@ const configureEnemies = asyncHandler(async (req, res) => {
       },
   }));
 
-  // ✅ Admin dashboard
-  req.adminNamespace.emit("activity:event", {
+  emitAdminEvents(req, {
     type: "ADMIN_CONFIG_ENEMIES",
     gameId,
     numEnemies,
-    timestamp: Date.now(),
   });
 
-  // ✅ Players in THIS GAME ONLY
   req.io.to(gameId).emit("game:enemiesConfigured", {
     gameId,
     enemies: game.enemies,
@@ -82,32 +89,27 @@ const configureEnemies = asyncHandler(async (req, res) => {
 });
 
 /* =========================================================
-   ADMIN STARTS GAME
+   START GAME
 ========================================================= */
 const startGame = asyncHandler(async (req, res) => {
   const { gameId } = req.body;
 
   const game = games.get(gameId);
-
-  if (!game)
-    return res.status(404).json({ message: "Game not found" });
-
+  if (!game) return res.status(404).json({ message: "Game not found" });
   if (game.status !== "waiting")
     return res.status(400).json({ message: "Game already started" });
-
   if (!game.enemies.length)
     return res.status(400).json({ message: "Enemies not configured" });
 
   game.status = "started";
 
-  // ✅ Players only
   req.io.to(gameId).emit("game:started", { gameId });
 
-  // ✅ Admin dashboard
-  req.adminNamespace.emit("activity:event", {
+  emitAdminEvents(req, {
     type: "GAME_STARTED",
     gameId,
-    timestamp: Date.now(),
+    status: "started",
+    pot: game.pot,
   });
 
   res.json({ message: "Game started" });
@@ -118,9 +120,7 @@ const startGame = asyncHandler(async (req, res) => {
 ========================================================= */
 const getGameState = asyncHandler(async (req, res) => {
   const { gameId } = req.params;
-
   const game = games.get(gameId);
-
   if (!game)
     return res.status(404).json({ message: "Game not found" });
 
@@ -134,21 +134,16 @@ const userAttackEnemy = asyncHandler(async (req, res) => {
   const { gameId, enemyId, damage } = req.body;
 
   const game = games.get(gameId);
-
-  if (!game)
-    return res.status(404).json({ message: "Game not found" });
-
+  if (!game) return res.status(404).json({ message: "Game not found" });
   if (game.status !== "started")
     return res.status(400).json({ message: "Game not active" });
 
-  const enemy = game.enemies.find(e => e.id === enemyId);
-
+  const enemy = game.enemies.find((e) => e.id === enemyId);
   if (!enemy)
     return res.status(404).json({ message: "Enemy not found" });
 
   enemy.health = Math.max(0, enemy.health - damage);
 
-  // ✅ Players only
   req.io.to(gameId).emit("game:enemyDamaged", {
     gameId,
     enemyId,
@@ -156,21 +151,15 @@ const userAttackEnemy = asyncHandler(async (req, res) => {
     remainingHealth: enemy.health,
   });
 
-  // ✅ Admin dashboard
-  req.adminNamespace.emit("activity:event", {
+  emitAdminEvents(req, {
     type: "PLAYER_ATTACK",
     gameId,
     enemyId,
     damage,
     remainingHealth: enemy.health,
-    timestamp: Date.now(),
   });
 
-  res.json({
-    enemyId,
-    enemyHealth: enemy.health,
-    damage,
-  });
+  res.json({ enemyId, enemyHealth: enemy.health, damage });
 });
 
 /* =========================================================
@@ -180,10 +169,8 @@ const finishGameBackend = asyncHandler(async (req, res) => {
   const { gameId, winnerId } = req.body;
 
   const game = games.get(gameId);
-
   if (!game)
     return res.status(404).json({ message: "Game not found" });
-
   if (game.status === "finished")
     return res.status(400).json({ message: "Game already finished" });
 
@@ -191,31 +178,27 @@ const finishGameBackend = asyncHandler(async (req, res) => {
   game.winnerId = winnerId;
 
   let creditedCoins = 0;
-
   if (winnerId === game.userId) {
     const result = await creditCoins({
       userId: winnerId,
       coins: game.pot,
     });
-
     creditedCoins = result.coins;
   }
 
-  // ✅ Players only
   req.io.to(gameId).emit("game:finished", {
     gameId,
     winnerId,
     creditedCoins,
   });
 
-  // ✅ Admin dashboard
-  req.adminNamespace.emit("activity:event", {
+  emitAdminEvents(req, {
     type: "GAME_RESULT",
     gameId,
     winnerId,
     pot: game.pot,
     creditedCoins,
-    timestamp: Date.now(),
+    status: "finished",
   });
 
   res.json({
@@ -226,7 +209,7 @@ const finishGameBackend = asyncHandler(async (req, res) => {
 });
 
 /* =========================================================
-   ADMIN ADD TO POT
+   ADMIN ADDS TO POT
 ========================================================= */
 const addToPot = asyncHandler(async (req, res) => {
   const { gameId, amount } = req.body;
@@ -235,34 +218,26 @@ const addToPot = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "Invalid amount" });
 
   const game = games.get(gameId);
-
   if (!game)
     return res.status(404).json({ message: "Game not found" });
-
   if (game.status === "finished")
     return res.status(400).json({ message: "Game finished" });
 
   game.pot += amount;
 
-  // ✅ Players only
   req.io.to(gameId).emit("game:potUpdated", {
     gameId,
     newPot: game.pot,
   });
 
-  // ✅ Admin dashboard
-  req.adminNamespace.emit("activity:event", {
+  emitAdminEvents(req, {
     type: "ADMIN_ADD_POT",
     gameId,
     amount,
     newPot: game.pot,
-    timestamp: Date.now(),
   });
 
-  res.json({
-    message: "Pot updated",
-    pot: game.pot,
-  });
+  res.json({ message: "Pot updated", pot: game.pot });
 });
 
 module.exports = {

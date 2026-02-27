@@ -3,12 +3,13 @@ const { handlePvPAttack } = require("./combat");
 
 // ==========================
 // ADMIN EMITTERS
-// ==========================
+// =========================
 function emitTacticalUpdate(io) {
   const data = [];
 
   playersByUser.forEach((player) => {
     if (!player.room) return;
+
     data.push({
       userId: player.userId,
       username: player.username,
@@ -28,29 +29,31 @@ function emitActivity(io, payload) {
   });
 }
 
-function emitGameEvent(io, payload) {
-  io.of("/admin").emit("game:event", {
-    ...payload,
-    timestamp: Date.now(),
-  });
+/**
+ * Emits game events to both admin namespace and players in the game room
+ * @param {Namespace} adminNamespace 
+ * @param {Server} io - main Socket.IO server
+ * @param {Object} payload - event data, optionally with gameId
+ */
+function emitGameEvent(adminNamespace, io, payload) {
+  const data = { ...payload, timestamp: Date.now() };
 
-  // Ensure player namespace also gets it if room exists
+  // Send to all admins
+  adminNamespace.emit("game:event", data);
+
+  // Send to players in the game room
   if (payload.gameId) {
-    io.to(payload.gameId).emit("game:event", {
-      ...payload,
-      timestamp: Date.now(),
-    });
+    io.to(payload.gameId).emit("game:event", data);
   }
 }
 
 // ==========================
 // REGISTER GAME SOCKETS
-// ==========================
-function registerGameSockets(io, socket) {
-  // Create or restore player
+// =========================
+function registerGameSockets(io, socket, adminNamespace) {
   const player = getOrCreatePlayer(socket);
 
-  // Disconnect old socket if exists
+  // Disconnect old socket if reconnecting
   if (player.socketId && player.socketId !== socket.id) {
     const oldSocket = io.sockets.sockets.get(player.socketId);
     if (oldSocket) oldSocket.disconnect(true);
@@ -59,13 +62,8 @@ function registerGameSockets(io, socket) {
   player.socketId = socket.id;
   players.set(socket.id, player);
 
-  // If player already has a room, join it
-  if (player.room) {
-    socket.join(player.room);
-    console.log(`🎮 ${player.username} re-joined room ${player.room}`);
-  }
+  if (player.room) socket.join(player.room);
 
-  // Initialize player
   socket.emit("init", {
     self: player,
     players: [...playersByUser.values()].filter((p) => p.room === player.room),
@@ -83,54 +81,19 @@ function registerGameSockets(io, socket) {
   emitTacticalUpdate(io);
 
   // =========================
-  // JOIN ROOM
-  // =========================
-  socket.on("joinRoom", (roomName) => {
-    if (!roomName) return;
-    const oldRoom = player.room;
-
-    if (oldRoom !== roomName) {
-      if (oldRoom) socket.leave(oldRoom);
-      socket.join(roomName);
-      player.room = roomName;
-
-      console.log(`🎮 ${player.username} joined room: ${roomName}`);
-
-      socket.emit("roomJoined", {
-        room: roomName,
-        players: [...playersByUser.values()].filter((p) => p.room === roomName),
-      });
-
-      socket.to(roomName).emit("playerJoined", player);
-
-      emitActivity(io, {
-        type: "ROOM_CHANGED",
-        userId: player.userId,
-        username: player.username,
-        from: oldRoom,
-        to: roomName,
-      });
-
-      emitTacticalUpdate(io);
-    } else {
-      // Ensure socket is in room even if oldRoom === roomName
-      socket.join(roomName);
-      console.log(`🎮 ${player.username} re-joined existing room: ${roomName}`);
-    }
-  });
-
-  // =========================
   // MOVEMENT
   // =========================
   socket.on("move", (data) => {
-    if (!data?.position) return;
-    player.position = data.position;
-    player.rotation = data.rotation;
+    const p = players.get(socket.id);
+    if (!p || !data?.position) return;
 
-    socket.to(player.room).emit("playerMoved", {
-      userId: player.userId,
-      position: player.position,
-      rotation: player.rotation,
+    p.position = data.position;
+    p.rotation = data.rotation;
+
+    socket.to(p.room).emit("playerMoved", {
+      userId: p.userId,
+      position: p.position,
+      rotation: p.rotation,
     });
 
     emitTacticalUpdate(io);
@@ -140,35 +103,36 @@ function registerGameSockets(io, socket) {
   // ATTACK (PvP)
   // =========================
   socket.on("attack", () => {
-    if (player.health <= 0) return;
+    const attacker = players.get(socket.id);
+    if (!attacker || attacker.health <= 0) return;
 
-    const hits = handlePvPAttack(player, playersByUser);
+    const hits = handlePvPAttack(attacker, playersByUser);
 
     emitActivity(io, {
       type: "PLAYER_ATTACK",
-      attacker: player.username,
-      attackerId: player.userId,
-      room: player.room,
+      attacker: attacker.username,
+      attackerId: attacker.userId,
+      room: attacker.room,
     });
 
     hits.forEach((hit) => {
-      io.to(player.room).emit("playerDamaged", hit);
+      io.to(attacker.room).emit("playerDamaged", hit);
 
       emitActivity(io, {
         type: "PLAYER_DAMAGED",
-        attacker: player.username,
+        attacker: attacker.username,
         victimId: hit.userId,
         damage: hit.damage,
         remainingHealth: hit.health,
-        room: player.room,
+        room: attacker.room,
       });
 
       if (hit.health <= 0) {
         emitActivity(io, {
           type: "PLAYER_KILLED",
-          killer: player.username,
+          killer: attacker.username,
           victimId: hit.userId,
-          room: player.room,
+          room: attacker.room,
         });
       }
     });
@@ -177,21 +141,61 @@ function registerGameSockets(io, socket) {
   });
 
   // =========================
-  // GAME EVENTS FROM HOST
+  // JOIN ROOM
+  // =========================
+  socket.on("joinRoom", (roomName) => {
+    const p = players.get(socket.id);
+    if (!p || !roomName) return;
+
+    const oldRoom = p.room;
+    if (oldRoom === roomName) return;
+
+    socket.leave(oldRoom);
+    socket.join(roomName);
+
+    p.room = roomName;
+
+    socket.emit("roomJoined", {
+      room: roomName,
+      players: [...playersByUser.values()].filter((pl) => pl.room === roomName),
+    });
+
+    socket.to(roomName).emit("playerJoined", p);
+
+    emitActivity(io, {
+      type: "ROOM_CHANGED",
+      userId: p.userId,
+      username: p.username,
+      from: oldRoom,
+      to: roomName,
+    });
+
+    emitTacticalUpdate(io);
+  });
+
+  // =========================
+  // GAME EVENTS (START / POT / END)
   // =========================
   socket.on("host:startGame", ({ gameId, pot }) => {
-    emitActivity(io, { type: "GAME_STARTED", gameId, pot });
-    emitGameEvent(io, { type: "GAME_STARTED", gameId, status: "started", pot });
+    emitGameEvent(adminNamespace, io, {
+      type: "GAME_STARTED",
+      gameId,
+      status: "started",
+      pot,
+    });
   });
 
   socket.on("host:addToPot", ({ gameId, amount, newPot }) => {
-    emitActivity(io, { type: "ADMIN_ADD_POT", gameId, amount, newPot });
-    emitGameEvent(io, { type: "ADMIN_ADD_POT", gameId, amount, newPot });
+    emitGameEvent(adminNamespace, io, {
+      type: "ADMIN_ADD_POT",
+      gameId,
+      amount,
+      newPot,
+    });
   });
 
   socket.on("host:endGame", ({ gameId, winnerId, creditedCoins, pot }) => {
-    emitActivity(io, { type: "GAME_RESULT", gameId, winnerId, creditedCoins, pot });
-    emitGameEvent(io, {
+    emitGameEvent(adminNamespace, io, {
       type: "GAME_RESULT",
       gameId,
       winnerId,
@@ -205,18 +209,20 @@ function registerGameSockets(io, socket) {
   // DISCONNECT
   // =========================
   socket.on("disconnect", () => {
+    const p = players.get(socket.id);
+    if (!p) return;
+
     players.delete(socket.id);
-    socket.to(player.room).emit("playerLeft", player.userId);
+    socket.to(p.room).emit("playerLeft", p.userId);
 
     emitActivity(io, {
       type: "PLAYER_DISCONNECTED",
-      userId: player.userId,
-      username: player.username,
-      room: player.room,
+      userId: p.userId,
+      username: p.username,
+      room: p.room,
     });
 
     emitTacticalUpdate(io);
-    console.log(`🔴 ${player.username} disconnected`);
   });
 }
 

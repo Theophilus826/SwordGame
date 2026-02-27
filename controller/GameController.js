@@ -94,7 +94,6 @@ const startGame = asyncHandler(async (req, res) => {
 
   game.status = "started";
 
-  req.io.to(gameId).emit("game:started", { gameId });
 
   emitGameEvent(req, {
     type: "GAME_STARTED",
@@ -130,7 +129,6 @@ const userAttackEnemy = asyncHandler(async (req, res) => {
 
   enemy.health = Math.max(0, enemy.health - damage);
 
-  req.io.to(gameId).emit("game:enemyDamaged", { gameId, enemyId, damage, remainingHealth: enemy.health });
 
   emitGameEvent(req, {
     type: "PLAYER_ATTACK",
@@ -188,7 +186,6 @@ const addToPot = asyncHandler(async (req, res) => {
 
   game.pot += amount;
 
-  req.io.to(gameId).emit("game:potUpdated", { gameId, newPot: game.pot });
 
   emitGameEvent(req, {
     type: "ADMIN_ADD_POT",

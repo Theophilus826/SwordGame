@@ -3,7 +3,7 @@ const { handlePvPAttack } = require("./combat");
 
 // ==========================
 // ADMIN EMITTERS
-// =========================
+// ==========================
 function emitTacticalUpdate(io) {
   const data = [];
 
@@ -29,31 +29,22 @@ function emitActivity(io, payload) {
   });
 }
 
-/**
- * Emits game events to both admin namespace and players in the game room
- * @param {Namespace} adminNamespace 
- * @param {Server} io - main Socket.IO server
- * @param {Object} payload - event data, optionally with gameId
- */
-function emitGameEvent(adminNamespace, io, payload) {
-  const data = { ...payload, timestamp: Date.now() };
-
-  // Send to all admins
-  adminNamespace.emit("game:event", data);
-
-  // Send to players in the game room
-  if (payload.gameId) {
-    io.to(payload.gameId).emit("game:event", data);
-  }
+function emitGameEvent(io, payload) {
+  io.of("/admin").emit("game:event", {
+    ...payload,
+    timestamp: Date.now(),
+  });
 }
 
 // ==========================
 // REGISTER GAME SOCKETS
-// =========================
-function registerGameSockets(io, socket, adminNamespace) {
+// ==========================
+function registerGameSockets(io, socket) {
+  // =========================
+  // CREATE / RESTORE PLAYER
+  // =========================
   const player = getOrCreatePlayer(socket);
 
-  // Disconnect old socket if reconnecting
   if (player.socketId && player.socketId !== socket.id) {
     const oldSocket = io.sockets.sockets.get(player.socketId);
     if (oldSocket) oldSocket.disconnect(true);
@@ -174,10 +165,16 @@ function registerGameSockets(io, socket, adminNamespace) {
   });
 
   // =========================
-  // GAME EVENTS (START / POT / END)
+  // GAME START / POT UPDATE
   // =========================
   socket.on("host:startGame", ({ gameId, pot }) => {
-    emitGameEvent(adminNamespace, io, {
+    emitActivity(io, {
+      type: "GAME_STARTED",
+      gameId,
+      pot,
+    });
+
+    emitGameEvent(io, {
       type: "GAME_STARTED",
       gameId,
       status: "started",
@@ -186,7 +183,14 @@ function registerGameSockets(io, socket, adminNamespace) {
   });
 
   socket.on("host:addToPot", ({ gameId, amount, newPot }) => {
-    emitGameEvent(adminNamespace, io, {
+    emitActivity(io, {
+      type: "ADMIN_ADD_POT",
+      gameId,
+      amount,
+      newPot,
+    });
+
+    emitGameEvent(io, {
       type: "ADMIN_ADD_POT",
       gameId,
       amount,
@@ -194,8 +198,19 @@ function registerGameSockets(io, socket, adminNamespace) {
     });
   });
 
+  // =========================
+  // GAME RESULT
+  // =========================
   socket.on("host:endGame", ({ gameId, winnerId, creditedCoins, pot }) => {
-    emitGameEvent(adminNamespace, io, {
+    emitActivity(io, {
+      type: "GAME_RESULT",
+      gameId,
+      winnerId,
+      creditedCoins,
+      pot,
+    });
+
+    emitGameEvent(io, {
       type: "GAME_RESULT",
       gameId,
       winnerId,
@@ -213,6 +228,7 @@ function registerGameSockets(io, socket, adminNamespace) {
     if (!p) return;
 
     players.delete(socket.id);
+
     socket.to(p.room).emit("playerLeft", p.userId);
 
     emitActivity(io, {

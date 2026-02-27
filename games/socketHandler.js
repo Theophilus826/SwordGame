@@ -2,7 +2,7 @@ const { players, playersByUser, getOrCreatePlayer } = require("./gameState");
 const { handlePvPAttack } = require("./combat");
 
 // ==========================
-// ADMIN EMITTERS
+// EMITTERS (all via main namespace `/`)
 // ==========================
 function emitTacticalUpdate(io) {
   const data = [];
@@ -19,11 +19,11 @@ function emitTacticalUpdate(io) {
     });
   });
 
-  io.of("/admin").emit("tacticalUpdate", { players: data });
+  io.emit("tacticalUpdate", { players: data });
 }
 
 function emitActivity(io, payload) {
-  io.of("/admin").emit("activity:event", {
+  io.emit("activity:event", {
     ...payload,
     timestamp: Date.now(),
   });
@@ -40,9 +40,7 @@ function emitGameEvent(io, payload) {
 // REGISTER GAME SOCKETS
 // ==========================
 function registerGameSockets(io, socket) {
-  // =========================
   // CREATE / RESTORE PLAYER
-  // =========================
   const player = getOrCreatePlayer(socket);
 
   if (player.socketId && player.socketId !== socket.id) {
@@ -62,6 +60,13 @@ function registerGameSockets(io, socket) {
 
   socket.to(player.room).emit("playerJoined", player);
 
+  // Emit player join events
+  emitGameEvent(io, {
+    type: "PLAYER_JOINED",
+    userId: player.userId,
+    username: player.username,
+    room: player.room,
+  });
   emitActivity(io, {
     type: "PLAYER_JOINED",
     userId: player.userId,
@@ -99,6 +104,12 @@ function registerGameSockets(io, socket) {
 
     const hits = handlePvPAttack(attacker, playersByUser);
 
+    emitGameEvent(io, {
+      type: "PLAYER_ATTACK",
+      attacker: attacker.username,
+      attackerId: attacker.userId,
+      room: attacker.room,
+    });
     emitActivity(io, {
       type: "PLAYER_ATTACK",
       attacker: attacker.username,
@@ -109,6 +120,14 @@ function registerGameSockets(io, socket) {
     hits.forEach((hit) => {
       io.to(attacker.room).emit("playerDamaged", hit);
 
+      emitGameEvent(io, {
+        type: "PLAYER_DAMAGED",
+        attacker: attacker.username,
+        victimId: hit.userId,
+        damage: hit.damage,
+        remainingHealth: hit.health,
+        room: attacker.room,
+      });
       emitActivity(io, {
         type: "PLAYER_DAMAGED",
         attacker: attacker.username,
@@ -119,6 +138,12 @@ function registerGameSockets(io, socket) {
       });
 
       if (hit.health <= 0) {
+        emitGameEvent(io, {
+          type: "PLAYER_KILLED",
+          killer: attacker.username,
+          victimId: hit.userId,
+          room: attacker.room,
+        });
         emitActivity(io, {
           type: "PLAYER_KILLED",
           killer: attacker.username,
@@ -153,6 +178,13 @@ function registerGameSockets(io, socket) {
 
     socket.to(roomName).emit("playerJoined", p);
 
+    emitGameEvent(io, {
+      type: "ROOM_CHANGED",
+      userId: p.userId,
+      username: p.username,
+      from: oldRoom,
+      to: roomName,
+    });
     emitActivity(io, {
       type: "ROOM_CHANGED",
       userId: p.userId,
@@ -168,29 +200,27 @@ function registerGameSockets(io, socket) {
   // GAME START / POT UPDATE
   // =========================
   socket.on("host:startGame", ({ gameId, pot }) => {
-    emitActivity(io, {
-      type: "GAME_STARTED",
-      gameId,
-      pot,
-    });
-
     emitGameEvent(io, {
       type: "GAME_STARTED",
       gameId,
       status: "started",
       pot,
     });
+    emitActivity(io, {
+      type: "GAME_STARTED",
+      gameId,
+      pot,
+    });
   });
 
   socket.on("host:addToPot", ({ gameId, amount, newPot }) => {
-    emitActivity(io, {
+    emitGameEvent(io, {
       type: "ADMIN_ADD_POT",
       gameId,
       amount,
       newPot,
     });
-
-    emitGameEvent(io, {
+    emitActivity(io, {
       type: "ADMIN_ADD_POT",
       gameId,
       amount,
@@ -202,20 +232,19 @@ function registerGameSockets(io, socket) {
   // GAME RESULT
   // =========================
   socket.on("host:endGame", ({ gameId, winnerId, creditedCoins, pot }) => {
-    emitActivity(io, {
-      type: "GAME_RESULT",
-      gameId,
-      winnerId,
-      creditedCoins,
-      pot,
-    });
-
     emitGameEvent(io, {
       type: "GAME_RESULT",
       gameId,
       winnerId,
       creditedCoins,
       status: "finished",
+      pot,
+    });
+    emitActivity(io, {
+      type: "GAME_RESULT",
+      gameId,
+      winnerId,
+      creditedCoins,
       pot,
     });
   });
@@ -228,9 +257,14 @@ function registerGameSockets(io, socket) {
     if (!p) return;
 
     players.delete(socket.id);
-
     socket.to(p.room).emit("playerLeft", p.userId);
 
+    emitGameEvent(io, {
+      type: "PLAYER_DISCONNECTED",
+      userId: p.userId,
+      username: p.username,
+      room: p.room,
+    });
     emitActivity(io, {
       type: "PLAYER_DISCONNECTED",
       userId: p.userId,
@@ -248,4 +282,3 @@ module.exports = {
   emitActivity,
   emitGameEvent,
 };
-

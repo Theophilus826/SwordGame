@@ -2,7 +2,18 @@ const { players, playersByUser, getOrCreatePlayer } = require("./gameState");
 const { handlePvPAttack } = require("./combat");
 
 // ==========================
-// EMITTERS (all via main namespace `/`)
+// SIMPLE GAME STATE STORE
+// ==========================
+const games = new Map(); 
+// gameId => {
+//   enemiesConfigured: false,
+//   numEnemies: 0,
+//   pot: 0,
+//   status: "waiting"
+// }
+
+// ==========================
+// EMITTERS
 // ==========================
 function emitTacticalUpdate(io) {
   const data = [];
@@ -40,7 +51,6 @@ function emitGameEvent(io, payload) {
 // REGISTER GAME SOCKETS
 // ==========================
 function registerGameSockets(io, socket) {
-  // CREATE / RESTORE PLAYER
   const player = getOrCreatePlayer(socket);
 
   if (player.socketId && player.socketId !== socket.id) {
@@ -60,13 +70,13 @@ function registerGameSockets(io, socket) {
 
   socket.to(player.room).emit("playerJoined", player);
 
-  // Emit player join events
   emitGameEvent(io, {
     type: "PLAYER_JOINED",
     userId: player.userId,
     username: player.username,
     room: player.room,
   });
+
   emitActivity(io, {
     type: "PLAYER_JOINED",
     userId: player.userId,
@@ -77,175 +87,117 @@ function registerGameSockets(io, socket) {
   emitTacticalUpdate(io);
 
   // =========================
-  // MOVEMENT
+  // ENEMY CONFIGURATION (NEW)
   // =========================
-  socket.on("move", (data) => {
-    const p = players.get(socket.id);
-    if (!p || !data?.position) return;
+  socket.on("host:configureEnemies", ({ gameId, numEnemies }) => {
+    if (!gameId || !numEnemies || numEnemies <= 0) return;
 
-    p.position = data.position;
-    p.rotation = data.rotation;
+    let game = games.get(gameId);
 
-    socket.to(p.room).emit("playerMoved", {
-      userId: p.userId,
-      position: p.position,
-      rotation: p.rotation,
-    });
+    if (!game) {
+      game = {
+        enemiesConfigured: false,
+        numEnemies: 0,
+        pot: 0,
+        status: "waiting",
+      };
+      games.set(gameId, game);
+    }
 
-    emitTacticalUpdate(io);
-  });
-
-  // =========================
-  // ATTACK (PvP)
-  // =========================
-  socket.on("attack", () => {
-    const attacker = players.get(socket.id);
-    if (!attacker || attacker.health <= 0) return;
-
-    const hits = handlePvPAttack(attacker, playersByUser);
+    game.enemiesConfigured = true;
+    game.numEnemies = numEnemies;
 
     emitGameEvent(io, {
-      type: "PLAYER_ATTACK",
-      attacker: attacker.username,
-      attackerId: attacker.userId,
-      room: attacker.room,
+      type: "ENEMIES_CONFIGURED",
+      gameId,
+      enemies: numEnemies,
     });
+
     emitActivity(io, {
-      type: "PLAYER_ATTACK",
-      attacker: attacker.username,
-      attackerId: attacker.userId,
-      room: attacker.room,
+      type: "ENEMIES_CONFIGURED",
+      gameId,
+      enemies: numEnemies,
     });
-
-    hits.forEach((hit) => {
-      io.to(attacker.room).emit("playerDamaged", hit);
-
-      emitGameEvent(io, {
-        type: "PLAYER_DAMAGED",
-        attacker: attacker.username,
-        victimId: hit.userId,
-        damage: hit.damage,
-        remainingHealth: hit.health,
-        room: attacker.room,
-      });
-      emitActivity(io, {
-        type: "PLAYER_DAMAGED",
-        attacker: attacker.username,
-        victimId: hit.userId,
-        damage: hit.damage,
-        remainingHealth: hit.health,
-        room: attacker.room,
-      });
-
-      if (hit.health <= 0) {
-        emitGameEvent(io, {
-          type: "PLAYER_KILLED",
-          killer: attacker.username,
-          victimId: hit.userId,
-          room: attacker.room,
-        });
-        emitActivity(io, {
-          type: "PLAYER_KILLED",
-          killer: attacker.username,
-          victimId: hit.userId,
-          room: attacker.room,
-        });
-      }
-    });
-
-    emitTacticalUpdate(io);
   });
 
   // =========================
-  // JOIN ROOM
-  // =========================
-  socket.on("joinRoom", (roomName) => {
-    const p = players.get(socket.id);
-    if (!p || !roomName) return;
-
-    const oldRoom = p.room;
-    if (oldRoom === roomName) return;
-
-    socket.leave(oldRoom);
-    socket.join(roomName);
-
-    p.room = roomName;
-
-    socket.emit("roomJoined", {
-      room: roomName,
-      players: [...playersByUser.values()].filter((pl) => pl.room === roomName),
-    });
-
-    socket.to(roomName).emit("playerJoined", p);
-
-    emitGameEvent(io, {
-      type: "ROOM_CHANGED",
-      userId: p.userId,
-      username: p.username,
-      from: oldRoom,
-      to: roomName,
-    });
-    emitActivity(io, {
-      type: "ROOM_CHANGED",
-      userId: p.userId,
-      username: p.username,
-      from: oldRoom,
-      to: roomName,
-    });
-
-    emitTacticalUpdate(io);
-  });
-
-  // =========================
-  // GAME START / POT UPDATE
+  // START GAME (REQUIRES ENEMIES)
   // =========================
   socket.on("host:startGame", ({ gameId, pot }) => {
+    const game = games.get(gameId);
+
+    if (!game || !game.enemiesConfigured) {
+      return socket.emit("error", {
+        message: "Enemies must be configured first",
+      });
+    }
+
+    game.status = "started";
+    game.pot = pot || 0;
+
     emitGameEvent(io, {
       type: "GAME_STARTED",
       gameId,
       status: "started",
-      pot,
+      pot: game.pot,
+      enemies: game.numEnemies,
     });
+
     emitActivity(io, {
       type: "GAME_STARTED",
       gameId,
-      pot,
+      pot: game.pot,
     });
   });
 
-  socket.on("host:addToPot", ({ gameId, amount, newPot }) => {
+  // =========================
+  // ADD TO POT
+  // =========================
+  socket.on("host:addToPot", ({ gameId, amount }) => {
+    const game = games.get(gameId);
+    if (!game) return;
+
+    game.pot += amount;
+
     emitGameEvent(io, {
       type: "ADMIN_ADD_POT",
       gameId,
       amount,
-      newPot,
+      newPot: game.pot,
     });
+
     emitActivity(io, {
       type: "ADMIN_ADD_POT",
       gameId,
       amount,
-      newPot,
+      newPot: game.pot,
     });
   });
 
   // =========================
-  // GAME RESULT
+  // END GAME
   // =========================
-  socket.on("host:endGame", ({ gameId, winnerId, creditedCoins, pot }) => {
+  socket.on("host:endGame", ({ gameId, winnerId, creditedCoins }) => {
+    const game = games.get(gameId);
+    if (!game) return;
+
+    game.status = "finished";
+
     emitGameEvent(io, {
       type: "GAME_RESULT",
       gameId,
       winnerId,
       creditedCoins,
       status: "finished",
-      pot,
+      pot: game.pot,
     });
+
     emitActivity(io, {
       type: "GAME_RESULT",
       gameId,
       winnerId,
       creditedCoins,
-      pot,
+      pot: game.pot,
     });
   });
 
@@ -265,6 +217,7 @@ function registerGameSockets(io, socket) {
       username: p.username,
       room: p.room,
     });
+
     emitActivity(io, {
       type: "PLAYER_DISCONNECTED",
       userId: p.userId,

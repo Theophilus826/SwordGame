@@ -30,7 +30,7 @@ function emitActivity(io, payload) {
 }
 
 function emitGameEvent(io, payload) {
-  io.of("/admin").emit("game:event", {
+  io.emit("game:event", {
     ...payload,
     timestamp: Date.now(),
   });
@@ -248,3 +248,4 @@ module.exports = {
   emitActivity,
   emitGameEvent,
 };
+

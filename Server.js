@@ -115,7 +115,7 @@ app.use("/api/users", require("./routes/UserRoutes"));
 app.use("/api/coins", require("./routes/AccountRoutes"));
 app.use("/api/admin", require("./routes/AdminRoutes"));
 app.use("/api/feedbacks", require("./routes/FeedbackRoutes"));
-app.use("/api/game", require("./routes/GameRoutes"));
+// app.use("/api/game", require("./routes/GameRoutes"));
 // ==========================
 // ERROR HANDLER
 // ==========================
@@ -183,4 +183,5 @@ const PORT = process.env.PORT || 5000;
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on port ${PORT}`.cyan.bold);
 });
+
 

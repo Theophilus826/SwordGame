@@ -3,17 +3,8 @@ const router = express.Router();
 
 const { protect, admin } = require("../middleware/AuthMiddleware");
 const { adminCreditCoins } = require("../controller/AccountController");
-
-const {
-  getAllGames,
-  configureEnemies,
-  startGame,
-  addToPot,
-  finishGame,
-} = require("../controller/GameController");
-
-const CoinTransaction = require("../models/CoinTransaction");
 const { playersByUser } = require("../games/gameState");
+const CoinTransaction = require("../models/CoinTransaction");
 
 // -------------------- Admin Credit/Debit Coins --------------------
 router.put("/credit-coins", protect, admin, adminCreditCoins);
@@ -71,13 +62,5 @@ router.get("/transactions", protect, admin, async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 });
-
-// -------------------- Admin Games --------------------
-// All handlers are function references (no () calls)
-router.get("/games", protect, admin, getAllGames);
-router.post("/configure-enemies", protect, admin, configureEnemies);
-router.post("/start-game", protect, admin, startGame);
-router.post("/add-to-pot", protect, admin, addToPot);
-router.post("/end-game", protect, admin, finishGame);
 
 module.exports = router;

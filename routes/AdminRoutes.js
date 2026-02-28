@@ -5,8 +5,7 @@ const { protect, admin } = require("../middleware/AuthMiddleware");
 const { adminCreditCoins } = require("../controller/AccountController");
 
 const {
-  getAllGames,
-  configureEnemies,
+   configureEnemies,
   startGame,
   addToPot,
   finishGame,
@@ -73,18 +72,11 @@ router.get("/transactions", protect, admin, async (req, res) => {
 });
 
 // -------------------- Admin Games --------------------
-router.get("/games", protect, admin, getAllGames);
+// Pass function references, not calls
 
-// -------------------- Configure Enemies --------------------
 router.post("/configure-enemies", protect, admin, configureEnemies);
-
-// -------------------- Start Game --------------------
 router.post("/start-game", protect, admin, startGame);
-
-// -------------------- Add to Pot --------------------
 router.post("/add-to-pot", protect, admin, addToPot);
-
-// -------------------- End Game --------------------
 router.post("/end-game", protect, admin, finishGame);
 
 module.exports = router;

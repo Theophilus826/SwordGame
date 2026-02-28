@@ -106,7 +106,7 @@ function registerGameSockets(io, socket) {
     game.enemiesConfigured = true;
     game.numEnemies = numEnemies;
 
-    io.to(gameId).emit("game:event", { type: "ENEMIES_CONFIGURED", gameId, enemies: numEnemies, timestamp: Date.now() });
+    io.emit("game:event", { type: "ENEMIES_CONFIGURED", gameId, enemies: numEnemies, timestamp: Date.now() });
     emitActivity(io, { type: "ENEMIES_CONFIGURED", gameId, enemies: numEnemies });
   });
 
@@ -126,7 +126,7 @@ function registerGameSockets(io, socket) {
       }
     });
 
-    io.to(gameId).emit("game:event", {
+    io.emit("game:event", {
       type: "GAME_STARTED",
       gameId,
       status: "started",
@@ -143,7 +143,7 @@ function registerGameSockets(io, socket) {
     const game = getOrInitGame(gameId);
     game.pot += amount;
 
-    io.to(gameId).emit("game:event", { type: "ADMIN_ADD_POT", gameId, amount, newPot: game.pot, timestamp: Date.now() });
+    io.emit("game:event", { type: "ADMIN_ADD_POT", gameId, amount, newPot: game.pot, timestamp: Date.now() });
     emitActivity(io, { type: "ADMIN_ADD_POT", gameId, amount, newPot: game.pot });
   });
 
@@ -153,7 +153,7 @@ function registerGameSockets(io, socket) {
     if (!game) return;
     game.status = "finished";
 
-    io.to(gameId).emit("game:event", { type: "GAME_RESULT", gameId, winnerId, creditedCoins, status: "finished", pot: game.pot, timestamp: Date.now() });
+    io.emit("game:event", { type: "GAME_RESULT", gameId, winnerId, creditedCoins, status: "finished", pot: game.pot, timestamp: Date.now() });
     emitActivity(io, { type: "GAME_RESULT", gameId, winnerId, creditedCoins, pot: game.pot });
   });
 

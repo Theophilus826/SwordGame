@@ -22,14 +22,16 @@ const emitTacticalUpdate = (io) => {
   io.emit("tacticalUpdate", { players: data });
 };
 
-const emitActivity = (io, payload) => {
+const emitActivity = (io,adminNamespace, payload) => {
   io.emit("activity:event", { ...payload, timestamp: Date.now() });
+  adminNamespace.emit("activity:event", event); // admin
 };
 
-const emitGameEvent = (io, payload) => {
+const emitGameEvent = (io,adminNamespace, payload) => {
   // Ensure every payload has gameId
   if (!payload.gameId && payload.room) payload.gameId = payload.room;
   io.emit("game:event", { ...payload, timestamp: Date.now() });
+   adminNamespace.emit("game:event", event); // admin
 };
 
 // ==========================

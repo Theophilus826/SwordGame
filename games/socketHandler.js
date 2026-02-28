@@ -2,13 +2,13 @@ const { players, playersByUser, getOrCreatePlayer } = require("./gameState");
 
 // ==========================
 // SIMPLE GAME STATE STORE
-// ==========================
+// =========================
 const games = new Map(); 
 // gameId => { enemiesConfigured, numEnemies, pot, status }
 
 // ==========================
 // EMITTER HELPERS
-// ==========================
+// =========================
 const emitTacticalUpdate = (io) => {
   const data = [...playersByUser.values()]
     .filter((p) => p.room)
@@ -27,12 +27,14 @@ const emitActivity = (io, payload) => {
 };
 
 const emitGameEvent = (io, payload) => {
+  // Ensure every payload has gameId
+  if (!payload.gameId && payload.room) payload.gameId = payload.room;
   io.emit("game:event", { ...payload, timestamp: Date.now() });
 };
 
 // ==========================
 // GAME UTILS
-// ==========================
+// =========================
 const getOrInitGame = (gameId) => {
   if (!games.has(gameId)) {
     const newGame = { enemiesConfigured: false, numEnemies: 0, pot: 0, status: "waiting" };
@@ -44,7 +46,7 @@ const getOrInitGame = (gameId) => {
 
 // ==========================
 // REGISTER SOCKETS
-// ==========================
+// =========================
 function registerGameSockets(io, socket) {
   const player = getOrCreatePlayer(socket);
 
@@ -58,15 +60,13 @@ function registerGameSockets(io, socket) {
   players.set(socket.id, player);
 
   // =========================
-  // JOIN GAME ROOM (NEW)
+  // JOIN GAME ROOM
   // =========================
   socket.on("joinRoom", (gameId) => {
     if (!gameId) return;
-
     socket.join(gameId);
     player.room = gameId;
 
-    // Send current game state if already started
     const game = games.get(gameId);
     if (game?.status === "started") {
       socket.emit("game:event", {
@@ -79,10 +79,10 @@ function registerGameSockets(io, socket) {
       });
     }
 
-    // Notify other players
+    // Emit player joined
     socket.to(gameId).emit("playerJoined", player);
-    emitGameEvent(io, { type: "PLAYER_JOINED", userId: player.userId, username: player.username, room: gameId });
-    emitActivity(io, { type: "PLAYER_JOINED", userId: player.userId, username: player.username, room: gameId });
+    emitGameEvent(io, { type: "PLAYER_JOINED", userId: player.userId, username: player.username, room: gameId, gameId });
+    emitActivity(io, { type: "PLAYER_JOINED", userId: player.userId, username: player.username, room: gameId, gameId });
     emitTacticalUpdate(io);
   });
 
@@ -101,11 +101,12 @@ function registerGameSockets(io, socket) {
   // Configure enemies
   socket.on("host:configureEnemies", ({ gameId, numEnemies }) => {
     if (!gameId || !numEnemies || numEnemies <= 0) return;
+
     const game = getOrInitGame(gameId);
     game.enemiesConfigured = true;
     game.numEnemies = numEnemies;
 
-    io.to(gameId).emit("game:event", { type: "ENEMIES_CONFIGURED", gameId, enemies: numEnemies });
+    io.to(gameId).emit("game:event", { type: "ENEMIES_CONFIGURED", gameId, enemies: numEnemies, timestamp: Date.now() });
     emitActivity(io, { type: "ENEMIES_CONFIGURED", gameId, enemies: numEnemies });
   });
 
@@ -117,7 +118,7 @@ function registerGameSockets(io, socket) {
     game.status = "started";
     game.pot = Number(pot) || 0;
 
-    // Ensure all players in room join
+    // Force all players in room to join
     players.forEach((p) => {
       if (p.room === gameId) {
         const playerSocket = io.sockets.sockets.get(p.socketId);
@@ -142,7 +143,7 @@ function registerGameSockets(io, socket) {
     const game = getOrInitGame(gameId);
     game.pot += amount;
 
-    io.to(gameId).emit("game:event", { type: "ADMIN_ADD_POT", gameId, amount, newPot: game.pot });
+    io.to(gameId).emit("game:event", { type: "ADMIN_ADD_POT", gameId, amount, newPot: game.pot, timestamp: Date.now() });
     emitActivity(io, { type: "ADMIN_ADD_POT", gameId, amount, newPot: game.pot });
   });
 
@@ -152,7 +153,7 @@ function registerGameSockets(io, socket) {
     if (!game) return;
     game.status = "finished";
 
-    io.to(gameId).emit("game:event", { type: "GAME_RESULT", gameId, winnerId, creditedCoins, status: "finished", pot: game.pot });
+    io.to(gameId).emit("game:event", { type: "GAME_RESULT", gameId, winnerId, creditedCoins, status: "finished", pot: game.pot, timestamp: Date.now() });
     emitActivity(io, { type: "GAME_RESULT", gameId, winnerId, creditedCoins, pot: game.pot });
   });
 
@@ -164,8 +165,8 @@ function registerGameSockets(io, socket) {
     players.delete(socket.id);
     if (p.room) socket.to(p.room).emit("playerLeft", p.userId);
 
-    emitGameEvent(io, { type: "PLAYER_DISCONNECTED", userId: p.userId, username: p.username, room: p.room });
-    emitActivity(io, { type: "PLAYER_DISCONNECTED", userId: p.userId, username: p.username, room: p.room });
+    emitGameEvent(io, { type: "PLAYER_DISCONNECTED", userId: p.userId, username: p.username, room: p.room, gameId: p.room });
+    emitActivity(io, { type: "PLAYER_DISCONNECTED", userId: p.userId, username: p.username, room: p.room, gameId: p.room });
     emitTacticalUpdate(io);
   });
 }

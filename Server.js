@@ -80,7 +80,7 @@ adminNamespace.use((socket, next) => {
 
 adminNamespace.on("connection", (socket) => {
   console.log(`🖥 Admin ${socket.user.name} connected`);
-   registerGameSockets(io, adminNamespace, socket);
+   registerGameSockets(io, socket);
     socket.on("admin:getUsers", async () => {
     try {
       const users = await getUsersFromDB();
@@ -184,6 +184,7 @@ const PORT = process.env.PORT || 5000;
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on port ${PORT}`.cyan.bold);
 });
+
 
 
 

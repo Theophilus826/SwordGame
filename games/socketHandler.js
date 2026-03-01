@@ -78,46 +78,47 @@ function registerGameSockets(io, adminNamespace, socket) {
   // ==========================
   // JOIN GAME ROOM
   // ==========================
-  socket.on("joinRoom", (gameId) => {
-    if (!gameId) return;
+  socket.on("joinRoom", (gameId, callback) => {
+  if (!gameId) return;
 
-    socket.join(gameId);
-    player.room = gameId;
+  socket.join(gameId);
+  player.room = gameId;
 
-    const game = getOrInitGame(gameId);
-    if (!game.players.includes(player.userId)) game.players.push(player.userId);
-    if (!game.hostId) game.hostId = player.userId;
+  const game = getOrInitGame(gameId);
 
-    // Sync ongoing game
-    if (game.status === "started") {
-      socket.emit("game:event", {
-        type: "GAME_STARTED",
-        gameId,
-        pot: game.pot,
-        enemies: game.numEnemies,
-        status: game.status,
-        timestamp: Date.now(),
-      });
-    }
+  if (!game.players.includes(player.userId)) game.players.push(player.userId);
+  if (!game.hostId) game.hostId = player.userId;
 
-    socket.to(gameId).emit("playerJoined", player);
-
-    emitGameEvent(io, adminNamespace, gameId, {
-      type: "PLAYER_JOINED",
-      userId: player.userId,
-      username: player.username,
+  // Replay for ongoing game
+  if (game.status === "started") {
+    socket.emit("game:event", {
+      type: "GAME_STARTED",
+      gameId,
+      pot: game.pot,
+      enemies: game.numEnemies,
+      status: "started",
+      timestamp: Date.now(),
     });
+  }
 
-    emitActivity(adminNamespace, {
-      type: "PLAYER_JOINED",
-      userId: player.userId,
-      username: player.username,
-      room: gameId,
-    });
-
-    emitTacticalUpdate(io);
+  emitGameEvent(io, adminNamespace, gameId, {
+    type: "PLAYER_JOINED",
+    userId: player.userId,
+    username: player.username,
   });
 
+  emitActivity(adminNamespace, {
+    type: "PLAYER_JOINED",
+    userId: player.userId,
+    username: player.username,
+    room: gameId,
+  });
+
+  emitTacticalUpdate(io);
+
+  // Call acknowledgment to client
+  if (callback) callback({ joined: true, gameStatus: game.status, pot: game.pot, enemies: game.numEnemies });
+});
   // ==========================
   // INIT PLAYER DATA
   // ==========================
@@ -247,3 +248,4 @@ module.exports = {
   registerGameSockets,
   games,
 };
+

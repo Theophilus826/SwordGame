@@ -10,7 +10,7 @@ const games = new Map();
 // EMITTER HELPERS
 // ==========================
 
-// Send tactical updates only to players (default namespace)
+// Send tactical updates to everyone
 const emitTacticalUpdate = (io) => {
   const data = [...playersByUser.values()]
     .filter((p) => p.room)
@@ -25,8 +25,8 @@ const emitTacticalUpdate = (io) => {
   io.emit("tacticalUpdate", { players: data });
 };
 
-// Emit game event (room scoped + admin dashboard)
-const emitGameEvent = (io, adminNamespace, gameId, payload) => {
+// Emit game event (room scoped + admin via main namespace)
+const emitGameEvent = (io, gameId, payload) => {
   if (!gameId) return;
 
   const event = {
@@ -35,21 +35,21 @@ const emitGameEvent = (io, adminNamespace, gameId, payload) => {
     timestamp: Date.now(),
   };
 
-  // Players in this game only
+  // Players in this game room
   io.to(gameId).emit("game:event", event);
 
-  // Admin dashboard
-  adminNamespace.emit("game:event", event);
+  // Admin dashboard (now also connected to main namespace)
+  io.emit("game:event", event);
 };
 
-// Emit activity ONLY to admin dashboard
-const emitActivity = (adminNamespace, payload) => {
+// Emit activity event globally
+const emitActivity = (io, payload) => {
   const event = {
     ...payload,
     timestamp: Date.now(),
   };
 
-  adminNamespace.emit("activity:event", event);
+  io.emit("activity:event", event);
 };
 
 // ==========================
@@ -67,7 +67,6 @@ const getOrInitGame = (gameId) => {
   return games.get(gameId);
 };
 
-// Cleanup empty games
 const cleanupGameIfEmpty = (gameId) => {
   const stillHasPlayers = [...playersByUser.values()].some(
     (p) => p.room === gameId
@@ -81,10 +80,10 @@ const cleanupGameIfEmpty = (gameId) => {
 // ==========================
 // REGISTER SOCKETS
 // ==========================
-function registerGameSockets(io, adminNamespace, socket) {
+function registerGameSockets(io, socket) {
   const player = getOrCreatePlayer(socket);
 
-  // Prevent duplicate connections per user
+  // Prevent duplicate connections
   if (player.socketId && player.socketId !== socket.id) {
     const oldSocket = io.sockets.sockets.get(player.socketId);
     oldSocket?.disconnect(true);
@@ -104,7 +103,7 @@ function registerGameSockets(io, adminNamespace, socket) {
 
     const game = getOrInitGame(gameId);
 
-    // If game already started, sync state
+    // Sync if already started
     if (game.status === "started") {
       socket.emit("game:event", {
         type: "GAME_STARTED",
@@ -116,16 +115,15 @@ function registerGameSockets(io, adminNamespace, socket) {
       });
     }
 
-    // Notify players in room
     socket.to(gameId).emit("playerJoined", player);
 
-    emitGameEvent(io, adminNamespace, gameId, {
+    emitGameEvent(io, gameId, {
       type: "PLAYER_JOINED",
       userId: player.userId,
       username: player.username,
     });
 
-    emitActivity(adminNamespace, {
+    emitActivity(io, {
       type: "PLAYER_JOINED",
       userId: player.userId,
       username: player.username,
@@ -155,12 +153,12 @@ function registerGameSockets(io, adminNamespace, socket) {
     game.enemiesConfigured = true;
     game.numEnemies = Number(numEnemies);
 
-    emitGameEvent(io, adminNamespace, gameId, {
+    emitGameEvent(io, gameId, {
       type: "ENEMIES_CONFIGURED",
       enemies: game.numEnemies,
     });
 
-    emitActivity(adminNamespace, {
+    emitActivity(io, {
       type: "ENEMIES_CONFIGURED",
       gameId,
       enemies: game.numEnemies,
@@ -171,22 +169,27 @@ function registerGameSockets(io, adminNamespace, socket) {
   // HOST: START GAME
   // ==========================
   socket.on("host:startGame", ({ gameId, pot = 0 }) => {
-  console.log("🔥 host:startGame RECEIVED", gameId);
+    if (!gameId) return;
 
-  const game = getOrInitGame(gameId);
+    const game = getOrInitGame(gameId);
 
-  game.status = "started";
-  game.pot = Number(pot) || 0;
+    game.status = "started";
+    game.pot = Number(pot) || 0;
 
-  console.log("🔥 Emitting game:event to admin");
+    emitGameEvent(io, gameId, {
+      type: "GAME_STARTED",
+      status: "started",
+      pot: game.pot,
+      enemies: game.numEnemies,
+    });
 
-  emitGameEvent(io, adminNamespace, gameId, {
-    type: "GAME_STARTED",
-    status: "started",
-    pot: game.pot,
-    enemies: game.numEnemies,
+    emitActivity(io, {
+      type: "GAME_STARTED",
+      gameId,
+      pot: game.pot,
+    });
   });
-});
+
   // ==========================
   // HOST: ADD TO POT
   // ==========================
@@ -196,13 +199,13 @@ function registerGameSockets(io, adminNamespace, socket) {
     const game = getOrInitGame(gameId);
     game.pot += Number(amount);
 
-    emitGameEvent(io, adminNamespace, gameId, {
+    emitGameEvent(io, gameId, {
       type: "ADMIN_ADD_POT",
       amount,
       newPot: game.pot,
     });
 
-    emitActivity(adminNamespace, {
+    emitActivity(io, {
       type: "ADMIN_ADD_POT",
       gameId,
       amount,
@@ -219,7 +222,7 @@ function registerGameSockets(io, adminNamespace, socket) {
 
     game.status = "finished";
 
-    emitGameEvent(io, adminNamespace, gameId, {
+    emitGameEvent(io, gameId, {
       type: "GAME_RESULT",
       winnerId,
       creditedCoins,
@@ -227,7 +230,7 @@ function registerGameSockets(io, adminNamespace, socket) {
       status: "finished",
     });
 
-    emitActivity(adminNamespace, {
+    emitActivity(io, {
       type: "GAME_RESULT",
       gameId,
       winnerId,
@@ -248,13 +251,13 @@ function registerGameSockets(io, adminNamespace, socket) {
     if (p.room) {
       socket.to(p.room).emit("playerLeft", p.userId);
 
-      emitGameEvent(io, adminNamespace, p.room, {
+      emitGameEvent(io, p.room, {
         type: "PLAYER_DISCONNECTED",
         userId: p.userId,
         username: p.username,
       });
 
-      emitActivity(adminNamespace, {
+      emitActivity(io, {
         type: "PLAYER_DISCONNECTED",
         userId: p.userId,
         room: p.room,
@@ -271,4 +274,3 @@ module.exports = {
   registerGameSockets,
   games,
 };
-

@@ -4,7 +4,7 @@ const { players, playersByUser, getOrCreatePlayer } = require("./gameState");
 // GAME STATE STORE
 // ==========================
 const games = new Map(); 
-// gameId => { hostId, enemiesConfigured, numEnemies, pot, status }
+// gameId => { hostId, enemiesConfigured, numEnemies, pot, status, players }
 
 // ==========================
 // EMITTER HELPERS
@@ -27,8 +27,12 @@ const emitGameEvent = (io, adminNamespace, gameId, payload) => {
   if (!gameId) return;
 
   const event = { ...payload, gameId, timestamp: Date.now() };
-  io.to(gameId).emit("game:event", event);       // Players in game
-  adminNamespace.emit("game:event", event);     // Admin dashboard
+
+  // Send to players in room
+  io.to(gameId).emit("game:event", event);
+
+  // Send to admin dashboard
+  adminNamespace.emit("game:event", event);
 };
 
 const emitActivity = (adminNamespace, payload) => {
@@ -79,46 +83,44 @@ function registerGameSockets(io, adminNamespace, socket) {
   // JOIN GAME ROOM
   // ==========================
   socket.on("joinRoom", (gameId, callback) => {
-  if (!gameId) return;
+    if (!gameId) return;
 
-  socket.join(gameId);
-  player.room = gameId;
+    socket.join(gameId);
+    player.room = gameId;
 
-  const game = getOrInitGame(gameId);
+    const game = getOrInitGame(gameId);
+    if (!game.players.includes(player.userId)) game.players.push(player.userId);
+    if (!game.hostId) game.hostId = player.userId;
 
-  if (!game.players.includes(player.userId)) game.players.push(player.userId);
-  if (!game.hostId) game.hostId = player.userId;
+    // Sync ongoing game if started
+    if (game.status === "started") {
+      socket.emit("game:event", {
+        type: "GAME_STARTED",
+        gameId,
+        pot: game.pot,
+        enemies: game.numEnemies,
+        status: "started",
+      });
+    }
 
-  // Replay for ongoing game
-  if (game.status === "started") {
-    socket.emit("game:event", {
-      type: "GAME_STARTED",
-      gameId,
-      pot: game.pot,
-      enemies: game.numEnemies,
-      status: "started",
-      timestamp: Date.now(),
+    // Notify others & admin
+    socket.to(gameId).emit("playerJoined", player);
+    emitGameEvent(io, adminNamespace, gameId, {
+      type: "PLAYER_JOINED",
+      userId: player.userId,
+      username: player.username,
     });
-  }
+    emitActivity(adminNamespace, {
+      type: "PLAYER_JOINED",
+      userId: player.userId,
+      username: player.username,
+      room: gameId,
+    });
+    emitTacticalUpdate(io);
 
-  emitGameEvent(io, adminNamespace, gameId, {
-    type: "PLAYER_JOINED",
-    userId: player.userId,
-    username: player.username,
+    if (callback) callback({ joined: true, gameStatus: game.status, pot: game.pot, enemies: game.numEnemies });
   });
 
-  emitActivity(adminNamespace, {
-    type: "PLAYER_JOINED",
-    userId: player.userId,
-    username: player.username,
-    room: gameId,
-  });
-
-  emitTacticalUpdate(io);
-
-  // Call acknowledgment to client
-  if (callback) callback({ joined: true, gameStatus: game.status, pot: game.pot, enemies: game.numEnemies });
-});
   // ==========================
   // INIT PLAYER DATA
   // ==========================
@@ -176,6 +178,7 @@ function registerGameSockets(io, adminNamespace, socket) {
     game.status = "started";
     game.pot = Number(pot) || 0;
 
+    // Emit to players & admin
     emitGameEvent(io, adminNamespace, gameId, {
       type: "GAME_STARTED",
       status: "started",
@@ -248,4 +251,3 @@ module.exports = {
   registerGameSockets,
   games,
 };
-

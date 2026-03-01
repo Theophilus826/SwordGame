@@ -171,27 +171,22 @@ function registerGameSockets(io, adminNamespace, socket) {
   // HOST: START GAME
   // ==========================
   socket.on("host:startGame", ({ gameId, pot = 0 }) => {
-    if (!gameId) return;
+  console.log("🔥 host:startGame RECEIVED", gameId);
 
-    const game = getOrInitGame(gameId);
+  const game = getOrInitGame(gameId);
 
-    game.status = "started";
-    game.pot = Number(pot) || 0;
+  game.status = "started";
+  game.pot = Number(pot) || 0;
 
-    emitGameEvent(io, adminNamespace, gameId, {
-      type: "GAME_STARTED",
-      status: "started",
-      pot: game.pot,
-      enemies: game.numEnemies,
-    });
+  console.log("🔥 Emitting game:event to admin");
 
-    emitActivity(adminNamespace, {
-      type: "GAME_STARTED",
-      gameId,
-      pot: game.pot,
-    });
+  emitGameEvent(io, adminNamespace, gameId, {
+    type: "GAME_STARTED",
+    status: "started",
+    pot: game.pot,
+    enemies: game.numEnemies,
   });
-
+});
   // ==========================
   // HOST: ADD TO POT
   // ==========================
@@ -276,3 +271,4 @@ module.exports = {
   registerGameSockets,
   games,
 };
+

@@ -3,12 +3,25 @@ const { players, playersByUser, getOrCreatePlayer } = require("./gameState");
 // ==========================
 // GAME STATE STORE
 // ==========================
-const games = new Map(); 
-// gameId => { hostId, enemiesConfigured, numEnemies, pot, status, players }
+const games = new Map();
+// gameId => {
+//   hostId,
+//   enemiesConfigured,
+//   numEnemies,
+//   pot,
+//   status, // waiting | started | finished
+//   players: []
+// }
 
 // ==========================
-// EMITTER HELPERS
+// HELPERS
 // ==========================
+
+const safeNumber = (value) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+};
+
 const emitTacticalUpdate = (io) => {
   const data = [...playersByUser.values()]
     .filter((p) => p.room)
@@ -26,23 +39,23 @@ const emitTacticalUpdate = (io) => {
 const emitGameEvent = (io, adminNamespace, gameId, payload) => {
   if (!gameId) return;
 
-  const event = { ...payload, gameId, timestamp: Date.now() };
+  const event = {
+    ...payload,
+    gameId,
+    timestamp: Date.now(),
+  };
 
-  // Send to players in room
   io.to(gameId).emit("game:event", event);
-
-  // Send to admin dashboard
   adminNamespace.emit("game:event", event);
 };
 
 const emitActivity = (adminNamespace, payload) => {
-  const event = { ...payload, timestamp: Date.now() };
-  adminNamespace.emit("activity:event", event);
+  adminNamespace.emit("activity:event", {
+    ...payload,
+    timestamp: Date.now(),
+  });
 };
 
-// ==========================
-// GAME UTILS
-// ==========================
 const getOrInitGame = (gameId) => {
   if (!games.has(gameId)) {
     games.set(gameId, {
@@ -61,7 +74,10 @@ const cleanupGameIfEmpty = (gameId) => {
   const stillHasPlayers = [...playersByUser.values()].some(
     (p) => p.room === gameId
   );
-  if (!stillHasPlayers) games.delete(gameId);
+
+  if (!stillHasPlayers) {
+    games.delete(gameId);
+  }
 };
 
 // ==========================
@@ -70,7 +86,7 @@ const cleanupGameIfEmpty = (gameId) => {
 function registerGameSockets(io, adminNamespace, socket) {
   const player = getOrCreatePlayer(socket);
 
-  // Disconnect duplicate sessions
+  // 🔥 Prevent duplicate sessions
   if (player.socketId && player.socketId !== socket.id) {
     const oldSocket = io.sockets.sockets.get(player.socketId);
     oldSocket?.disconnect(true);
@@ -80,105 +96,135 @@ function registerGameSockets(io, adminNamespace, socket) {
   players.set(socket.id, player);
 
   // ==========================
-  // JOIN GAME ROOM
+  // JOIN ROOM
   // ==========================
   socket.on("joinRoom", (gameId, callback) => {
-    if (!gameId) return;
+    if (!gameId) return callback?.({ joined: false });
+
+    const game = getOrInitGame(gameId);
 
     socket.join(gameId);
     player.room = gameId;
 
-    const game = getOrInitGame(gameId);
-    if (!game.players.includes(player.userId)) game.players.push(player.userId);
-    if (!game.hostId) game.hostId = player.userId;
-
-    // Sync ongoing game if started
-    if (game.status === "started") {
-      socket.emit("game:event", {
-        type: "GAME_STARTED",
-        gameId,
-        pot: game.pot,
-        enemies: game.numEnemies,
-        status: "started",
-      });
+    if (!game.players.includes(player.userId)) {
+      game.players.push(player.userId);
     }
 
-    // Notify others & admin
-    socket.to(gameId).emit("playerJoined", player);
+    if (!game.hostId) {
+      game.hostId = player.userId;
+    }
+
+    // 🔁 Sync full game state on join
+    socket.emit("game:sync", {
+      gameId,
+      status: game.status,
+      pot: game.pot,
+      enemies: game.numEnemies,
+      enemiesConfigured: game.enemiesConfigured,
+      players: game.players,
+    });
+
     emitGameEvent(io, adminNamespace, gameId, {
       type: "PLAYER_JOINED",
       userId: player.userId,
       username: player.username,
     });
+
     emitActivity(adminNamespace, {
       type: "PLAYER_JOINED",
       userId: player.userId,
       username: player.username,
       room: gameId,
     });
+
     emitTacticalUpdate(io);
 
-    if (callback) callback({ joined: true, gameStatus: game.status, pot: game.pot, enemies: game.numEnemies });
+    callback?.({
+      joined: true,
+      status: game.status,
+      pot: game.pot,
+      enemies: game.numEnemies,
+    });
   });
 
   // ==========================
-  // INIT PLAYER DATA
+  // INIT PLAYER
   // ==========================
   socket.emit("init", {
     self: player,
-    players: [...playersByUser.values()].filter((p) => p.room === player.room),
+    players: [...playersByUser.values()].filter(
+      (p) => p.room === player.room
+    ),
   });
 
   // ==========================
-  // HOST ACTIONS
+  // HOST CONFIGURE ENEMIES
   // ==========================
   socket.on("host:configureEnemies", ({ gameId, numEnemies }) => {
-    if (!gameId || !numEnemies || numEnemies <= 0) return;
+    const enemies = safeNumber(numEnemies);
+    if (!gameId || enemies <= 0) return;
 
     const game = getOrInitGame(gameId);
+    if (game.status !== "waiting") return;
+
     game.enemiesConfigured = true;
-    game.numEnemies = Number(numEnemies);
+    game.numEnemies = enemies;
 
     emitGameEvent(io, adminNamespace, gameId, {
       type: "ENEMIES_CONFIGURED",
-      enemies: game.numEnemies,
+      enemies,
     });
 
     emitActivity(adminNamespace, {
       type: "ENEMIES_CONFIGURED",
       gameId,
-      enemies: game.numEnemies,
+      enemies,
     });
   });
 
+  // ==========================
+  // HOST ADD TO POT
+  // ==========================
   socket.on("host:addToPot", ({ gameId, amount }) => {
-    if (!gameId || !amount) return;
+    const value = safeNumber(amount);
+    if (!gameId || value <= 0) return;
 
     const game = getOrInitGame(gameId);
-    game.pot += Number(amount);
+    if (game.status !== "waiting" && game.status !== "started") return;
+
+    game.pot += value;
 
     emitGameEvent(io, adminNamespace, gameId, {
       type: "ADMIN_ADD_POT",
-      amount,
+      amount: value,
       newPot: game.pot,
     });
 
     emitActivity(adminNamespace, {
       type: "ADMIN_ADD_POT",
       gameId,
-      amount,
+      amount: value,
       newPot: game.pot,
     });
   });
 
-  socket.on("host:startGame", ({ gameId, pot = 0 }) => {
+  // ==========================
+  // HOST START GAME
+  // ==========================
+  socket.on("host:startGame", ({ gameId }) => {
     if (!gameId) return;
 
     const game = getOrInitGame(gameId);
-    game.status = "started";
-    game.pot = Number(pot) || 0;
 
-    // Emit to players & admin
+    // 🚨 HARD VALIDATION
+    if (game.status !== "waiting") return;
+    if (!game.enemiesConfigured) return;
+    if (game.numEnemies <= 0) return;
+    if (game.pot <= 0) return;
+    if (!game.players.length) return;
+
+    game.status = "started";
+
     emitGameEvent(io, adminNamespace, gameId, {
       type: "GAME_STARTED",
       status: "started",
@@ -193,16 +239,19 @@ function registerGameSockets(io, adminNamespace, socket) {
     });
   });
 
+  // ==========================
+  // HOST END GAME
+  // ==========================
   socket.on("host:endGame", ({ gameId, winnerId, creditedCoins }) => {
     const game = games.get(gameId);
-    if (!game) return;
+    if (!game || game.status !== "started") return;
 
     game.status = "finished";
 
     emitGameEvent(io, adminNamespace, gameId, {
       type: "GAME_RESULT",
       winnerId,
-      creditedCoins,
+      creditedCoins: safeNumber(creditedCoins),
       pot: game.pot,
       status: "finished",
     });
@@ -226,21 +275,27 @@ function registerGameSockets(io, adminNamespace, socket) {
     players.delete(socket.id);
 
     if (p.room) {
-      socket.to(p.room).emit("playerLeft", p.userId);
+      const game = games.get(p.room);
 
-      emitGameEvent(io, adminNamespace, p.room, {
-        type: "PLAYER_DISCONNECTED",
-        userId: p.userId,
-        username: p.username,
-      });
+      if (game) {
+        game.players = game.players.filter(
+          (id) => id !== p.userId
+        );
 
-      emitActivity(adminNamespace, {
-        type: "PLAYER_DISCONNECTED",
-        userId: p.userId,
-        room: p.room,
-      });
+        emitGameEvent(io, adminNamespace, p.room, {
+          type: "PLAYER_DISCONNECTED",
+          userId: p.userId,
+          username: p.username,
+        });
 
-      cleanupGameIfEmpty(p.room);
+        emitActivity(adminNamespace, {
+          type: "PLAYER_DISCONNECTED",
+          userId: p.userId,
+          room: p.room,
+        });
+
+        cleanupGameIfEmpty(p.room);
+      }
     }
 
     emitTacticalUpdate(io);

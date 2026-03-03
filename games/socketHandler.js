@@ -221,39 +221,22 @@ function registerGameSockets(io, adminNamespace, socket) {
   // ==========================
   // HOST: START GAME
   // ==========================
-  socket.on("host:startGame", ({ gameId, pot = 0 }, callback) => {
-    if (!gameId) {
-      return callback?.({
-        success: false,
-        message: "Missing gameId",
-      });
-    }
+socket.on("host:startGame", ({ gameId, pot = 0 }, callback) => {
+  console.log("🔥 START GAME RECEIVED:", gameId);
 
-    const game = getOrInitGame(gameId);
+  const game = getOrInitGame(gameId);
+  game.status = "started";
 
-    if (game.status === "started") {
-      return callback?.({
-        success: false,
-        message: "Game already started",
-        gameId,
-      });
-    }
+  console.log("🔥 EMITTING GAME_STARTED TO ROOM:", gameId);
+  console.log("🔥 ROOM MEMBERS:", io.sockets.adapter.rooms.get(gameId));
 
-    game.status = "started";
-    game.pot = Number(pot) || game.pot;
-
-    emitGameEvent(io, adminNamespace, gameId, {
-      type: "GAME_STARTED",
-      status: "started",
-      pot: game.pot,
-      enemies: game.numEnemies,
-    });
-
-    emitActivity(adminNamespace, {
-      type: "GAME_STARTED",
-      gameId,
-      pot: game.pot,
-    });
+  emitGameEvent(io, adminNamespace, gameId, {
+    type: "GAME_STARTED",
+    status: "started",
+    pot: game.pot,
+    enemies: game.numEnemies,
+  });
+});
 
     callback?.({
       success: true,
@@ -339,4 +322,5 @@ module.exports = {
   registerGameSockets,
   games,
 };
+
 

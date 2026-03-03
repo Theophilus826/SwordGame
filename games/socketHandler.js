@@ -3,8 +3,8 @@ const { players, playersByUser, getOrCreatePlayer } = require("./gameState");
 // ==========================
 // GAME STATE STORE
 // ==========================
-const games = new Map(); 
-// gameId => { hostId, enemiesConfigured, numEnemies, pot, status, players, startedAt, playerBets }
+const games = new Map();
+// gameId => { hostId, enemiesConfigured, numEnemies, pot, status, players, playerBets, startedAt }
 
 // ==========================
 // EMITTER HELPERS
@@ -32,8 +32,10 @@ const emitGameEvent = (io, adminNamespace, gameId, payload) => {
 };
 
 const emitActivity = (adminNamespace, payload) => {
-  const event = { ...payload, timestamp: Date.now() };
-  adminNamespace.emit("activity:event", event);
+  adminNamespace.emit("activity:event", {
+    ...payload,
+    timestamp: Date.now(),
+  });
 };
 
 // ==========================
@@ -48,7 +50,7 @@ const getOrInitGame = (gameId) => {
       pot: 0,
       status: "waiting",
       players: [],
-      playerBets: {}, // store bets per player
+      playerBets: {},
       startedAt: null,
     });
   }
@@ -68,6 +70,7 @@ const cleanupGameIfEmpty = (gameId) => {
 function registerGameSockets(io, adminNamespace, socket) {
   const player = getOrCreatePlayer(socket);
 
+  // Handle duplicate connections
   if (player.socketId && player.socketId !== socket.id) {
     const oldSocket = io.sockets.sockets.get(player.socketId);
     oldSocket?.disconnect(true);
@@ -77,19 +80,24 @@ function registerGameSockets(io, adminNamespace, socket) {
   players.set(socket.id, player);
 
   // ==========================
-  // JOIN GAME ROOM
+  // JOIN ROOM
   // ==========================
   socket.on("joinRoom", (gameId, callback) => {
-    if (!gameId) return callback?.({ success: false, message: "Missing gameId" });
+    if (!gameId)
+      return callback?.({ success: false, message: "Missing gameId" });
 
     socket.join(gameId);
     player.room = gameId;
 
     const game = getOrInitGame(gameId);
 
-    if (!game.players.includes(player.userId)) game.players.push(player.userId);
-    if (!game.hostId) game.hostId = player.userId;
+    if (!game.players.includes(player.userId))
+      game.players.push(player.userId);
 
+    if (!game.hostId)
+      game.hostId = player.userId;
+
+    // If already started, sync state
     if (game.status === "started") {
       socket.emit("game:event", {
         type: "GAME_STARTED",
@@ -99,8 +107,6 @@ function registerGameSockets(io, adminNamespace, socket) {
         status: "started",
       });
     }
-
-    socket.to(gameId).emit("playerJoined", player);
 
     emitGameEvent(io, adminNamespace, gameId, {
       type: "PLAYER_JOINED",
@@ -119,7 +125,6 @@ function registerGameSockets(io, adminNamespace, socket) {
 
     callback?.({
       success: true,
-      gameId,
       joined: true,
       gameStatus: game.status,
       pot: game.pot,
@@ -128,7 +133,7 @@ function registerGameSockets(io, adminNamespace, socket) {
   });
 
   // ==========================
-  // INIT PLAYER DATA
+  // INIT DATA
   // ==========================
   socket.emit("init", {
     self: player,
@@ -138,7 +143,7 @@ function registerGameSockets(io, adminNamespace, socket) {
   });
 
   // ==========================
-  // PLAYER BET (NEW)
+  // PLAYER CREATES GAME / BET
   // ==========================
   socket.on("game:create", ({ gameId, hostId, betAmount }, callback) => {
     if (!gameId || !hostId || !betAmount || betAmount <= 0) {
@@ -146,12 +151,9 @@ function registerGameSockets(io, adminNamespace, socket) {
     }
 
     const game = getOrInitGame(gameId);
+
     game.hostId = hostId;
-
-    // Store player bet
     game.playerBets[player.userId] = Number(betAmount);
-
-    // Update total pot
     game.pot += Number(betAmount);
 
     emitGameEvent(io, adminNamespace, gameId, {
@@ -162,15 +164,22 @@ function registerGameSockets(io, adminNamespace, socket) {
       newPot: game.pot,
     });
 
-    callback?.({ success: true, gameId, pot: game.pot });
+    callback?.({
+      success: true,
+      gameId,
+      pot: game.pot,
+    });
   });
 
   // ==========================
-  // HOST ACTIONS
+  // CONFIGURE ENEMIES
   // ==========================
   socket.on("host:configureEnemies", ({ gameId, numEnemies }, callback) => {
     if (!gameId || !numEnemies || numEnemies <= 0) {
-      return callback?.({ success: false, message: "Invalid enemies number" });
+      return callback?.({
+        success: false,
+        message: "Invalid enemies number",
+      });
     }
 
     const game = getOrInitGame(gameId);
@@ -188,12 +197,18 @@ function registerGameSockets(io, adminNamespace, socket) {
       enemies: game.numEnemies,
     });
 
-    callback?.({ success: true, gameId, enemies: game.numEnemies });
+    callback?.({ success: true });
   });
 
+  // ==========================
+  // ADD TO POT
+  // ==========================
   socket.on("host:addToPot", ({ gameId, amount }, callback) => {
     if (!gameId || !amount || amount <= 0) {
-      return callback?.({ success: false, message: "Invalid pot amount" });
+      return callback?.({
+        success: false,
+        message: "Invalid pot amount",
+      });
     }
 
     const game = getOrInitGame(gameId);
@@ -212,66 +227,31 @@ function registerGameSockets(io, adminNamespace, socket) {
       newPot: game.pot,
     });
 
-    callback?.({ success: true, gameId, newPot: game.pot });
+    callback?.({ success: true, newPot: game.pot });
   });
 
   // ==========================
-  // HOST: START GAME
+  // START GAME
   // ==========================
   socket.on("host:startGame", ({ gameId }, callback) => {
     const game = getOrInitGame(gameId);
+
     game.status = "started";
     game.startedAt = Date.now();
 
     emitGameEvent(io, adminNamespace, gameId, {
       type: "GAME_STARTED",
+      pot: game.pot,
+      enemies: game.numEnemies,
       status: "started",
+    });
+
+    callback?.({
+      success: true,
+      status: game.status,
       pot: game.pot,
       enemies: game.numEnemies,
     });
-
-    callback?.({ success: true, gameId, status: game.status, pot: game.pot, enemies: game.numEnemies });
-  });
-
-  // ==========================
-  // HOST: END GAME (SUM POT + PLAYER BETS)
-  // ==========================
-  socket.on("host:endGame", ({ gameId, winnerId }, callback) => {
-    const game = games.get(gameId);
-    if (!game) return callback?.({ success: false, message: "Game not found" });
-
-    // Prevent immediate ending (e.g., <3s)
-    const minGameTime = 3000;
-    if (!game.startedAt || Date.now() - game.startedAt < minGameTime) {
-      return callback?.({ success: false, message: "Game too new to end" });
-    }
-
-    game.status = "finished";
-
-    // Total pot = sum of all player bets + any admin additions
-    const totalPlayerBets = Object.values(game.playerBets).reduce((a, b) => a + b, 0);
-    const totalPot = totalPlayerBets + game.pot - totalPlayerBets; // already includes admin additions
-
-    // Here you would typically credit the coins to the winner in DB
-    const creditedCoins = totalPot;
-
-    emitGameEvent(io, adminNamespace, gameId, {
-      type: "GAME_RESULT",
-      winnerId,
-      creditedCoins,
-      pot: totalPot,
-      status: "finished",
-    });
-
-    emitActivity(adminNamespace, {
-      type: "GAME_RESULT",
-      gameId,
-      winnerId,
-      creditedCoins,
-      pot: totalPot,
-    });
-
-    callback?.({ success: true, gameId, status: game.status, winnerId, creditedCoins });
   });
 
   // ==========================
@@ -284,8 +264,6 @@ function registerGameSockets(io, adminNamespace, socket) {
     players.delete(socket.id);
 
     if (p.room) {
-      socket.to(p.room).emit("playerLeft", p.userId);
-
       emitGameEvent(io, adminNamespace, p.room, {
         type: "PLAYER_DISCONNECTED",
         userId: p.userId,

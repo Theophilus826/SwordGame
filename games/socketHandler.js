@@ -83,16 +83,24 @@ function registerGameSockets(io, adminNamespace, socket) {
   // JOIN GAME ROOM
   // ==========================
   socket.on("joinRoom", (gameId, callback) => {
-    if (!gameId) return;
+    if (!gameId) {
+      return callback?.({ success: false, message: "Missing gameId" });
+    }
 
     socket.join(gameId);
     player.room = gameId;
 
     const game = getOrInitGame(gameId);
-    if (!game.players.includes(player.userId)) game.players.push(player.userId);
-    if (!game.hostId) game.hostId = player.userId;
 
-    // Sync ongoing game if started
+    if (!game.players.includes(player.userId)) {
+      game.players.push(player.userId);
+    }
+
+    if (!game.hostId) {
+      game.hostId = player.userId;
+    }
+
+    // Sync ongoing game if already started
     if (game.status === "started") {
       socket.emit("game:event", {
         type: "GAME_STARTED",
@@ -105,20 +113,30 @@ function registerGameSockets(io, adminNamespace, socket) {
 
     // Notify others & admin
     socket.to(gameId).emit("playerJoined", player);
+
     emitGameEvent(io, adminNamespace, gameId, {
       type: "PLAYER_JOINED",
       userId: player.userId,
       username: player.username,
     });
+
     emitActivity(adminNamespace, {
       type: "PLAYER_JOINED",
       userId: player.userId,
       username: player.username,
       room: gameId,
     });
+
     emitTacticalUpdate(io);
 
-    if (callback) callback({ joined: true, gameStatus: game.status, pot: game.pot, enemies: game.numEnemies });
+    callback?.({
+      success: true,
+      gameId,
+      joined: true,
+      gameStatus: game.status,
+      pot: game.pot,
+      enemies: game.numEnemies,
+    });
   });
 
   // ==========================
@@ -126,16 +144,24 @@ function registerGameSockets(io, adminNamespace, socket) {
   // ==========================
   socket.emit("init", {
     self: player,
-    players: [...playersByUser.values()].filter((p) => p.room === player.room),
+    players: [...playersByUser.values()].filter(
+      (p) => p.room === player.room
+    ),
   });
 
   // ==========================
-  // HOST ACTIONS
+  // HOST: CONFIGURE ENEMIES
   // ==========================
-  socket.on("host:configureEnemies", ({ gameId, numEnemies }) => {
-    if (!gameId || !numEnemies || numEnemies <= 0) return;
+  socket.on("host:configureEnemies", ({ gameId, numEnemies }, callback) => {
+    if (!gameId || !numEnemies || numEnemies <= 0) {
+      return callback?.({
+        success: false,
+        message: "Invalid enemies number",
+      });
+    }
 
     const game = getOrInitGame(gameId);
+
     game.enemiesConfigured = true;
     game.numEnemies = Number(numEnemies);
 
@@ -149,12 +175,27 @@ function registerGameSockets(io, adminNamespace, socket) {
       gameId,
       enemies: game.numEnemies,
     });
+
+    callback?.({
+      success: true,
+      gameId,
+      enemies: game.numEnemies,
+    });
   });
 
-  socket.on("host:addToPot", ({ gameId, amount }) => {
-    if (!gameId || !amount) return;
+  // ==========================
+  // HOST: ADD TO POT
+  // ==========================
+  socket.on("host:addToPot", ({ gameId, amount }, callback) => {
+    if (!gameId || !amount || amount <= 0) {
+      return callback?.({
+        success: false,
+        message: "Invalid pot amount",
+      });
+    }
 
     const game = getOrInitGame(gameId);
+
     game.pot += Number(amount);
 
     emitGameEvent(io, adminNamespace, gameId, {
@@ -169,16 +210,38 @@ function registerGameSockets(io, adminNamespace, socket) {
       amount,
       newPot: game.pot,
     });
+
+    callback?.({
+      success: true,
+      gameId,
+      newPot: game.pot,
+    });
   });
 
-  socket.on("host:startGame", ({ gameId, pot = 0 }) => {
-    if (!gameId) return;
+  // ==========================
+  // HOST: START GAME
+  // ==========================
+  socket.on("host:startGame", ({ gameId, pot = 0 }, callback) => {
+    if (!gameId) {
+      return callback?.({
+        success: false,
+        message: "Missing gameId",
+      });
+    }
 
     const game = getOrInitGame(gameId);
-    game.status = "started";
-    game.pot = Number(pot) || 0;
 
-    // Emit to players & admin
+    if (game.status === "started") {
+      return callback?.({
+        success: false,
+        message: "Game already started",
+        gameId,
+      });
+    }
+
+    game.status = "started";
+    game.pot = Number(pot) || game.pot;
+
     emitGameEvent(io, adminNamespace, gameId, {
       type: "GAME_STARTED",
       status: "started",
@@ -191,11 +254,28 @@ function registerGameSockets(io, adminNamespace, socket) {
       gameId,
       pot: game.pot,
     });
+
+    callback?.({
+      success: true,
+      gameId,
+      status: game.status,
+      pot: game.pot,
+      enemies: game.numEnemies,
+    });
   });
 
-  socket.on("host:endGame", ({ gameId, winnerId, creditedCoins }) => {
+  // ==========================
+  // HOST: END GAME
+  // ==========================
+  socket.on("host:endGame", ({ gameId, winnerId, creditedCoins }, callback) => {
     const game = games.get(gameId);
-    if (!game) return;
+
+    if (!game) {
+      return callback?.({
+        success: false,
+        message: "Game not found",
+      });
+    }
 
     game.status = "finished";
 
@@ -213,6 +293,14 @@ function registerGameSockets(io, adminNamespace, socket) {
       winnerId,
       creditedCoins,
       pot: game.pot,
+    });
+
+    callback?.({
+      success: true,
+      gameId,
+      status: game.status,
+      winnerId,
+      creditedCoins,
     });
   });
 
@@ -251,3 +339,4 @@ module.exports = {
   registerGameSockets,
   games,
 };
+

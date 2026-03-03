@@ -4,7 +4,7 @@ const { players, playersByUser, getOrCreatePlayer } = require("./gameState");
 // GAME STATE STORE
 // ==========================
 const games = new Map(); 
-// gameId => { hostId, enemiesConfigured, numEnemies, pot, status, players }
+// gameId => { hostId, enemiesConfigured, numEnemies, pot, status, players, startedAt }
 
 // ==========================
 // EMITTER HELPERS
@@ -25,7 +25,6 @@ const emitTacticalUpdate = (io) => {
 
 const emitGameEvent = (io, adminNamespace, gameId, payload) => {
   if (!gameId) return;
-
   const event = { ...payload, gameId, timestamp: Date.now() };
 
   io.to(gameId).emit("game:event", event);
@@ -49,6 +48,7 @@ const getOrInitGame = (gameId) => {
       pot: 0,
       status: "waiting",
       players: [],
+      startedAt: null, // track start time
     });
   }
   return games.get(gameId);
@@ -80,9 +80,7 @@ function registerGameSockets(io, adminNamespace, socket) {
   // JOIN GAME ROOM
   // ==========================
   socket.on("joinRoom", (gameId, callback) => {
-    if (!gameId) {
-      return callback?.({ success: false, message: "Missing gameId" });
-    }
+    if (!gameId) return callback?.({ success: false, message: "Missing gameId" });
 
     socket.join(gameId);
     player.room = gameId;
@@ -196,6 +194,7 @@ function registerGameSockets(io, adminNamespace, socket) {
     const game = getOrInitGame(gameId);
     game.status = "started";
     game.pot = Number(pot) || game.pot;
+    game.startedAt = Date.now(); // mark the start time
 
     emitGameEvent(io, adminNamespace, gameId, {
       type: "GAME_STARTED",
@@ -213,6 +212,12 @@ function registerGameSockets(io, adminNamespace, socket) {
   socket.on("host:endGame", ({ gameId, winnerId, creditedCoins }, callback) => {
     const game = games.get(gameId);
     if (!game) return callback?.({ success: false, message: "Game not found" });
+
+    // Prevent immediate ending (e.g., <3s)
+    const minGameTime = 3000; // 3 seconds
+    if (!game.startedAt || Date.now() - game.startedAt < minGameTime) {
+      return callback?.({ success: false, message: "Game too new to end" });
+    }
 
     game.status = "finished";
 

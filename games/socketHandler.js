@@ -28,10 +28,7 @@ const emitGameEvent = (io, adminNamespace, gameId, payload) => {
 
   const event = { ...payload, gameId, timestamp: Date.now() };
 
-  // Send to players in room
   io.to(gameId).emit("game:event", event);
-
-  // Send to admin dashboard
   adminNamespace.emit("game:event", event);
 };
 
@@ -92,15 +89,9 @@ function registerGameSockets(io, adminNamespace, socket) {
 
     const game = getOrInitGame(gameId);
 
-    if (!game.players.includes(player.userId)) {
-      game.players.push(player.userId);
-    }
+    if (!game.players.includes(player.userId)) game.players.push(player.userId);
+    if (!game.hostId) game.hostId = player.userId;
 
-    if (!game.hostId) {
-      game.hostId = player.userId;
-    }
-
-    // Sync ongoing game if already started
     if (game.status === "started") {
       socket.emit("game:event", {
         type: "GAME_STARTED",
@@ -111,7 +102,6 @@ function registerGameSockets(io, adminNamespace, socket) {
       });
     }
 
-    // Notify others & admin
     socket.to(gameId).emit("playerJoined", player);
 
     emitGameEvent(io, adminNamespace, gameId, {
@@ -150,18 +140,14 @@ function registerGameSockets(io, adminNamespace, socket) {
   });
 
   // ==========================
-  // HOST: CONFIGURE ENEMIES
+  // HOST ACTIONS
   // ==========================
   socket.on("host:configureEnemies", ({ gameId, numEnemies }, callback) => {
     if (!gameId || !numEnemies || numEnemies <= 0) {
-      return callback?.({
-        success: false,
-        message: "Invalid enemies number",
-      });
+      return callback?.({ success: false, message: "Invalid enemies number" });
     }
 
     const game = getOrInitGame(gameId);
-
     game.enemiesConfigured = true;
     game.numEnemies = Number(numEnemies);
 
@@ -176,26 +162,15 @@ function registerGameSockets(io, adminNamespace, socket) {
       enemies: game.numEnemies,
     });
 
-    callback?.({
-      success: true,
-      gameId,
-      enemies: game.numEnemies,
-    });
+    callback?.({ success: true, gameId, enemies: game.numEnemies });
   });
 
-  // ==========================
-  // HOST: ADD TO POT
-  // ==========================
   socket.on("host:addToPot", ({ gameId, amount }, callback) => {
     if (!gameId || !amount || amount <= 0) {
-      return callback?.({
-        success: false,
-        message: "Invalid pot amount",
-      });
+      return callback?.({ success: false, message: "Invalid pot amount" });
     }
 
     const game = getOrInitGame(gameId);
-
     game.pot += Number(amount);
 
     emitGameEvent(io, adminNamespace, gameId, {
@@ -211,56 +186,33 @@ function registerGameSockets(io, adminNamespace, socket) {
       newPot: game.pot,
     });
 
-    callback?.({
-      success: true,
-      gameId,
-      newPot: game.pot,
-    });
+    callback?.({ success: true, gameId, newPot: game.pot });
   });
 
   // ==========================
   // HOST: START GAME
   // ==========================
-// ==========================
-// HOST: START GAME
-// ==========================
-socket.on("host:startGame", ({ gameId, pot = 0 }, callback) => {
-  console.log("🔥 START GAME RECEIVED:", gameId);
+  socket.on("host:startGame", ({ gameId, pot = 0 }, callback) => {
+    const game = getOrInitGame(gameId);
+    game.status = "started";
+    game.pot = Number(pot) || game.pot;
 
-  const game = getOrInitGame(gameId);
-  game.status = "started";
+    emitGameEvent(io, adminNamespace, gameId, {
+      type: "GAME_STARTED",
+      status: "started",
+      pot: game.pot,
+      enemies: game.numEnemies,
+    });
 
-  console.log("🔥 EMITTING GAME_STARTED TO ROOM:", gameId);
-  console.log("🔥 ROOM MEMBERS:", io.sockets.adapter.rooms.get(gameId));
-
-  emitGameEvent(io, adminNamespace, gameId, {
-    type: "GAME_STARTED",
-    status: "started",
-    pot: game.pot,
-    enemies: game.numEnemies,
+    callback?.({ success: true, gameId, status: game.status, pot: game.pot, enemies: game.numEnemies });
   });
 
-  callback?.({
-    success: true,
-    gameId,
-    status: game.status,
-    pot: game.pot,
-    enemies: game.numEnemies,
-  });
-});
-  
   // ==========================
   // HOST: END GAME
   // ==========================
   socket.on("host:endGame", ({ gameId, winnerId, creditedCoins }, callback) => {
     const game = games.get(gameId);
-
-    if (!game) {
-      return callback?.({
-        success: false,
-        message: "Game not found",
-      });
-    }
+    if (!game) return callback?.({ success: false, message: "Game not found" });
 
     game.status = "finished";
 
@@ -280,13 +232,7 @@ socket.on("host:startGame", ({ gameId, pot = 0 }, callback) => {
       pot: game.pot,
     });
 
-    callback?.({
-      success: true,
-      gameId,
-      status: game.status,
-      winnerId,
-      creditedCoins,
-    });
+    callback?.({ success: true, gameId, status: game.status, winnerId, creditedCoins });
   });
 
   // ==========================
@@ -324,6 +270,3 @@ module.exports = {
   registerGameSockets,
   games,
 };
-
-
-

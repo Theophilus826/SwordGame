@@ -221,6 +221,9 @@ function registerGameSockets(io, adminNamespace, socket) {
   // ==========================
   // HOST: START GAME
   // ==========================
+// ==========================
+// HOST: START GAME
+// ==========================
 socket.on("host:startGame", ({ gameId, pot = 0 }, callback) => {
   console.log("🔥 START GAME RECEIVED:", gameId);
 
@@ -236,17 +239,16 @@ socket.on("host:startGame", ({ gameId, pot = 0 }, callback) => {
     pot: game.pot,
     enemies: game.numEnemies,
   });
-});
 
-    callback?.({
-      success: true,
-      gameId,
-      status: game.status,
-      pot: game.pot,
-      enemies: game.numEnemies,
-    });
+  callback?.({
+    success: true,
+    gameId,
+    status: game.status,
+    pot: game.pot,
+    enemies: game.numEnemies,
   });
-
+});
+  
   // ==========================
   // HOST: END GAME
   // ==========================
@@ -322,5 +324,6 @@ module.exports = {
   registerGameSockets,
   games,
 };
+
 
 

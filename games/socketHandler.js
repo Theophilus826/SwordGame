@@ -4,7 +4,17 @@ const { players, playersByUser, getOrCreatePlayer } = require("./gameState");
 // GAME STATE STORE
 // ==========================
 const games = new Map();
-// gameId => { hostId, enemiesConfigured, numEnemies, pot, status, players, playerBets, startedAt }
+// gameId => {
+//   hostId,
+//   enemiesConfigured,
+//   numEnemies,
+//   enemies: [],
+//   pot,
+//   status,
+//   players,
+//   playerBets,
+//   startedAt
+// }
 
 // ==========================
 // EMITTER HELPERS
@@ -47,6 +57,7 @@ const getOrInitGame = (gameId) => {
       hostId: null,
       enemiesConfigured: false,
       numEnemies: 0,
+      enemies: [], // ✅ FULL ENEMY OBJECTS STORED HERE
       pot: 0,
       status: "waiting",
       players: [],
@@ -70,7 +81,6 @@ const cleanupGameIfEmpty = (gameId) => {
 function registerGameSockets(io, adminNamespace, socket) {
   const player = getOrCreatePlayer(socket);
 
-  // Handle duplicate connections
   if (player.socketId && player.socketId !== socket.id) {
     const oldSocket = io.sockets.sockets.get(player.socketId);
     oldSocket?.disconnect(true);
@@ -97,13 +107,13 @@ function registerGameSockets(io, adminNamespace, socket) {
     if (!game.hostId)
       game.hostId = player.userId;
 
-    // If already started, sync state
+    // Sync if already started
     if (game.status === "started") {
       socket.emit("game:event", {
         type: "GAME_STARTED",
         gameId,
         pot: game.pot,
-        enemies: game.numEnemies,
+        enemies: game.enemies, // ✅ FULL ARRAY
         status: "started",
       });
     }
@@ -128,12 +138,12 @@ function registerGameSockets(io, adminNamespace, socket) {
       joined: true,
       gameStatus: game.status,
       pot: game.pot,
-      enemies: game.numEnemies,
+      enemies: game.enemies, // ✅ FULL ARRAY
     });
   });
 
   // ==========================
-  // INIT DATA
+  // INIT
   // ==========================
   socket.emit("init", {
     self: player,
@@ -143,7 +153,7 @@ function registerGameSockets(io, adminNamespace, socket) {
   });
 
   // ==========================
-  // PLAYER CREATES GAME / BET
+  // CREATE GAME / BET
   // ==========================
   socket.on("game:create", ({ gameId, hostId, betAmount }, callback) => {
     if (!gameId || !hostId || !betAmount || betAmount <= 0) {
@@ -164,11 +174,7 @@ function registerGameSockets(io, adminNamespace, socket) {
       newPot: game.pot,
     });
 
-    callback?.({
-      success: true,
-      gameId,
-      pot: game.pot,
-    });
+    callback?.({ success: true, gameId, pot: game.pot });
   });
 
   // ==========================
@@ -176,28 +182,45 @@ function registerGameSockets(io, adminNamespace, socket) {
   // ==========================
   socket.on("host:configureEnemies", ({ gameId, numEnemies }, callback) => {
     if (!gameId || !numEnemies || numEnemies <= 0) {
-      return callback?.({
-        success: false,
-        message: "Invalid enemies number",
-      });
+      return callback?.({ success: false, message: "Invalid enemy count" });
     }
 
     const game = getOrInitGame(gameId);
+    const count = Number(numEnemies);
+    const ENEMY_RADIUS = 12;
+
+    const generatedEnemies = [];
+
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2;
+
+      generatedEnemies.push({
+        id: `enemy_${i}`,
+        position: {
+          x: Math.cos(angle) * ENEMY_RADIUS,
+          y: 0,
+          z: Math.sin(angle) * ENEMY_RADIUS,
+        },
+        health: 100,
+      });
+    }
+
     game.enemiesConfigured = true;
-    game.numEnemies = Number(numEnemies);
+    game.numEnemies = count;
+    game.enemies = generatedEnemies; // ✅ STORE FULL OBJECTS
 
     emitGameEvent(io, adminNamespace, gameId, {
       type: "ENEMIES_CONFIGURED",
-      enemies: game.numEnemies,
+      enemies: generatedEnemies,
     });
 
     emitActivity(adminNamespace, {
       type: "ENEMIES_CONFIGURED",
       gameId,
-      enemies: game.numEnemies,
+      enemies: count,
     });
 
-    callback?.({ success: true });
+    callback?.({ success: true, enemies: generatedEnemies });
   });
 
   // ==========================
@@ -205,10 +228,7 @@ function registerGameSockets(io, adminNamespace, socket) {
   // ==========================
   socket.on("host:addToPot", ({ gameId, amount }, callback) => {
     if (!gameId || !amount || amount <= 0) {
-      return callback?.({
-        success: false,
-        message: "Invalid pot amount",
-      });
+      return callback?.({ success: false, message: "Invalid pot amount" });
     }
 
     const game = getOrInitGame(gameId);
@@ -236,21 +256,35 @@ function registerGameSockets(io, adminNamespace, socket) {
   socket.on("host:startGame", ({ gameId }, callback) => {
     const game = getOrInitGame(gameId);
 
+    if (!game.enemiesConfigured || game.enemies.length === 0) {
+      return callback?.({
+        success: false,
+        message: "Enemies not configured",
+      });
+    }
+
+    if (game.status === "started") {
+      return callback?.({
+        success: false,
+        message: "Game already started",
+      });
+    }
+
     game.status = "started";
     game.startedAt = Date.now();
 
     emitGameEvent(io, adminNamespace, gameId, {
       type: "GAME_STARTED",
       pot: game.pot,
-      enemies: game.numEnemies,
-      status: "started",
+      enemies: game.enemies, // ✅ FULL ARRAY
+      status: game.status,
     });
 
     callback?.({
       success: true,
       status: game.status,
       pot: game.pot,
-      enemies: game.numEnemies,
+      enemies: game.enemies, // ✅ FULL ARRAY
     });
   });
 

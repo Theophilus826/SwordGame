@@ -54,15 +54,18 @@ app.use(
 connectDB();
 
 // ==========================
-// CREATE SERVER + SOCKET.IO
+// CREATE SERVER
 // ==========================
 const server = http.createServer(app);
 
+// ==========================
+// SOCKET.IO
+// ==========================
 const io = new Server(server, {
-  path: "/socket.io", 
+  path: "/socket.io",
   cors: {
     origin: FRONTEND_URL,
-       credentials: true,
+    credentials: true,
   },
   transports: ["websocket", "polling"],
 });
@@ -73,20 +76,26 @@ const io = new Server(server, {
 const adminNamespace = io.of("/admin");
 
 adminNamespace.use(socketAuth);
+
 adminNamespace.use((socket, next) => {
-  if (!socket.user?.isAdmin) return next(new Error("Admins only"));
+  if (!socket.user?.isAdmin) {
+    return next(new Error("Admins only"));
+  }
   next();
 });
 
 adminNamespace.on("connection", (socket) => {
   console.log(`🖥 Admin ${socket.user.name} connected`);
-     registerGameSockets(io, adminNamespace, socket);
-    socket.on("admin:getUsers", async () => {
+
+  // Register admin game sockets
+  registerGameSockets(io, adminNamespace, socket);
+
+  socket.on("admin:getUsers", async () => {
     try {
       const users = await getUsersFromDB();
       socket.emit("users:list", users);
     } catch (err) {
-      console.error("Error fetching users for admin:", err);
+      console.error("Admin users fetch error:", err);
       socket.emit("error", { message: "Failed to get users" });
     }
   });
@@ -97,16 +106,16 @@ adminNamespace.on("connection", (socket) => {
 });
 
 // ==========================
-// MAKE IO AVAILABLE IN ROUTES
+// MAKE SOCKET AVAILABLE IN ROUTES
 // ==========================
 app.use((req, res, next) => {
   req.io = io;
-  req.adminNamespace = adminNamespace;   // ✅ FIX
+  req.adminNamespace = adminNamespace;
   next();
 });
 
 // ==========================
-// HTTP ROUTES
+// ROUTES
 // ==========================
 app.get("/", (req, res) => {
   res.status(200).json({ message: "Welcome to Game Backend API" });
@@ -116,23 +125,32 @@ app.use("/api/users", require("./routes/UserRoutes"));
 app.use("/api/coins", require("./routes/AccountRoutes"));
 app.use("/api/admin", require("./routes/AdminRoutes"));
 app.use("/api/feedbacks", require("./routes/FeedbackRoutes"));
-// app.use("/api/game", require("./routes/GameRoutes"));
+app.use("/api/post", require("./routes/PostRoute"));
+app.use("/api/auth", require("./routes/ShareRoute"));
+app.use("/uploads", express.static("uploads"));
+app.use("/api/notifications", require("./routes/NotificationRoute"));
+app.use("/api/wallet", require("./routes/DepositRoutes"));
+
 // ==========================
 // ERROR HANDLER
 // ==========================
 app.use(errorHandler);
 
 // ==========================
-// MAIN NAMESPACE
+// MAIN SOCKET
 // ==========================
 io.use(socketAuth);
 
 io.on("connection", async (socket) => {
   try {
     console.log(`🟢 ${socket.user.name} connected`);
+
     socket.userId = socket.user._id;
 
-    // ✅ Mark user online
+    // join private user room
+    socket.join(socket.userId.toString());
+
+    // mark user online
     await User.findByIdAndUpdate(socket.userId, { online: true });
 
     io.emit("user:status", {
@@ -140,7 +158,7 @@ io.on("connection", async (socket) => {
       online: true,
     });
 
-    // ✅ Notify admin dashboard
+    // notify admin dashboard
     adminNamespace.emit("activity:event", {
       type: "USER_ONLINE",
       userId: socket.userId,
@@ -148,11 +166,16 @@ io.on("connection", async (socket) => {
       timestamp: Date.now(),
     });
 
-     registerGameSockets(io,adminNamespace, socket);
+    // register game sockets
+    registerGameSockets(io, adminNamespace, socket);
+
   } catch (err) {
-    console.error("Error during connection setup:", err);
+    console.error("Socket connection setup error:", err);
   }
 
+  // ==========================
+  // DISCONNECT
+  // ==========================
   socket.on("disconnect", async () => {
     try {
       console.log(`🔴 ${socket.user.name} disconnected`);
@@ -170,8 +193,9 @@ io.on("connection", async (socket) => {
         username: socket.user.name,
         timestamp: Date.now(),
       });
+
     } catch (err) {
-      console.error("Error during disconnect:", err);
+      console.error("Disconnect error:", err);
     }
   });
 });
@@ -184,17 +208,3 @@ const PORT = process.env.PORT || 5000;
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on port ${PORT}`.cyan.bold);
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-

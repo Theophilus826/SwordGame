@@ -1,6 +1,6 @@
 const express = require("express");
 const { register, handleReferral } = require("../controller/ShareControllers");
-const { protect } = require("../middleware/authMiddleware");
+const { protect } = require("../middleware/AuthMiddleware");
 
 const router = express.Router();
 

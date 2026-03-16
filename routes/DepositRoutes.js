@@ -5,7 +5,7 @@ const {
   getDepositHistory,
   virtualAccountWebhook // ✅ add webhook handler
 } = require("../controller/DepositController");
-const { protect } = require("../middleware/authMiddleware");
+const { protect } = require("../middleware/AuthMiddleware");
 
 const router = express.Router();
 

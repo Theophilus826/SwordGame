@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 
-// Comment schema
-const commentSchema = mongoose.Schema(
+// ===== Comment Schema =====
+const commentSchema = new mongoose.Schema(
   {
     user: {
       type: mongoose.Schema.Types.ObjectId,
@@ -17,8 +17,8 @@ const commentSchema = mongoose.Schema(
   { timestamps: true }
 );
 
-// Media schema
-const mediaSchema = mongoose.Schema({
+// ===== Media Schema =====
+const mediaSchema = new mongoose.Schema({
   url: {
     type: String,
     required: true,
@@ -30,22 +30,24 @@ const mediaSchema = mongoose.Schema({
   },
 });
 
-// Post schema
-const postSchema = mongoose.Schema(
+// ===== Post Schema =====
+const postSchema = new mongoose.Schema(
   {
+    // Post owner
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
     },
 
-    // ✅ Add text field
+    // Post content
     text: {
       type: String,
       trim: true,
       default: "",
     },
 
+    // Media attachments
     media: [mediaSchema],
 
     // Reactions
@@ -76,4 +78,5 @@ const postSchema = mongoose.Schema(
   { timestamps: true }
 );
 
+// ===== Export Post Model =====
 module.exports = mongoose.model("Post", postSchema);

@@ -132,14 +132,15 @@ app.use("/uploads", express.static("uploads"));
 app.use("/api/notifications", require("./routes/NotificationRoute"));
 app.use("/api/wallet", require("./routes/DepositRoutes"));
 
+// Route to get posts by a specific user
 app.get("/api/user/:userId/posts", async (req, res) => {
+  const { userId } = req.params;
+
   try {
-    const posts = await Post.find({ user: req.params.userId }).sort({
-      createdAt: -1,
-    });
-    res.json({ posts });
+    const posts = await Post.find({ user: userId }).sort({ createdAt: -1 });
+    res.status(200).json({ posts });
   } catch (err) {
-    console.error(err);
+    console.error("Error fetching user posts:", err);
     res.status(500).json({ message: "Failed to fetch user posts" });
   }
 });

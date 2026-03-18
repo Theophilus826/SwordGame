@@ -14,9 +14,8 @@ const { errorHandler } = require("./middleware/ErrorMiddleware");
 const socketAuth = require("./middleware/socketAuth");
 const { registerGameSockets } = require("./games/socketHandler");
 const User = require("./models/UserModels");
-const Post = require('./models/Postmodel');
 const { getUsersFromDB } = require("./controller/UserHelpers");
-const { protect } = require("./middleware/AuthMiddleware"); // <-- import protect middleware
+
 
 // ==========================
 // LOAD ENV
@@ -38,7 +37,8 @@ app.use(cookieParser());
 // ==========================
 // CORS
 // ==========================
-const FRONTEND_URL = process.env.FRONTEND_URL || "https://face-rite.onrender.com";
+const FRONTEND_URL =
+  process.env.FRONTEND_URL || "https://face-rite.onrender.com";
 
 app.use(
   cors({
@@ -64,7 +64,10 @@ const server = http.createServer(app);
 // ==========================
 const io = new Server(server, {
   path: "/socket.io",
-  cors: { origin: FRONTEND_URL, credentials: true },
+  cors: {
+    origin: FRONTEND_URL,
+    credentials: true,
+  },
   transports: ["websocket", "polling"],
 });
 
@@ -72,16 +75,20 @@ const io = new Server(server, {
 // ADMIN NAMESPACE
 // ==========================
 const adminNamespace = io.of("/admin");
+
 adminNamespace.use(socketAuth);
 
 adminNamespace.use((socket, next) => {
-  if (!socket.user?.isAdmin) return next(new Error("Admins only"));
+  if (!socket.user?.isAdmin) {
+    return next(new Error("Admins only"));
+  }
   next();
 });
 
 adminNamespace.on("connection", (socket) => {
   console.log(`🖥 Admin ${socket.user.name} connected`);
 
+  // Register admin game sockets
   registerGameSockets(io, adminNamespace, socket);
 
   socket.on("admin:getUsers", async () => {
@@ -125,30 +132,8 @@ app.use("/uploads", express.static("uploads"));
 app.use("/api/notifications", require("./routes/NotificationRoute"));
 app.use("/api/wallet", require("./routes/DepositRoutes"));
 
-// ==========================
-// PROTECTED ROUTE: GET POSTS FOR A USER
-// ==========================
-app.get("/api/user/:userId/posts", protect, async (req, res) => {
-  const { userId } = req.params;
+// Route to get posts by a specific user
 
-  // Only allow the user or admins to access posts
-  if (req.user._id.toString() !== userId && !req.user.isAdmin) {
-    return res.status(403).json({ message: "Forbidden: Access denied" });
-  }
-
-  try {
-    if (!Post) {
-      console.error("Post model not found");
-      return res.status(500).json({ message: "Server misconfiguration" });
-    }
-
-    const posts = await Post.find({ user: userId }).sort({ createdAt: -1 });
-    return res.status(200).json({ posts: posts || [] });
-  } catch (err) {
-    console.error("Error fetching user posts:", err);
-    return res.status(500).json({ message: "Failed to fetch user posts" });
-  }
-});
 
 // ==========================
 // ERROR HANDLER
@@ -163,14 +148,21 @@ io.use(socketAuth);
 io.on("connection", async (socket) => {
   try {
     console.log(`🟢 ${socket.user.name} connected`);
+
     socket.userId = socket.user._id;
 
+    // join private user room
     socket.join(socket.userId.toString());
 
+    // mark user online
     await User.findByIdAndUpdate(socket.userId, { online: true });
 
-    io.emit("user:status", { userId: socket.userId, online: true });
+    io.emit("user:status", {
+      userId: socket.userId,
+      online: true,
+    });
 
+    // notify admin dashboard
     adminNamespace.emit("activity:event", {
       type: "USER_ONLINE",
       userId: socket.userId,
@@ -178,18 +170,26 @@ io.on("connection", async (socket) => {
       timestamp: Date.now(),
     });
 
+    // register game sockets
     registerGameSockets(io, adminNamespace, socket);
+
   } catch (err) {
     console.error("Socket connection setup error:", err);
   }
 
+  // ==========================
+  // DISCONNECT
+  // ==========================
   socket.on("disconnect", async () => {
     try {
       console.log(`🔴 ${socket.user.name} disconnected`);
 
       await User.findByIdAndUpdate(socket.userId, { online: false });
 
-      io.emit("user:status", { userId: socket.userId, online: false });
+      io.emit("user:status", {
+        userId: socket.userId,
+        online: false,
+      });
 
       adminNamespace.emit("activity:event", {
         type: "USER_OFFLINE",
@@ -197,6 +197,7 @@ io.on("connection", async (socket) => {
         username: socket.user.name,
         timestamp: Date.now(),
       });
+
     } catch (err) {
       console.error("Disconnect error:", err);
     }

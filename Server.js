@@ -15,6 +15,7 @@ const socketAuth = require("./middleware/socketAuth");
 const { registerGameSockets } = require("./games/socketHandler");
 const User = require("./models/UserModels");
 const { getUsersFromDB } = require("./controller/UserHelpers");
+const Post = require("./models/Postmodel"); 
 
 // ==========================
 // LOAD ENV
@@ -131,6 +132,17 @@ app.use("/uploads", express.static("uploads"));
 app.use("/api/notifications", require("./routes/NotificationRoute"));
 app.use("/api/wallet", require("./routes/DepositRoutes"));
 
+app.get("/api/user/:userId/posts", async (req, res) => {
+  try {
+    const posts = await Post.find({ user: req.params.userId }).sort({
+      createdAt: -1,
+    });
+    res.json({ posts });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to fetch user posts" });
+  }
+});
 // ==========================
 // ERROR HANDLER
 // ==========================

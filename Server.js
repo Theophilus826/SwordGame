@@ -133,15 +133,32 @@ app.use("/api/notifications", require("./routes/NotificationRoute"));
 app.use("/api/wallet", require("./routes/DepositRoutes"));
 
 // Route to get posts by a specific user
+// Route to get posts by a specific user safely
 app.get("/api/user/:userId/posts", async (req, res) => {
   const { userId } = req.params;
 
+  // 1️⃣ Validate userId
+  if (!userId) {
+    return res.status(400).json({ message: "User ID is required" });
+  }
+
   try {
+    // 2️⃣ Make sure Post model is available
+    if (!Post) {
+      console.error("Post model not found");
+      return res.status(500).json({ message: "Server misconfiguration" });
+    }
+
+    // 3️⃣ Fetch posts
     const posts = await Post.find({ user: userId }).sort({ createdAt: -1 });
-    res.status(200).json({ posts });
+
+    // 4️⃣ Return empty array if no posts
+    return res.status(200).json({ posts: posts || [] });
   } catch (err) {
     console.error("Error fetching user posts:", err);
-    res.status(500).json({ message: "Failed to fetch user posts" });
+
+    // 5️⃣ Return safe error
+    return res.status(500).json({ message: "Failed to fetch user posts" });
   }
 });
 

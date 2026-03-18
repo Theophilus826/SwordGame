@@ -15,7 +15,7 @@ const socketAuth = require("./middleware/socketAuth");
 const { registerGameSockets } = require("./games/socketHandler");
 const User = require("./models/UserModels");
 const { getUsersFromDB } = require("./controller/UserHelpers");
-const Post = require("./models/Postmodel"); 
+const Postmodel = require('./models/Postmodel');
 
 // ==========================
 // LOAD ENV

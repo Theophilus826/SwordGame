@@ -15,7 +15,7 @@ const socketAuth = require("./middleware/socketAuth");
 const { registerGameSockets } = require("./games/socketHandler");
 const User = require("./models/UserModels");
 const { getUsersFromDB } = require("./controller/UserHelpers");
-const Postmodel = require('./models/Postmodel');
+const Post = require('./models/Postmodel');
 
 // ==========================
 // LOAD ENV
@@ -143,6 +143,7 @@ app.get("/api/user/:userId/posts", async (req, res) => {
     res.status(500).json({ message: "Failed to fetch user posts" });
   }
 });
+
 // ==========================
 // ERROR HANDLER
 // ==========================

@@ -21,6 +21,8 @@ const coinTransactionSchema = mongoose.Schema(
             "ADMIN_DEBIT",
             "PURCHASE",
             "REWARD",
+             "TRANSFER_SENT",      // ✅ add this
+             "TRANSFER_RECEIVED",
             "REFUND"
         ],
         required: true,

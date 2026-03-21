@@ -9,7 +9,14 @@ const createPost = asyncHandler(async (req, res) => {
   const media = [];
 
   if (req.file) {
-    const type = req.file.mimetype.startsWith("video") ? "video" : "image";
+    // Determine media type safely
+    const type =
+      req.body.type && ["image", "video"].includes(req.body.type)
+        ? req.body.type
+        : req.file.mimetype.startsWith("video")
+        ? "video"
+        : "image";
+
     media.push({ url: `/uploads/${req.file.filename}`, type });
   }
 
@@ -19,7 +26,7 @@ const createPost = asyncHandler(async (req, res) => {
   }
 
   const post = await Post.create({
-    user: req.user._id, // ✅ important
+    user: req.user._id,
     text,
     media,
   });
@@ -29,10 +36,7 @@ const createPost = asyncHandler(async (req, res) => {
     .populate("comments.user", "name avatar")
     .lean();
 
-  // ✅ Emit real-time post
-  if (req.io) {
-    req.io.emit("post:created", populatedPost);
-  }
+  if (req.io) req.io.emit("post:created", populatedPost);
 
   res.status(201).json({
     success: true,
@@ -46,7 +50,6 @@ const createPost = asyncHandler(async (req, res) => {
 // =========================
 const uploadMedia = asyncHandler(async (req, res) => {
   const post = await Post.findById(req.params.postId);
-
   if (!post) {
     res.status(404);
     throw new Error("Post not found");
@@ -62,10 +65,20 @@ const uploadMedia = asyncHandler(async (req, res) => {
     throw new Error("No file uploaded");
   }
 
-  const type = req.file.mimetype.startsWith("video") ? "video" : "image";
-  const mediaItem = { url: `/uploads/${req.file.filename}`, type };
+  // Ensure post.media is an array
+  post.media = Array.isArray(post.media) ? post.media : [];
 
+  // Safe type determination
+  const type =
+    req.body.type && ["image", "video"].includes(req.body.type)
+      ? req.body.type
+      : req.file.mimetype.startsWith("video")
+      ? "video"
+      : "image";
+
+  const mediaItem = { url: `/uploads/${req.file.filename}`, type };
   post.media.push(mediaItem);
+
   await post.save();
 
   const populatedPost = await Post.findById(post._id)
@@ -81,7 +94,7 @@ const uploadMedia = asyncHandler(async (req, res) => {
 });
 
 // =========================
-// Get All Posts (Feed)
+// Get All Posts
 // =========================
 const getPosts = asyncHandler(async (req, res) => {
   const posts = await Post.find()
@@ -98,12 +111,16 @@ const getPosts = asyncHandler(async (req, res) => {
 });
 
 // =========================
-// React to Post (LIKE / LOVE)
+// React to Post
 // =========================
 const reactPost = asyncHandler(async (req, res) => {
   const { type } = req.body;
-  const post = await Post.findById(req.params.postId);
+  if (!["like", "love"].includes(type)) {
+    res.status(400);
+    throw new Error("Invalid reaction type");
+  }
 
+  const post = await Post.findById(req.params.postId);
   if (!post) {
     res.status(404);
     throw new Error("Post not found");
@@ -111,37 +128,27 @@ const reactPost = asyncHandler(async (req, res) => {
 
   const userId = req.user._id.toString();
 
-  // Ensure arrays exist
-  post.likedBy = post.likedBy || [];
-  post.lovedBy = post.lovedBy || [];
+  // Ensure reaction arrays exist
+  post.likedBy = Array.isArray(post.likedBy) ? post.likedBy : [];
+  post.lovedBy = Array.isArray(post.lovedBy) ? post.lovedBy : [];
 
   if (type === "like") {
     const index = post.likedBy.indexOf(userId);
-
-    if (index > -1) {
-      post.likedBy.splice(index, 1);
-    } else {
+    if (index > -1) post.likedBy.splice(index, 1);
+    else {
       post.likedBy.push(userId);
-
-      // ❗ Remove from love if switching
       post.lovedBy = post.lovedBy.filter(id => id.toString() !== userId);
     }
-  }
-
-  if (type === "love") {
+  } else if (type === "love") {
     const index = post.lovedBy.indexOf(userId);
-
-    if (index > -1) {
-      post.lovedBy.splice(index, 1);
-    } else {
+    if (index > -1) post.lovedBy.splice(index, 1);
+    else {
       post.lovedBy.push(userId);
-
-      // ❗ Remove from like if switching
       post.likedBy = post.likedBy.filter(id => id.toString() !== userId);
     }
   }
 
-  // ✅ Always recalculate counts (safer)
+  // Recalculate counts
   post.likeCount = post.likedBy.length;
   post.loveCount = post.lovedBy.length;
 
@@ -159,19 +166,18 @@ const reactPost = asyncHandler(async (req, res) => {
 // =========================
 const commentPost = asyncHandler(async (req, res) => {
   const text = req.body.text?.trim();
-
   if (!text) {
     res.status(400);
     throw new Error("Comment cannot be empty");
   }
 
   const post = await Post.findById(req.params.postId);
-
   if (!post) {
     res.status(404);
     throw new Error("Post not found");
   }
 
+  post.comments = Array.isArray(post.comments) ? post.comments : [];
   post.comments.push({
     user: req.user._id,
     text,

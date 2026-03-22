@@ -1,11 +1,11 @@
 const express = require("express");
 const multer = require("multer");
-const path = require("path");
-const fs = require("fs");
 const asyncHandler = require("express-async-handler");
-
+const { CloudinaryStorage } = require("multer-storage-cloudinary");
 const { protect } = require("../middleware/AuthMiddleware");
+const cloudinary = require("../config/Cloudinary");
 const Post = require("../models/PostModel");
+
 const {
   createPost,
   uploadMedia,
@@ -16,15 +16,7 @@ const {
 
 const router = express.Router();
 
-// =======================
-// Ensure Upload Folder Exists
-// =======================
-const uploadDir = path.join(__dirname, "..", "uploads");
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-
-// =======================
-// File Type Filter
-// =======================
+// File filter
 const fileFilter = (req, file, cb) => {
   const allowedTypes = [
     "image/jpeg",
@@ -39,46 +31,29 @@ const fileFilter = (req, file, cb) => {
   else cb(new Error("Only images and videos are allowed"), false);
 };
 
-// =======================
-// Multer Storage
-// =======================
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadDir),
-  filename: (req, file, cb) => {
-    const uniqueName = Date.now() + "-" + Math.round(Math.random() * 1e9) + path.extname(file.originalname);
-    cb(null, uniqueName);
+// Cloudinary storage
+const storage = new CloudinaryStorage({
+  cloudinary,
+  params: async (req, file) => {
+    const isVideo = file.mimetype.startsWith("video");
+
+    return {
+      folder: "posts",
+      resource_type: isVideo ? "video" : "image",
+      public_id: Date.now() + "-" + file.originalname,
+    };
   },
 });
 
-// =======================
-// Multer Upload Config
-// =======================
-const upload = multer({
-  storage,
-  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
-  fileFilter,
-});
+const upload = multer({ storage, fileFilter });
 
-// =======================
 // Routes
-// =======================
-
-// 1️⃣ Create post (with optional file)
 router.post("/", protect, upload.single("file"), createPost);
-
-// 2️⃣ Upload media to existing post
 router.post("/:postId/media", protect, upload.single("file"), uploadMedia);
-
-// 3️⃣ Get all posts (feed)
 router.get("/", getPosts);
-
-// 4️⃣ React to post (like/love)
 router.post("/:postId/react", protect, reactPost);
-
-// 5️⃣ Comment on post
 router.post("/:postId/comment", protect, commentPost);
 
-// 6️⃣ Get posts by user
 router.get("/user/:userId/posts", asyncHandler(async (req, res) => {
   const posts = await Post.find({ user: req.params.userId })
     .sort({ createdAt: -1 })

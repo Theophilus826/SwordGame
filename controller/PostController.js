@@ -109,6 +109,20 @@ const getPosts = asyncHandler(async (req, res) => {
   });
 });
 
+const getPostById = asyncHandler(async (req, res) => {
+  const post = await Post.findById(req.params.postId)
+    .populate("user", "name avatar")
+    .populate("comments.user", "name avatar")
+    .lean();
+
+  if (!post) {
+    res.status(404);
+    throw new Error("Post not found");
+  }
+
+  res.json({ success: true, post });
+});
+
 // =========================
 // React to Post (Like / Love)
 // =========================
@@ -194,4 +208,5 @@ module.exports = {
   getPosts,
   reactPost,
   commentPost,
+  getPostById,
 };

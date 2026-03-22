@@ -1,5 +1,6 @@
 const asyncHandler = require("express-async-handler");
 const Post = require("../models/PostModel");
+const cloudinary = require("../config/Cloudinary"); // your cloudinary config
 
 // =========================
 // Create Post
@@ -9,15 +10,15 @@ const createPost = asyncHandler(async (req, res) => {
   const media = [];
 
   if (req.file) {
-    // Determine media type safely
-    const type =
-      req.body.type && ["image", "video"].includes(req.body.type)
-        ? req.body.type
-        : req.file.mimetype.startsWith("video")
-        ? "video"
-        : "image";
+    // Upload file to Cloudinary
+    const isVideo = req.file.mimetype.startsWith("video");
+    const result = await cloudinary.uploader.upload(req.file.path, {
+      folder: "posts",
+      resource_type: isVideo ? "video" : "image",
+      public_id: `${Date.now()}-${req.file.originalname}`,
+    });
 
-    media.push({ url: `/uploads/${req.file.filename}`, type });
+    media.push({ url: result.secure_url, type: isVideo ? "video" : "image" });
   }
 
   if (!text && media.length === 0) {
@@ -36,8 +37,6 @@ const createPost = asyncHandler(async (req, res) => {
     .populate("comments.user", "name avatar")
     .lean();
 
-  if (req.io) req.io.emit("post:created", populatedPost);
-
   res.status(201).json({
     success: true,
     message: "Post created",
@@ -46,7 +45,7 @@ const createPost = asyncHandler(async (req, res) => {
 });
 
 // =========================
-// Upload Media
+// Upload Media to Existing Post
 // =========================
 const uploadMedia = asyncHandler(async (req, res) => {
   const post = await Post.findById(req.params.postId);
@@ -65,19 +64,17 @@ const uploadMedia = asyncHandler(async (req, res) => {
     throw new Error("No file uploaded");
   }
 
-  // Ensure post.media is an array
+  // Upload to Cloudinary
+  const isVideo = req.file.mimetype.startsWith("video");
+  const result = await cloudinary.uploader.upload(req.file.path, {
+    folder: "posts",
+    resource_type: isVideo ? "video" : "image",
+    public_id: `${Date.now()}-${req.file.originalname}`,
+  });
+
+  // Ensure post.media is array
   post.media = Array.isArray(post.media) ? post.media : [];
-
-  // Safe type determination
-  const type =
-    req.body.type && ["image", "video"].includes(req.body.type)
-      ? req.body.type
-      : req.file.mimetype.startsWith("video")
-      ? "video"
-      : "image";
-
-  const mediaItem = { url: `/uploads/${req.file.filename}`, type };
-  post.media.push(mediaItem);
+  post.media.push({ url: result.secure_url, type: isVideo ? "video" : "image" });
 
   await post.save();
 
@@ -111,7 +108,7 @@ const getPosts = asyncHandler(async (req, res) => {
 });
 
 // =========================
-// React to Post
+// React to Post (Like / Love)
 // =========================
 const reactPost = asyncHandler(async (req, res) => {
   const { type } = req.body;
@@ -127,8 +124,6 @@ const reactPost = asyncHandler(async (req, res) => {
   }
 
   const userId = req.user._id.toString();
-
-  // Ensure reaction arrays exist
   post.likedBy = Array.isArray(post.likedBy) ? post.likedBy : [];
   post.lovedBy = Array.isArray(post.lovedBy) ? post.lovedBy : [];
 
@@ -137,18 +132,17 @@ const reactPost = asyncHandler(async (req, res) => {
     if (index > -1) post.likedBy.splice(index, 1);
     else {
       post.likedBy.push(userId);
-      post.lovedBy = post.lovedBy.filter(id => id.toString() !== userId);
+      post.lovedBy = post.lovedBy.filter((id) => id.toString() !== userId);
     }
-  } else if (type === "love") {
+  } else {
     const index = post.lovedBy.indexOf(userId);
     if (index > -1) post.lovedBy.splice(index, 1);
     else {
       post.lovedBy.push(userId);
-      post.likedBy = post.likedBy.filter(id => id.toString() !== userId);
+      post.likedBy = post.likedBy.filter((id) => id.toString() !== userId);
     }
   }
 
-  // Recalculate counts
   post.likeCount = post.likedBy.length;
   post.loveCount = post.lovedBy.length;
 
@@ -178,10 +172,7 @@ const commentPost = asyncHandler(async (req, res) => {
   }
 
   post.comments = Array.isArray(post.comments) ? post.comments : [];
-  post.comments.push({
-    user: req.user._id,
-    text,
-  });
+  post.comments.push({ user: req.user._id, text });
 
   await post.save();
 

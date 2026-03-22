@@ -16,6 +16,8 @@ const createPost = asyncHandler(async (req, res) => {
       folder: "posts",
       resource_type: isVideo ? "video" : "image",
       public_id: `${Date.now()}-${req.file.originalname}`,
+       quality: "auto",
+       fetch_format: "auto",
     });
 
     media.push({ url: result.secure_url, type: isVideo ? "video" : "image" });

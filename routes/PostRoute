@@ -12,6 +12,7 @@ const {
   getPosts,
   reactPost,
   commentPost,
+   getPostById,
 } = require("../controller/PostController");
 
 const router = express.Router();
@@ -51,6 +52,7 @@ const upload = multer({ storage, fileFilter });
 router.post("/", protect, upload.single("file"), createPost);
 router.post("/:postId/media", protect, upload.single("file"), uploadMedia);
 router.get("/", getPosts);
+router.get("/:postId", getPostById);
 router.post("/:postId/react", protect, reactPost);
 router.post("/:postId/comment", protect, commentPost);
 

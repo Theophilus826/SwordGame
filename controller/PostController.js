@@ -140,25 +140,26 @@ const reactPost = asyncHandler(async (req, res) => {
   }
 
   const userId = req.user._id.toString();
+
+  // Ensure arrays exist
   post.likedBy = Array.isArray(post.likedBy) ? post.likedBy : [];
   post.lovedBy = Array.isArray(post.lovedBy) ? post.lovedBy : [];
 
   if (type === "like") {
-    const index = post.likedBy.indexOf(userId);
-    if (index > -1) post.likedBy.splice(index, 1);
-    else {
-      post.likedBy.push(userId);
-      post.lovedBy = post.lovedBy.filter((id) => id.toString() !== userId);
+    if (!post.likedBy.includes(userId)) {
+      post.likedBy.push(userId); // Add like
+    } else {
+      post.likedBy = post.likedBy.filter((id) => id.toString() !== userId); // Remove like
     }
-  } else {
-    const index = post.lovedBy.indexOf(userId);
-    if (index > -1) post.lovedBy.splice(index, 1);
-    else {
-      post.lovedBy.push(userId);
-      post.likedBy = post.likedBy.filter((id) => id.toString() !== userId);
+  } else if (type === "love") {
+    if (!post.lovedBy.includes(userId)) {
+      post.lovedBy.push(userId); // Add love
+    } else {
+      post.lovedBy = post.lovedBy.filter((id) => id.toString() !== userId); // Remove love
     }
   }
 
+  // Update counts
   post.likeCount = post.likedBy.length;
   post.loveCount = post.lovedBy.length;
 
@@ -168,9 +169,10 @@ const reactPost = asyncHandler(async (req, res) => {
     success: true,
     likeCount: post.likeCount,
     loveCount: post.loveCount,
+    likedBy: post.likedBy,   // send arrays for frontend
+    lovedBy: post.lovedBy,   // optional but useful
   });
 });
-
 // =========================
 // Comment on Post
 // =========================

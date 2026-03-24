@@ -22,9 +22,6 @@ exports.sendNotification = async (req, res) => {
       read: false,
     });
 
-    // 🔔 Real-time notification
-    req.io.to(userId.toString()).emit("notification", notification);
-
     res.json({
       message: "Notification sent",
       notification,
@@ -55,13 +52,6 @@ exports.sendNotificationToAll = async (req, res) => {
 
     await Notification.insertMany(notifications);
 
-    // 🔔 Broadcast notification
-    req.io.emit("notification", {
-      message,
-      broadcast: true,
-      createdAt: new Date(),
-    });
-
     res.json({
       message: `Notification sent to ${users.length} users`,
     });
@@ -90,8 +80,8 @@ exports.getUserNotifications = async (req, res) => {
 // Mark notification as read
 exports.markAsRead = async (req, res) => {
   try {
-    const notification = await Notification.findByIdAndUpdate(
-      req.params.id,
+    const notification = await Notification.findOneAndUpdate(
+      { _id: req.params.id, user: req.user._id }, // 🔒 ensure user owns it
       { read: true },
       { new: true }
     );

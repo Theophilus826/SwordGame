@@ -17,31 +17,38 @@ const getUserFromRequest = (req) => {
 // Generate Monnify Reserved Account
 // ==========================
 const generateDepositAccount = asyncHandler(async (req, res) => {
-  const { id: userId, name, email, phone } = getUserFromRequest(req);
+  const { id: userId, name, email } = getUserFromRequest(req);
+
+  // Check environment variables
+  const { MONNIFY_API_KEY, MONNIFY_SECRET_KEY, MONNIFY_CONTRACT_CODE } = process.env;
+  if (!MONNIFY_API_KEY || !MONNIFY_SECRET_KEY || !MONNIFY_CONTRACT_CODE) {
+    console.error("Monnify credentials missing");
+    return res.status(500).json({ message: "Monnify credentials not configured" });
+  }
 
   try {
-    // Call Monnify API to create a reserved account
     const response = await axios.post(
       "https://sandbox.monnify.com/api/v2/bank-transfer/reserved-accounts",
       {
         accountName: name,
         currencyCode: "NGN",
-        contractCode: process.env.MONNIFY_CONTRACT_CODE,
+        contractCode: MONNIFY_CONTRACT_CODE,
         customerEmail: email,
-        preferredBanks: [], // optional: list of preferred banks
+        preferredBanks: [],
       },
       {
         headers: {
-          Authorization: `Basic ${Buffer.from(
-            process.env.MONNIFY_API_KEY + ":" + process.env.MONNIFY_SECRET_KEY
-          ).toString("base64")}`,
+          Authorization: `Basic ${Buffer.from(`${MONNIFY_API_KEY}:${MONNIFY_SECRET_KEY}`).toString("base64")}`,
           "Content-Type": "application/json",
         },
       }
     );
 
     const accountInfo = response.data.responseBody;
-    if (!accountInfo || !accountInfo.accountReference) {
+    console.log("Monnify account info:", accountInfo);
+
+    if (!accountInfo || !accountInfo.accountNumber || !accountInfo.accountReference) {
+      console.error("Invalid account info returned from Monnify");
       return res.status(500).json({ message: "Failed to generate account" });
     }
 
@@ -51,14 +58,14 @@ const generateDepositAccount = asyncHandler(async (req, res) => {
       bankName: accountInfo.bankName,
       accountName: accountInfo.accountName,
       amount: 0,
-      method: "bank_transfer",
+      method: "bank_transfer", // ✅ matches updated schema enum
       reference: accountInfo.accountReference,
       status: "PENDING",
     });
 
     res.json(deposit);
   } catch (err) {
-    console.error("generateDepositAccount error:", err.message);
+    console.error("generateDepositAccount error:", err.response?.data || err.message || err);
     res.status(500).json({ message: "Unable to generate account" });
   }
 });
@@ -98,7 +105,7 @@ const confirmDeposit = asyncHandler(async (req, res) => {
 
     res.json({ message: "Deposit successful", coins: result.coins, deposit });
   } catch (err) {
-    console.error("confirmDeposit error:", err.message);
+    console.error("confirmDeposit error:", err.response?.data || err.message || err);
     res.status(err.message === "User not authenticated" ? 401 : 500).json({ message: err.message });
   }
 });
@@ -112,7 +119,7 @@ const getDepositHistory = asyncHandler(async (req, res) => {
     const history = await Deposit.find({ user: userId }).sort({ createdAt: -1 });
     res.json(history);
   } catch (err) {
-    console.error("getDepositHistory error:", err.message);
+    console.error("getDepositHistory error:", err.response?.data || err.message || err);
     res.status(err.message === "User not authenticated" ? 401 : 500).json({ message: err.message });
   }
 });
@@ -123,7 +130,6 @@ const getDepositHistory = asyncHandler(async (req, res) => {
 const virtualAccountWebhook = asyncHandler(async (req, res) => {
   try {
     const { eventType, eventData } = req.body;
-
     console.log("📩 Monnify Event:", eventType);
 
     switch (eventType) {
@@ -172,7 +178,7 @@ const virtualAccountWebhook = asyncHandler(async (req, res) => {
 
     res.sendStatus(200);
   } catch (err) {
-    console.error("virtualAccountWebhook error:", err.message);
+    console.error("virtualAccountWebhook error:", err.response?.data || err.message || err);
     res.status(500).json({ message: "Webhook processing failed" });
   }
 });

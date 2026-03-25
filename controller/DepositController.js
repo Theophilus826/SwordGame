@@ -17,16 +17,45 @@ const getUserFromRequest = (req) => {
 // Generate Monnify Reserved Account
 // ==========================
 const generateDepositAccount = asyncHandler(async (req, res) => {
-  const { id: userId, name, email } = getUserFromRequest(req);
-
-  // Check environment variables
-  const { MONNIFY_API_KEY, MONNIFY_SECRET_KEY, MONNIFY_CONTRACT_CODE } = process.env;
-  if (!MONNIFY_API_KEY || !MONNIFY_SECRET_KEY || !MONNIFY_CONTRACT_CODE) {
-    console.error("Monnify credentials missing");
-    return res.status(500).json({ message: "Monnify credentials not configured" });
-  }
+  console.log("🚀 STEP 0: Request received");
 
   try {
+    // STEP 1: Check user
+    console.log("🚀 STEP 1: Checking user...");
+    const { id: userId, name, email } = getUserFromRequest(req);
+    console.log("✅ User OK:", { userId, name, email });
+
+    // STEP 2: Check ENV
+    console.log("🚀 STEP 2: Checking ENV...");
+    const { MONNIFY_API_KEY, MONNIFY_SECRET_KEY, MONNIFY_CONTRACT_CODE } = process.env;
+
+    console.log("ENV STATUS:", {
+      apiKey: !!MONNIFY_API_KEY,
+      secret: !!MONNIFY_SECRET_KEY,
+      contract: !!MONNIFY_CONTRACT_CODE,
+    });
+
+    if (!MONNIFY_API_KEY || !MONNIFY_SECRET_KEY || !MONNIFY_CONTRACT_CODE) {
+      throw new Error("Missing Monnify ENV");
+    }
+
+    // STEP 3: Get Monnify token
+    console.log("🚀 STEP 3: Getting Monnify token...");
+    const auth = Buffer.from(`${MONNIFY_API_KEY}:${MONNIFY_SECRET_KEY}`).toString("base64");
+
+    const authRes = await axios.post(
+      "https://sandbox.monnify.com/api/v1/auth/login",
+      {},
+      { headers: { Authorization: `Basic ${auth}` } }
+    );
+
+    console.log("✅ Token response:", authRes.data);
+
+    const accessToken = authRes.data.responseBody.accessToken;
+    if (!accessToken) throw new Error("No access token received");
+
+    // STEP 4: Create reserved account
+    console.log("🚀 STEP 4: Creating reserved account...");
     const response = await axios.post(
       "https://sandbox.monnify.com/api/v2/bank-transfer/reserved-accounts",
       {
@@ -34,39 +63,55 @@ const generateDepositAccount = asyncHandler(async (req, res) => {
         currencyCode: "NGN",
         contractCode: MONNIFY_CONTRACT_CODE,
         customerEmail: email,
-        preferredBanks: [],
       },
       {
         headers: {
-          Authorization: `Basic ${Buffer.from(`${MONNIFY_API_KEY}:${MONNIFY_SECRET_KEY}`).toString("base64")}`,
+          Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
         },
       }
     );
 
-    const accountInfo = response.data.responseBody;
-    console.log("Monnify account info:", accountInfo);
+    console.log("✅ Account created:", response.data);
 
+    const accountInfo = response.data.responseBody;
+
+    // STEP 5: Validate account info
+    console.log("🚀 STEP 5: Validating account info...");
     if (!accountInfo || !accountInfo.accountNumber || !accountInfo.accountReference) {
-      console.error("Invalid account info returned from Monnify");
-      return res.status(500).json({ message: "Failed to generate account" });
+      throw new Error("Invalid account info from Monnify");
     }
 
+    // STEP 6: Save to DB
+    console.log("🚀 STEP 6: Saving to DB...");
     const deposit = await Deposit.create({
       user: userId,
       accountNumber: accountInfo.accountNumber,
       bankName: accountInfo.bankName,
       accountName: accountInfo.accountName,
       amount: 0,
-      method: "bank_transfer", // ✅ matches updated schema enum
+      method: "bank_transfer",
       reference: accountInfo.accountReference,
       status: "PENDING",
     });
 
+    console.log("✅ Deposit saved:", deposit._id);
+
+    // DONE
+    console.log("🎉 SUCCESS FLOW COMPLETE");
+
     res.json(deposit);
   } catch (err) {
-    console.error("generateDepositAccount error:", err.response?.data || err.message || err);
-    res.status(500).json({ message: "Unable to generate account" });
+    console.error("❌ ERROR CAUGHT");
+    console.error("Message:", err.message);
+    console.error("Status:", err.response?.status);
+    console.error("Data:", err.response?.data);
+    console.error("Stack:", err.stack);
+
+    res.status(500).json({
+      step: "Check server logs",
+      error: err.response?.data || err.message,
+    });
   }
 });
 

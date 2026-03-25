@@ -1,4 +1,3 @@
-// controllers/depositController.js
 const axios = require("axios");
 const asyncHandler = require("express-async-handler");
 const Deposit = require("../models/DepositModel");
@@ -15,38 +14,34 @@ const getUserFromRequest = (req) => {
 };
 
 // ==========================
-// Generate a virtual deposit account
+// Generate Monnify Reserved Account
 // ==========================
 const generateDepositAccount = asyncHandler(async (req, res) => {
   const { id: userId, name, email, phone } = getUserFromRequest(req);
-  const { method } = req.body;
-
-  if (!method || method !== "palmpay") {
-    return res.status(400).json({ message: "Only PalmPay supported" });
-  }
 
   try {
-    // Call XIXAPAY API
+    // Call Monnify API to create a reserved account
     const response = await axios.post(
-      "https://api.xixapay.com/api/v1/createVirtualAccount",
+      "https://sandbox.monnify.com/api/v2/bank-transfer/reserved-accounts",
       {
-        email,
-        name,
-        phoneNumber: phone,
-        bankCode: ["20867"],              // PalmPay bank code
-        businessId: process.env.XIXAPAY_BUSINESS_ID,
-        accountType: "static",
+        accountName: name,
+        currencyCode: "NGN",
+        contractCode: process.env.MONNIFY_CONTRACT_CODE,
+        customerEmail: email,
+        preferredBanks: [], // optional: list of preferred banks
       },
       {
         headers: {
-          Authorization: `Bearer ${process.env.XIXAPAY_API_SECRET}`,
-          "api-key": process.env.XIXAPAY_API_KEY
-        }
+          Authorization: `Basic ${Buffer.from(
+            process.env.MONNIFY_API_KEY + ":" + process.env.MONNIFY_SECRET_KEY
+          ).toString("base64")}`,
+          "Content-Type": "application/json",
+        },
       }
     );
 
-    const accountInfo = response.data.bankAccounts?.[0];
-    if (!accountInfo) {
+    const accountInfo = response.data.responseBody;
+    if (!accountInfo || !accountInfo.accountReference) {
       return res.status(500).json({ message: "Failed to generate account" });
     }
 
@@ -56,7 +51,8 @@ const generateDepositAccount = asyncHandler(async (req, res) => {
       bankName: accountInfo.bankName,
       accountName: accountInfo.accountName,
       amount: 0,
-      method,
+      method: "bank_transfer",
+      reference: accountInfo.accountReference,
       status: "PENDING",
     });
 
@@ -68,7 +64,7 @@ const generateDepositAccount = asyncHandler(async (req, res) => {
 });
 
 // ==========================
-// Confirm deposit and credit coins (manual/optional)
+// Confirm deposit (manual/optional)
 // ==========================
 const confirmDeposit = asyncHandler(async (req, res) => {
   try {
@@ -90,7 +86,7 @@ const confirmDeposit = asyncHandler(async (req, res) => {
       userId,
       amount,
       type: "DEPOSIT",
-      description: `Deposit via ${deposit.method}`,
+      description: `Deposit via bank transfer`,
     });
 
     if (req.io) {
@@ -122,45 +118,56 @@ const getDepositHistory = asyncHandler(async (req, res) => {
 });
 
 // ==========================
-// Webhook for PalmPay / XIXAPAY virtual account notifications
+// Monnify Webhook
 // ==========================
 const virtualAccountWebhook = asyncHandler(async (req, res) => {
   try {
-    const { accountNumber, amount, reference } = req.body;
+    const { eventType, eventData } = req.body;
 
-    if (!accountNumber || !amount) {
-      return res.status(400).json({ message: "Missing accountNumber or amount" });
-    }
+    console.log("📩 Monnify Event:", eventType);
 
-    const deposit = await Deposit.findOne({ accountNumber });
-    if (!deposit) {
-      return res.status(404).json({ message: "Deposit not found" });
-    }
+    switch (eventType) {
+      case "SUCCESSFUL_TRANSACTION": {
+        const accountReference = eventData.accountReference;
+        const amount = eventData.amountPaid;
+        const reference = eventData.paymentReference;
 
-    if (deposit.status === "COMPLETED") {
-      return res.status(200).json({ message: "Deposit already completed" });
-    }
+        const deposit = await Deposit.findOne({ reference: accountReference });
+        if (!deposit || deposit.status === "COMPLETED") break;
 
-    // Update deposit
-    deposit.status = "COMPLETED";
-    deposit.amount = amount;
-    deposit.reference = reference;
-    await deposit.save();
+        deposit.status = "COMPLETED";
+        deposit.amount = amount;
+        deposit.paymentReference = reference;
+        await deposit.save();
 
-    // Credit coins
-    await updateCoins({
-      userId: deposit.user.toString(),
-      amount,
-      type: "DEPOSIT",
-      description: `Deposit via PalmPay (${reference})`
-    });
+        await updateCoins({
+          userId: deposit.user.toString(),
+          amount,
+          type: "DEPOSIT",
+          description: `Deposit via Monnify (${reference})`,
+        });
 
-    // Optionally emit socket update here if you pass req.io
-    if (req.io) {
-      req.io.to(deposit.user.toString()).emit("wallet:update", {
-        coins: deposit.amount,
-        depositId: deposit._id,
-      });
+        if (req.io) {
+          req.io.to(deposit.user.toString()).emit("wallet:update", {
+            coins: deposit.amount,
+            depositId: deposit._id,
+          });
+        }
+
+        break;
+      }
+
+      case "REFUND_COMPLETED":
+      case "SUCCESSFUL_DISBURSEMENT":
+      case "SETTLEMENT_COMPLETED":
+      case "MANDATE_UPDATED":
+      case "WALLET_TRANSACTION":
+      case "LOW_BALANCE":
+        console.log(eventType, eventData);
+        break;
+
+      default:
+        console.log("Unhandled Monnify event:", eventType);
     }
 
     res.sendStatus(200);

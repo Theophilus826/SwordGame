@@ -56,14 +56,16 @@ const generateDepositAccount = asyncHandler(async (req, res) => {
 
     // STEP 4: Create reserved account
     console.log("🚀 STEP 4: Creating reserved account...");
-   const response = await axios.post(
+const response = await axios.post(
   "https://sandbox.monnify.com/api/v2/bank-transfer/reserved-accounts",
   {
-    accountReference: `ref-${Date.now()}-${userId}`, // ✅ REQUIRED
+    accountReference: `swordgame-${userId}-${Date.now()}`,
     accountName: name,
     currencyCode: "NGN",
     contractCode: MONNIFY_CONTRACT_CODE,
     customerEmail: email,
+
+    getAllAvailableBanks: true, // ✅ FIX HERE
   },
   {
     headers: {

@@ -21,49 +21,106 @@ const generateDepositAccount = asyncHandler(async (req, res) => {
     const { id: userId, name, email } = getUserFromRequest(req);
     const { amount } = req.body;
 
+    // ✅ Validate amount
     if (!amount || amount < 100) {
       return res.status(400).json({ message: "Minimum deposit is ₦100" });
     }
 
-    // Check for existing PENDING deposit
-    const existingDeposit = await Deposit.findOne({ user: userId, status: "PENDING" }).sort({ createdAt: -1 });
-    if (existingDeposit) {
-      console.log("♻️ Reusing existing account:", existingDeposit.accountNumber);
-      return res.json(existingDeposit);
+    // ===============================
+    // ✅ CHECK EXISTING VALID DEPOSIT
+    // ===============================
+    const existingDeposit = await Deposit.findOne({
+      user: userId,
+      status: "PENDING",
+    }).sort({ createdAt: -1 });
+
+    if (
+      existingDeposit &&
+      existingDeposit.accountNumber &&
+      existingDeposit.bankName &&
+      existingDeposit.accountName
+    ) {
+      console.log("♻️ Reusing valid account:", existingDeposit.accountNumber);
+
+      return res.json({
+        accountNumber: existingDeposit.accountNumber,
+        bankName: existingDeposit.bankName,
+        accountName: existingDeposit.accountName,
+        reference: existingDeposit.reference,
+      });
     }
 
-    // Monnify ENV
-    const { MONNIFY_API_KEY, MONNIFY_SECRET_KEY, MONNIFY_CONTRACT_CODE, MONNIFY_BASE_URL } = process.env;
-    if (!MONNIFY_API_KEY || !MONNIFY_SECRET_KEY || !MONNIFY_CONTRACT_CODE || !MONNIFY_BASE_URL) {
+    // ===============================
+    // ✅ MONNIFY CONFIG
+    // ===============================
+    const {
+      MONNIFY_API_KEY,
+      MONNIFY_SECRET_KEY,
+      MONNIFY_CONTRACT_CODE,
+      MONNIFY_BASE_URL,
+    } = process.env;
+
+    if (
+      !MONNIFY_API_KEY ||
+      !MONNIFY_SECRET_KEY ||
+      !MONNIFY_CONTRACT_CODE ||
+      !MONNIFY_BASE_URL
+    ) {
       throw new Error("Missing Monnify ENV");
     }
 
-    // Get access token
-    const auth = Buffer.from(`${MONNIFY_API_KEY}:${MONNIFY_SECRET_KEY}`).toString("base64");
-    const authRes = await axios.post(`${MONNIFY_BASE_URL}/api/v1/auth/login`, {}, {
-      headers: { Authorization: `Basic ${auth}` },
-    });
-    const accessToken = authRes.data.responseBody?.accessToken;
+    // ===============================
+    // ✅ GET ACCESS TOKEN
+    // ===============================
+    const auth = Buffer.from(
+      `${MONNIFY_API_KEY}:${MONNIFY_SECRET_KEY}`
+    ).toString("base64");
+
+    const authRes = await axios.post(
+      `${MONNIFY_BASE_URL}/api/v1/auth/login`,
+      {},
+      {
+        headers: { Authorization: `Basic ${auth}` },
+      }
+    );
+
+    const accessToken = authRes.data?.responseBody?.accessToken;
+
     if (!accessToken) throw new Error("No access token received");
 
-    // Create reserved account
+    // ===============================
+    // ✅ CREATE RESERVED ACCOUNT
+    // ===============================
     const accountReference = `deposit-${userId}-${Date.now()}`;
-    const accountRes = await axios.post(`${MONNIFY_BASE_URL}/api/v2/bank-transfer/reserved-accounts`, {
-      accountReference,
-      accountName: name,
-      currencyCode: "NGN",
-      contractCode: MONNIFY_CONTRACT_CODE,
-      customerEmail: email,
-      getAllAvailableBanks: true,
-      expectedPayment: amount, // Track expected amount
-    }, {
-      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-    });
 
-    const account = accountRes.data.responseBody.accounts?.[0];
+    const accountRes = await axios.post(
+      `${MONNIFY_BASE_URL}/api/v2/bank-transfer/reserved-accounts`,
+      {
+        accountReference,
+        accountName: name,
+        currencyCode: "NGN",
+        contractCode: MONNIFY_CONTRACT_CODE,
+        customerEmail: email,
+        getAllAvailableBanks: true,
+        expectedPayment: amount,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    const account = accountRes.data?.responseBody?.accounts?.[0];
+
+    console.log("📤 Monnify response:", account);
+
     if (!account) throw new Error("No accounts returned from Monnify");
 
-    // Save deposit to DB
+    // ===============================
+    // ✅ SAVE DEPOSIT
+    // ===============================
     const deposit = await Deposit.create({
       user: userId,
       accountNumber: account.accountNumber,
@@ -76,14 +133,27 @@ const generateDepositAccount = asyncHandler(async (req, res) => {
       status: "PENDING",
     });
 
-    res.json(deposit);
+    console.log("💾 Saved deposit:", deposit);
+
+    // ===============================
+    // ✅ CLEAN RESPONSE (IMPORTANT)
+    // ===============================
+    return res.json({
+      accountNumber: deposit.accountNumber,
+      bankName: deposit.bankName,
+      accountName: deposit.accountName,
+      reference: deposit.reference,
+    });
 
   } catch (err) {
-    console.error("generateDepositAccount error:", err.message);
-    res.status(500).json({ error: err.response?.data || err.message });
+    console.error("❌ generateDepositAccount error:", err);
+
+    return res.status(500).json({
+      message: "Deposit account generation failed",
+      error: err.response?.data || err.message,
+    });
   }
 });
-
 // ==========================
 // Confirm deposit manually
 // ==========================

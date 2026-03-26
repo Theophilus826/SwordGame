@@ -262,4 +262,5 @@ module.exports = {
     adminCreditCoins,
     creditGameWin,
     transferCoins, // ✅ new endpoint
+    getWalletBalance,
 };

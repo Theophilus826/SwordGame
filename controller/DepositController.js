@@ -79,26 +79,35 @@ const response = await axios.post(
     const accountInfo = response.data.responseBody;
 
     // STEP 5: Validate account info
-    console.log("🚀 STEP 5: Validating account info...");
-    if (!accountInfo || !accountInfo.accountNumber || !accountInfo.accountReference) {
-      throw new Error("Invalid account info from Monnify");
-    }
+console.log("🚀 STEP 5: Validating account info...");
 
-    // STEP 6: Save to DB
-    console.log("🚀 STEP 6: Saving to DB...");
-    const deposit = await Deposit.create({
-      user: userId,
-      accountNumber: accountInfo.accountNumber,
-      bankName: accountInfo.bankName,
-      accountName: accountInfo.accountName,
-      amount: 0,
-      method: "bank_transfer",
-      reference: accountInfo.accountReference,
-      status: "PENDING",
-    });
+const accounts = accountInfo.accounts;
 
-    console.log("✅ Deposit saved:", deposit._id);
+if (!accounts || accounts.length === 0) {
+  throw new Error("No accounts returned from Monnify");
+}
 
+// ✅ pick first account
+const account = accounts[0];
+
+const accountNumber = account.accountNumber;
+const bankName = account.bankName;
+
+// STEP 6: Save to DB
+console.log("🚀 STEP 6: Saving to DB...");
+
+const deposit = await Deposit.create({
+  user: userId,
+  accountNumber,
+  bankName,
+  accountName: accountInfo.accountName,
+  amount: 0,
+  method: "ngn", // ⚠️ fix enum (you used bank_transfer before)
+  reference: accountInfo.accountReference,
+  status: "PENDING",
+});
+
+console.log("✅ Deposit saved:", deposit._id);
     // DONE
     console.log("🎉 SUCCESS FLOW COMPLETE");
 

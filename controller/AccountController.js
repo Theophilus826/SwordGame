@@ -233,6 +233,24 @@ const transferCoins = asyncHandler(async (req, res) => {
         res.status(400).json({ message: error.message });
     }
 });
+const getWalletBalance = asyncHandler(async (req, res) => {
+  try {
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ message: "User not authenticated" });
+    }
+
+    const user = await User.findById(req.user.id).select("coins");
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.json({ coins: user.coins });
+  } catch (err) {
+    console.error("getWalletBalance error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
 
 module.exports = {
     creditCoins,

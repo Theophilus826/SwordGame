@@ -10,6 +10,7 @@ const {
     adminCreditCoins,
     creditGameWin,
     transferCoins, // ✅ import the new transfer function
+    
 } = require('../controller/AccountController');
 
 const { protect, admin } = require('../middleware/AuthMiddleware');
@@ -27,7 +28,7 @@ router.get('/balance', protect, getMyCoins);
 router.get('/history', protect, getMyCoinHistory);
 
 router.post('/daily-reward', protect, dailyLoginReward);
-router.get("/balance", protect, getWalletBalance);
+
 // ================= ADMIN WALLET =================
 router.post('/admin/update', protect, admin, adminCreditCoins);
 

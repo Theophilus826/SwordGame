@@ -25,15 +25,19 @@ const generateDepositAccount = asyncHandler(async (req, res) => {
     const { id: userId, name, email } = getUserFromRequest(req);
     console.log("✅ User OK:", { userId, name, email });
 
+    // ✅ STEP 1.5: CHECK EXISTING ACCOUNT FIRST
+    console.log("🚀 STEP 1.5: Checking existing deposit account...");
+
+    const existingDeposit = await Deposit.findOne({ user: userId }).sort({ createdAt: -1 });
+
+    if (existingDeposit) {
+      console.log("♻️ Reusing existing account:", existingDeposit.accountNumber);
+      return res.json(existingDeposit);
+    }
+
     // STEP 2: Check ENV
     console.log("🚀 STEP 2: Checking ENV...");
     const { MONNIFY_API_KEY, MONNIFY_SECRET_KEY, MONNIFY_CONTRACT_CODE } = process.env;
-
-    console.log("ENV STATUS:", {
-      apiKey: !!MONNIFY_API_KEY,
-      secret: !!MONNIFY_SECRET_KEY,
-      contract: !!MONNIFY_CONTRACT_CODE,
-    });
 
     if (!MONNIFY_API_KEY || !MONNIFY_SECRET_KEY || !MONNIFY_CONTRACT_CODE) {
       throw new Error("Missing Monnify ENV");
@@ -49,83 +53,72 @@ const generateDepositAccount = asyncHandler(async (req, res) => {
       { headers: { Authorization: `Basic ${auth}` } }
     );
 
-    console.log("✅ Token response:", authRes.data);
-
     const accessToken = authRes.data.responseBody.accessToken;
     if (!accessToken) throw new Error("No access token received");
 
-    // STEP 4: Create reserved account
+    // STEP 4: Create reserved account (ONLY IF NONE EXISTS)
     console.log("🚀 STEP 4: Creating reserved account...");
-const response = await axios.post(
-  "https://sandbox.monnify.com/api/v2/bank-transfer/reserved-accounts",
-  {
-    accountReference: `swordgame-${userId}-${Date.now()}`,
-    accountName: name,
-    currencyCode: "NGN",
-    contractCode: MONNIFY_CONTRACT_CODE,
-    customerEmail: email,
 
-    getAllAvailableBanks: true, // ✅ FIX HERE
-  },
-  {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-  }
-);
-    console.log("✅ Account created:", response.data);
+    const response = await axios.post(
+      "https://sandbox.monnify.com/api/v2/bank-transfer/reserved-accounts",
+      {
+        // ✅ IMPORTANT: REMOVE Date.now()
+        accountReference: `swordgame-${userId}`,
+        accountName: name,
+        currencyCode: "NGN",
+        contractCode: MONNIFY_CONTRACT_CODE,
+        customerEmail: email,
+        getAllAvailableBanks: true,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
 
     const accountInfo = response.data.responseBody;
 
-    // STEP 5: Validate account info
-console.log("🚀 STEP 5: Validating account info...");
+    // STEP 5: Extract account
+    console.log("🚀 STEP 5: Processing account...");
 
-const accounts = accountInfo.accounts;
+    const accounts = accountInfo.accounts;
+    if (!accounts || accounts.length === 0) {
+      throw new Error("No accounts returned from Monnify");
+    }
 
-if (!accounts || accounts.length === 0) {
-  throw new Error("No accounts returned from Monnify");
-}
+    const account = accounts[0];
 
-// ✅ pick first account
-const account = accounts[0];
+    // STEP 6: Save to DB
+    console.log("🚀 STEP 6: Saving to DB...");
 
-const accountNumber = account.accountNumber;
-const bankName = account.bankName;
+    const deposit = await Deposit.create({
+      user: userId,
+      accountNumber: account.accountNumber,
+      bankName: account.bankName,
+      accountName: accountInfo.accountName,
+      amount: 0,
+      method: "ngn",
+      reference: accountInfo.accountReference,
+      status: "PENDING",
+    });
 
-// STEP 6: Save to DB
-console.log("🚀 STEP 6: Saving to DB...");
-
-const deposit = await Deposit.create({
-  user: userId,
-  accountNumber,
-  bankName,
-  accountName: accountInfo.accountName,
-  amount: 0,
-  method: "ngn", // ⚠️ fix enum (you used bank_transfer before)
-  reference: accountInfo.accountReference,
-  status: "PENDING",
-});
-
-console.log("✅ Deposit saved:", deposit._id);
-    // DONE
-    console.log("🎉 SUCCESS FLOW COMPLETE");
+    console.log("✅ Deposit saved:", deposit._id);
 
     res.json(deposit);
+
   } catch (err) {
     console.error("❌ ERROR CAUGHT");
     console.error("Message:", err.message);
     console.error("Status:", err.response?.status);
     console.error("Data:", err.response?.data);
-    console.error("Stack:", err.stack);
 
     res.status(500).json({
-      step: "Check server logs",
       error: err.response?.data || err.message,
     });
   }
 });
-
 // ==========================
 // Confirm deposit (manual/optional)
 // ==========================

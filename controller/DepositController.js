@@ -14,163 +14,118 @@ const getUserFromRequest = (req) => {
 };
 
 // ==========================
-// Generate Monnify Reserved Account
+// Generate Monnify Reserved Account (Live)
 // ==========================
 const generateDepositAccount = asyncHandler(async (req, res) => {
-  console.log("🚀 STEP 0: Request received");
-
   try {
-    // STEP 1: Check user
-    console.log("🚀 STEP 1: Checking user...");
     const { id: userId, name, email } = getUserFromRequest(req);
-    console.log("✅ User OK:", { userId, name, email });
+    const { amount } = req.body;
 
-    // ✅ STEP 1.5: CHECK EXISTING ACCOUNT FIRST
-    console.log("🚀 STEP 1.5: Checking existing deposit account...");
+    if (!amount || amount < 100) {
+      return res.status(400).json({ message: "Minimum deposit is ₦100" });
+    }
 
-    const existingDeposit = await Deposit.findOne({ user: userId }).sort({ createdAt: -1 });
-
+    // Check for existing PENDING deposit
+    const existingDeposit = await Deposit.findOne({ user: userId, status: "PENDING" }).sort({ createdAt: -1 });
     if (existingDeposit) {
       console.log("♻️ Reusing existing account:", existingDeposit.accountNumber);
       return res.json(existingDeposit);
     }
 
-    // STEP 2: Check ENV
-    console.log("🚀 STEP 2: Checking ENV...");
-    const { MONNIFY_API_KEY, MONNIFY_SECRET_KEY, MONNIFY_CONTRACT_CODE } = process.env;
-
-    if (!MONNIFY_API_KEY || !MONNIFY_SECRET_KEY || !MONNIFY_CONTRACT_CODE) {
+    // Monnify ENV
+    const { MONNIFY_API_KEY, MONNIFY_SECRET_KEY, MONNIFY_CONTRACT_CODE, MONNIFY_BASE_URL } = process.env;
+    if (!MONNIFY_API_KEY || !MONNIFY_SECRET_KEY || !MONNIFY_CONTRACT_CODE || !MONNIFY_BASE_URL) {
       throw new Error("Missing Monnify ENV");
     }
 
-    // STEP 3: Get Monnify token
-    console.log("🚀 STEP 3: Getting Monnify token...");
+    // Get access token
     const auth = Buffer.from(`${MONNIFY_API_KEY}:${MONNIFY_SECRET_KEY}`).toString("base64");
-
-    const authRes = await axios.post(
-      "https://sandbox.monnify.com/api/v1/auth/login",
-      {},
-      { headers: { Authorization: `Basic ${auth}` } }
-    );
-
-    const accessToken = authRes.data.responseBody.accessToken;
+    const authRes = await axios.post(`${MONNIFY_BASE_URL}/api/v1/auth/login`, {}, {
+      headers: { Authorization: `Basic ${auth}` },
+    });
+    const accessToken = authRes.data.responseBody?.accessToken;
     if (!accessToken) throw new Error("No access token received");
 
-    // STEP 4: Create reserved account (ONLY IF NONE EXISTS)
-    console.log("🚀 STEP 4: Creating reserved account...");
+    // Create reserved account
+    const accountReference = `deposit-${userId}-${Date.now()}`;
+    const accountRes = await axios.post(`${MONNIFY_BASE_URL}/api/v2/bank-transfer/reserved-accounts`, {
+      accountReference,
+      accountName: name,
+      currencyCode: "NGN",
+      contractCode: MONNIFY_CONTRACT_CODE,
+      customerEmail: email,
+      getAllAvailableBanks: true,
+      expectedPayment: amount, // Track expected amount
+    }, {
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    });
 
-    const response = await axios.post(
-      "https://sandbox.monnify.com/api/v2/bank-transfer/reserved-accounts",
-      {
-        // ✅ IMPORTANT: REMOVE Date.now()
-        accountReference: `swordgame-${userId}`,
-        accountName: name,
-        currencyCode: "NGN",
-        contractCode: MONNIFY_CONTRACT_CODE,
-        customerEmail: email,
-        getAllAvailableBanks: true,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
+    const account = accountRes.data.responseBody.accounts?.[0];
+    if (!account) throw new Error("No accounts returned from Monnify");
 
-    const accountInfo = response.data.responseBody;
-
-    // STEP 5: Extract account
-    console.log("🚀 STEP 5: Processing account...");
-
-    const accounts = accountInfo.accounts;
-    if (!accounts || accounts.length === 0) {
-      throw new Error("No accounts returned from Monnify");
-    }
-
-    const account = accounts[0];
-
-    // STEP 6: Save to DB
-    console.log("🚀 STEP 6: Saving to DB...");
-
+    // Save deposit to DB
     const deposit = await Deposit.create({
       user: userId,
       accountNumber: account.accountNumber,
       bankName: account.bankName,
-      accountName: accountInfo.accountName,
+      accountName: account.accountName,
       amount: 0,
+      expectedAmount: amount,
       method: "ngn",
-      reference: accountInfo.accountReference,
+      reference: accountReference,
       status: "PENDING",
     });
-
-    console.log("✅ Deposit saved:", deposit._id);
 
     res.json(deposit);
 
   } catch (err) {
-    console.error("❌ ERROR CAUGHT");
-    console.error("Message:", err.message);
-    console.error("Status:", err.response?.status);
-    console.error("Data:", err.response?.data);
-
-    res.status(500).json({
-      error: err.response?.data || err.message,
-    });
+    console.error("generateDepositAccount error:", err.message);
+    res.status(500).json({ error: err.response?.data || err.message });
   }
 });
+
 // ==========================
-// Confirm deposit (manual/optional)
+// Confirm deposit manually
 // ==========================
 const confirmDeposit = asyncHandler(async (req, res) => {
-  try {
-    const { id: userId } = getUserFromRequest(req);
-    const { depositId, amount } = req.body;
+  const { id: userId } = getUserFromRequest(req);
+  const { depositId, amount } = req.body;
 
-    if (!depositId) return res.status(400).json({ message: "Deposit ID is required" });
-    if (!amount || amount < 2000) return res.status(400).json({ message: "Minimum deposit is ₦2,000" });
+  if (!depositId) return res.status(400).json({ message: "Deposit ID is required" });
+  if (!amount || amount < 100) return res.status(400).json({ message: "Minimum deposit is ₦100" });
 
-    const deposit = await Deposit.findById(depositId);
-    if (!deposit) return res.status(404).json({ message: "Deposit not found" });
-    if (deposit.status !== "PENDING") return res.status(400).json({ message: "Deposit already processed" });
+  const deposit = await Deposit.findById(depositId);
+  if (!deposit) return res.status(404).json({ message: "Deposit not found" });
+  if (deposit.status !== "PENDING") return res.status(400).json({ message: "Deposit already processed" });
 
-    deposit.amount = amount;
-    deposit.status = "COMPLETED";
-    await deposit.save();
+  deposit.amount = amount;
+  deposit.status = "COMPLETED";
+  await deposit.save();
 
-    const result = await updateCoins({
-      userId,
-      amount,
-      type: "DEPOSIT",
-      description: `Deposit via bank transfer`,
+  const result = await updateCoins({
+    userId,
+    amount,
+    type: "DEPOSIT",
+    description: `Deposit via bank transfer`,
+  });
+
+  if (req.io) {
+    req.io.to(userId).emit("wallet:update", {
+      coins: result.coins,
+      depositId: deposit._id,
     });
-
-    if (req.io) {
-      req.io.to(userId).emit("wallet:update", {
-        coins: result.coins,
-        depositId: deposit._id,
-      });
-    }
-
-    res.json({ message: "Deposit successful", coins: result.coins, deposit });
-  } catch (err) {
-    console.error("confirmDeposit error:", err.response?.data || err.message || err);
-    res.status(err.message === "User not authenticated" ? 401 : 500).json({ message: err.message });
   }
+
+  res.json({ message: "Deposit successful", coins: result.coins, deposit });
 });
 
 // ==========================
 // Get user deposit history
 // ==========================
 const getDepositHistory = asyncHandler(async (req, res) => {
-  try {
-    const { id: userId } = getUserFromRequest(req);
-    const history = await Deposit.find({ user: userId }).sort({ createdAt: -1 });
-    res.json(history);
-  } catch (err) {
-    console.error("getDepositHistory error:", err.response?.data || err.message || err);
-    res.status(err.message === "User not authenticated" ? 401 : 500).json({ message: err.message });
-  }
+  const { id: userId } = getUserFromRequest(req);
+  const history = await Deposit.find({ user: userId }).sort({ createdAt: -1 });
+  res.json(history);
 });
 
 // ==========================
@@ -179,27 +134,21 @@ const getDepositHistory = asyncHandler(async (req, res) => {
 const virtualAccountWebhook = asyncHandler(async (req, res) => {
   try {
     const { eventType, eventData } = req.body;
-    console.log("📩 Monnify Event:", eventType);
 
-    switch (eventType) {
-      case "SUCCESSFUL_TRANSACTION": {
-        const accountReference = eventData.accountReference;
-        const amount = eventData.amountPaid;
-        const reference = eventData.paymentReference;
-
-        const deposit = await Deposit.findOne({ reference: accountReference });
-        if (!deposit || deposit.status === "COMPLETED") break;
-
+    if (eventType === "SUCCESSFUL_TRANSACTION") {
+      const { accountReference, amountPaid, paymentReference } = eventData;
+      const deposit = await Deposit.findOne({ reference: accountReference });
+      if (deposit && deposit.status !== "COMPLETED") {
         deposit.status = "COMPLETED";
-        deposit.amount = amount;
-        deposit.paymentReference = reference;
+        deposit.amount = amountPaid;
+        deposit.paymentReference = paymentReference;
         await deposit.save();
 
         await updateCoins({
           userId: deposit.user.toString(),
-          amount,
+          amount: amountPaid,
           type: "DEPOSIT",
-          description: `Deposit via Monnify (${reference})`,
+          description: `Deposit via Monnify (${paymentReference})`,
         });
 
         if (req.io) {
@@ -208,26 +157,14 @@ const virtualAccountWebhook = asyncHandler(async (req, res) => {
             depositId: deposit._id,
           });
         }
-
-        break;
       }
-
-      case "REFUND_COMPLETED":
-      case "SUCCESSFUL_DISBURSEMENT":
-      case "SETTLEMENT_COMPLETED":
-      case "MANDATE_UPDATED":
-      case "WALLET_TRANSACTION":
-      case "LOW_BALANCE":
-        console.log(eventType, eventData);
-        break;
-
-      default:
-        console.log("Unhandled Monnify event:", eventType);
+    } else {
+      console.log("Unhandled Monnify event:", eventType, eventData);
     }
 
     res.sendStatus(200);
   } catch (err) {
-    console.error("virtualAccountWebhook error:", err.response?.data || err.message || err);
+    console.error("virtualAccountWebhook error:", err.message);
     res.status(500).json({ message: "Webhook processing failed" });
   }
 });

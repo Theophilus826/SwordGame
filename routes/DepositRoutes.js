@@ -5,6 +5,7 @@ const {
   getDepositHistory,
   virtualAccountWebhook // ✅ add webhook handler
 } = require("../controller/DepositController");
+const { getWalletBalance } = require("./AccountController");
 const { protect } = require("../middleware/AuthMiddleware");
 
 const router = express.Router();
@@ -15,7 +16,7 @@ const router = express.Router();
 router.post("/deposit-account", protect, generateDepositAccount);
 router.post("/confirm", protect, confirmDeposit);
 router.get("/deposit-history", protect, getDepositHistory);
-
+router.get("/balance", protect, getWalletBalance);
 // ==========================
 // Public webhook route (called by PalmPay/XIXAPAY)
 // ==========================

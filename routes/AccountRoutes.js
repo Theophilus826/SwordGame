@@ -10,7 +10,6 @@ const {
     adminCreditCoins,
     creditGameWin,
     transferCoins, // ✅ import the new transfer function
-    getWalletBalance,
 } = require('../controller/AccountController');
 
 const { protect, admin } = require('../middleware/AuthMiddleware');

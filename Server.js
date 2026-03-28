@@ -8,6 +8,7 @@ const dotenv = require("dotenv");
 const colors = require("colors");
 const http = require("http");
 const { Server } = require("socket.io");
+const path = require("path");
 
 const connectDB = require("./config/Db");
 const { errorHandler } = require("./middleware/ErrorMiddleware");
@@ -15,7 +16,6 @@ const socketAuth = require("./middleware/socketAuth");
 const { registerGameSockets } = require("./games/socketHandler");
 const User = require("./models/UserModels");
 const { getUsersFromDB } = require("./controller/UserHelpers");
-
 
 // ==========================
 // LOAD ENV
@@ -88,7 +88,6 @@ adminNamespace.use((socket, next) => {
 adminNamespace.on("connection", (socket) => {
   console.log(`🖥 Admin ${socket.user.name} connected`);
 
-  // Register admin game sockets
   registerGameSockets(io, adminNamespace, socket);
 
   socket.on("admin:getUsers", async () => {
@@ -116,12 +115,8 @@ app.use((req, res, next) => {
 });
 
 // ==========================
-// ROUTES
+// API ROUTES
 // ==========================
-app.get("/", (req, res) => {
-  res.status(200).json({ message: "Welcome to Game Backend API" });
-});
-
 app.use("/api/users", require("./routes/UserRoutes"));
 app.use("/api/coins", require("./routes/AccountRoutes"));
 app.use("/api/admin", require("./routes/AdminRoutes"));
@@ -132,8 +127,20 @@ app.use("/uploads", express.static("uploads"));
 app.use("/api/notifications", require("./routes/NotificationRoute"));
 app.use("/api/wallet", require("./routes/DepositRoutes"));
 
-// Route to get posts by a specific user
+// Optional welcome route
+app.get("/", (req, res) => {
+  res.status(200).json({ message: "Welcome to Game Backend API" });
+});
 
+// ==========================
+// SERVE REACT FRONTEND
+// ==========================
+app.use(express.static(path.join(__dirname, "build"))); // serve static React files
+
+// Catch-all: send index.html for React Router
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "build", "index.html"));
+});
 
 // ==========================
 // ERROR HANDLER
@@ -150,11 +157,8 @@ io.on("connection", async (socket) => {
     console.log(`🟢 ${socket.user.name} connected`);
 
     socket.userId = socket.user._id;
-
-    // join private user room
     socket.join(socket.userId.toString());
 
-    // mark user online
     await User.findByIdAndUpdate(socket.userId, { online: true });
 
     io.emit("user:status", {
@@ -162,7 +166,6 @@ io.on("connection", async (socket) => {
       online: true,
     });
 
-    // notify admin dashboard
     adminNamespace.emit("activity:event", {
       type: "USER_ONLINE",
       userId: socket.userId,
@@ -170,16 +173,12 @@ io.on("connection", async (socket) => {
       timestamp: Date.now(),
     });
 
-    // register game sockets
     registerGameSockets(io, adminNamespace, socket);
 
   } catch (err) {
     console.error("Socket connection setup error:", err);
   }
 
-  // ==========================
-  // DISCONNECT
-  // ==========================
   socket.on("disconnect", async () => {
     try {
       console.log(`🔴 ${socket.user.name} disconnected`);

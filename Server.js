@@ -7,7 +7,6 @@ const cors = require("cors");
 const dotenv = require("dotenv");
 const colors = require("colors");
 const http = require("http");
-const path = require("path");
 const { Server } = require("socket.io");
 
 const connectDB = require("./config/Db");
@@ -16,6 +15,7 @@ const socketAuth = require("./middleware/socketAuth");
 const { registerGameSockets } = require("./games/socketHandler");
 const User = require("./models/UserModels");
 const { getUsersFromDB } = require("./controller/UserHelpers");
+
 
 // ==========================
 // LOAD ENV
@@ -88,6 +88,7 @@ adminNamespace.use((socket, next) => {
 adminNamespace.on("connection", (socket) => {
   console.log(`🖥 Admin ${socket.user.name} connected`);
 
+  // Register admin game sockets
   registerGameSockets(io, adminNamespace, socket);
 
   socket.on("admin:getUsers", async () => {
@@ -115,9 +116,9 @@ app.use((req, res, next) => {
 });
 
 // ==========================
-// API ROUTES
+// ROUTES
 // ==========================
-app.get("/api", (req, res) => {
+app.get("/", (req, res) => {
   res.status(200).json({ message: "Welcome to Game Backend API" });
 });
 
@@ -127,25 +128,12 @@ app.use("/api/admin", require("./routes/AdminRoutes"));
 app.use("/api/feedbacks", require("./routes/FeedbackRoutes"));
 app.use("/api/post", require("./routes/PostRoute"));
 app.use("/api/auth", require("./routes/ShareRoute"));
+app.use("/uploads", express.static("uploads"));
 app.use("/api/notifications", require("./routes/NotificationRoute"));
 app.use("/api/wallet", require("./routes/DepositRoutes"));
 
-app.use("/uploads", express.static("uploads"));
+// Route to get posts by a specific user
 
-// ==========================
-// SERVE REACT FRONTEND
-// ==========================
-const buildPath = path.join(__dirname, "../build");
-
-app.use(express.static(buildPath));
-
-// Catch-all for React Router
-app.get("*", (req, res) => {
-  if (req.path.startsWith("/api")) {
-    return res.status(404).json({ message: "API route not found" });
-  }
-  res.sendFile(path.join(buildPath, "index.html"));
-});
 
 // ==========================
 // ERROR HANDLER
@@ -163,8 +151,10 @@ io.on("connection", async (socket) => {
 
     socket.userId = socket.user._id;
 
+    // join private user room
     socket.join(socket.userId.toString());
 
+    // mark user online
     await User.findByIdAndUpdate(socket.userId, { online: true });
 
     io.emit("user:status", {
@@ -172,6 +162,7 @@ io.on("connection", async (socket) => {
       online: true,
     });
 
+    // notify admin dashboard
     adminNamespace.emit("activity:event", {
       type: "USER_ONLINE",
       userId: socket.userId,
@@ -179,11 +170,16 @@ io.on("connection", async (socket) => {
       timestamp: Date.now(),
     });
 
+    // register game sockets
     registerGameSockets(io, adminNamespace, socket);
+
   } catch (err) {
     console.error("Socket connection setup error:", err);
   }
 
+  // ==========================
+  // DISCONNECT
+  // ==========================
   socket.on("disconnect", async () => {
     try {
       console.log(`🔴 ${socket.user.name} disconnected`);
@@ -201,6 +197,7 @@ io.on("connection", async (socket) => {
         username: socket.user.name,
         timestamp: Date.now(),
       });
+
     } catch (err) {
       console.error("Disconnect error:", err);
     }

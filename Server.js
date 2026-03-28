@@ -138,8 +138,13 @@ app.get("/", (req, res) => {
 app.use(express.static(path.join(__dirname, "build"))); // serve static React files
 
 // Catch-all: send index.html for React Router
-app.get("/:path(*)", (req, res) => {
-  res.sendFile(path.join(__dirname, "build", "index.html"));
+app.get("*", (req, res) => {
+  // Only serve index.html if request is NOT for an API route
+  if (!req.path.startsWith("/api")) {
+    res.sendFile(path.join(__dirname, "build", "index.html"));
+  } else {
+    res.status(404).json({ message: "API route not found" });
+  }
 });
 
 // ==========================

@@ -92,7 +92,7 @@ exports.getUserNotifications = async (req, res) => {
     console.log("🆔 FETCH USER ID:", req.user?._id);
 
     const notifications = await Notification.find({
-      user: req.user._id,
+      user: mongoose.Types.ObjectId(req.user._id)
     }).sort({ createdAt: -1 });
 
     console.log("📦 FOUND NOTIFICATIONS:", notifications.length);

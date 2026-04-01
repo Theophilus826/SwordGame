@@ -8,29 +8,17 @@ const mongoose = require("mongoose");
 exports.sendNotification = async (req, res) => {
   const { userId, message } = req.body;
 
-  console.log("📥 REQUEST BODY:", req.body);
-  console.log("🔐 AUTH USER:", req.user?._id);
-
   if (!userId || !message) {
-    return res.status(400).json({
-      message: "User ID and message are required",
-    });
+    return res.status(400).json({ message: "User ID and message are required" });
   }
 
   if (!mongoose.Types.ObjectId.isValid(userId)) {
-    return res.status(400).json({
-      message: "Invalid user ID",
-    });
+    return res.status(400).json({ message: "Invalid user ID" });
   }
 
   try {
     const user = await User.findById(userId);
-
-    if (!user) {
-      return res.status(404).json({
-        message: "User not found",
-      });
-    }
+    if (!user) return res.status(404).json({ message: "User not found" });
 
     const notification = await Notification.create({
       user: user._id,
@@ -38,25 +26,12 @@ exports.sendNotification = async (req, res) => {
       read: false,
     });
 
-    console.log("✅ SAVED NOTIFICATION:", notification._id);
+    console.log("✅ Notification saved:", notification._id);
 
-    // ✅ FIXED: use req.io (since you attached it in middleware)
-    const io = req.io;
-
-    if (io) {
-      console.log("📡 Emitting to:", user._id.toString());
-
-      io.to(user._id.toString()).emit("notification:new", notification);
-    } else {
-      console.log("❌ IO NOT FOUND");
-    }
-
-    res.status(201).json({
-      message: "Notification sent",
-      notification,
-    });
+    // Removed Socket.IO — frontend will fetch via API
+    res.status(201).json({ message: "Notification sent", notification });
   } catch (err) {
-    console.error("❌ SEND ERROR:", err);
+    console.error("❌ Send error:", err);
     res.status(500).json({ message: err.message });
   }
 };
@@ -66,10 +41,7 @@ exports.sendNotification = async (req, res) => {
 ========================= */
 exports.sendNotificationToAll = async (req, res) => {
   const { message } = req.body;
-
-  if (!message) {
-    return res.status(400).json({ message: "Message is required" });
-  }
+  if (!message) return res.status(400).json({ message: "Message is required" });
 
   try {
     const users = await User.find({}, "_id");
@@ -81,23 +53,11 @@ exports.sendNotificationToAll = async (req, res) => {
     }));
 
     const result = await Notification.insertMany(notifications);
+    console.log("✅ Sent to all users:", result.length);
 
-    console.log("✅ SENT TO ALL USERS:", result.length);
-
-    // ✅ EMIT TO ALL USERS
-    const io = req.io;
-
-    if (io) {
-      result.forEach((notif) => {
-        io.to(notif.user.toString()).emit("notification:new", notif);
-      });
-    }
-
-    res.json({
-      message: `Notification sent to ${users.length} users`,
-    });
+    res.json({ message: `Notification sent to ${users.length} users` });
   } catch (err) {
-    console.error("❌ SEND ALL ERROR:", err);
+    console.error("❌ Send all error:", err);
     res.status(500).json({ message: err.message });
   }
 };
@@ -107,17 +67,12 @@ exports.sendNotificationToAll = async (req, res) => {
 ========================= */
 exports.getUserNotifications = async (req, res) => {
   try {
-    console.log("🔐 FETCH USER ID:", req.user?._id);
-
-    const notifications = await Notification.find({
-      user: req.user._id, // ✅ cleaner (no need for ObjectId())
-    }).sort({ createdAt: -1 });
-
-    console.log("📦 FOUND NOTIFICATIONS:", notifications.length);
+    const notifications = await Notification.find({ user: req.user._id })
+      .sort({ createdAt: -1 });
 
     res.json(notifications);
   } catch (err) {
-    console.error("❌ FETCH ERROR:", err);
+    console.error("❌ Fetch error:", err);
     res.status(500).json({ message: err.message });
   }
 };
@@ -127,25 +82,17 @@ exports.getUserNotifications = async (req, res) => {
 ========================= */
 exports.markAsRead = async (req, res) => {
   try {
-    console.log("📌 MARK READ ID:", req.params.id);
-
     const notification = await Notification.findOneAndUpdate(
       { _id: req.params.id, user: req.user._id },
       { read: true },
       { new: true }
     );
 
-    if (!notification) {
-      return res.status(404).json({
-        message: "Notification not found",
-      });
-    }
-
-    console.log("✅ UPDATED NOTIFICATION:", notification._id);
+    if (!notification) return res.status(404).json({ message: "Notification not found" });
 
     res.json(notification);
   } catch (err) {
-    console.error("❌ MARK READ ERROR:", err);
+    console.error("❌ Mark read error:", err);
     res.status(500).json({ message: err.message });
   }
 };

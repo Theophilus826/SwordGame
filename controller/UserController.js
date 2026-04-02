@@ -113,6 +113,44 @@ const loginUser = asyncHandler(async (req, res) => {
   });
 });
 
+// ================= SEND MOOD =================
+const sendMood = asyncHandler(async (req, res) => {
+  const { mood } = req.body;
+
+  if (!mood) {
+    res.status(400);
+    throw new Error("Mood is required");
+  }
+
+  const userId = req.user._id; // user must be authenticated
+  const user = await User.findById(userId);
+
+  if (!user) {
+    res.status(404);
+    throw new Error("User not found");
+  }
+
+  // Save mood to user (optional) or send to admin
+  user.mood = mood;
+  await user.save();
+
+  // Emit socket event to admin if connected
+  if (req.io) {
+    req.io.emit("activity:event", {
+      type: "USER_MOOD",
+      user: user.name,
+      userId: user._id,
+      mood,
+      timestamp: Date.now(),
+    });
+  }
+
+  res.status(200).json({
+    message: "Mood sent successfully",
+    mood,
+  });
+});
+
 // ================= LOGOUT =================
 const logoutUser = asyncHandler(async (req, res) => {
   res.cookie("token", "", {
@@ -136,7 +174,6 @@ const forgotPassword = asyncHandler(async (req, res) => {
 
   const resetToken = crypto.randomBytes(32).toString("hex");
 
-  // ✅ HASH TOKEN BEFORE SAVING
   const hashedToken = crypto.createHash("sha256").update(resetToken).digest("hex");
 
   user.resetPasswordToken = hashedToken;
@@ -146,7 +183,7 @@ const forgotPassword = asyncHandler(async (req, res) => {
 
   res.json({
     message: "Reset token generated",
-    resetToken, // send raw token to user (email in real app)
+    resetToken,
   });
 });
 
@@ -195,9 +232,10 @@ function getTimeOfDay() {
 module.exports = {
   registerUser,
   loginUser,
-  logoutUser, // ✅ added
+  logoutUser,
   forgotPassword,
   resetPassword,
   welcome,
+  sendMood, // ✅ new
   generateToken,
 };

@@ -8,6 +8,7 @@ const {
   forgotPassword,
   resetPassword,
   welcome,
+  sendMood, // ✅ added
 } = require("../controller/UserController");
 
 const Post = require("../models/PostModel"); // ✅ fixed path
@@ -28,6 +29,9 @@ router.put("/reset-password/:token", resetPassword);
 
 // Welcome route
 router.get("/welcome", protect, welcome);
+
+// Send Mood route
+router.post("/mood", protect, sendMood); // ✅ new route
 
 // ==========================
 // GET USER POSTS

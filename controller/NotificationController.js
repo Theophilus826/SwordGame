@@ -28,7 +28,6 @@ exports.sendNotification = async (req, res) => {
 
     console.log("✅ Notification saved:", notification._id);
 
-    // Removed Socket.IO — frontend will fetch via API
     res.status(201).json({ message: "Notification sent", notification });
   } catch (err) {
     console.error("❌ Send error:", err);
@@ -41,7 +40,10 @@ exports.sendNotification = async (req, res) => {
 ========================= */
 exports.sendNotificationToAll = async (req, res) => {
   const { message } = req.body;
-  if (!message) return res.status(400).json({ message: "Message is required" });
+
+  if (!message) {
+    return res.status(400).json({ message: "Message is required" });
+  }
 
   try {
     const users = await User.find({}, "_id");
@@ -53,6 +55,7 @@ exports.sendNotificationToAll = async (req, res) => {
     }));
 
     const result = await Notification.insertMany(notifications);
+
     console.log("✅ Sent to all users:", result.length);
 
     res.json({ message: `Notification sent to ${users.length} users` });
@@ -88,11 +91,41 @@ exports.markAsRead = async (req, res) => {
       { new: true }
     );
 
-    if (!notification) return res.status(404).json({ message: "Notification not found" });
+    if (!notification) {
+      return res.status(404).json({ message: "Notification not found" });
+    }
 
     res.json(notification);
   } catch (err) {
     console.error("❌ Mark read error:", err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+/* =========================
+   DELETE NOTIFICATION ✅ NEW
+========================= */
+exports.deleteNotification = async (req, res) => {
+  try {
+    // Validate ID first (prevents crash)
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: "Invalid notification ID" });
+    }
+
+    const notification = await Notification.findOneAndDelete({
+      _id: req.params.id,
+      user: req.user._id, // ensure ownership
+    });
+
+    if (!notification) {
+      return res.status(404).json({ message: "Notification not found" });
+    }
+
+    console.log("🗑️ Deleted:", notification._id);
+
+    res.json({ message: "Notification deleted successfully" });
+  } catch (err) {
+    console.error("❌ Delete error:", err);
     res.status(500).json({ message: err.message });
   }
 };

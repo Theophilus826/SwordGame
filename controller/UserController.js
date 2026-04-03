@@ -229,6 +229,28 @@ function getTimeOfDay() {
   return "Evening";
 }
 
+const updateAvatar = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.params.userId);
+  if (!user) {
+    res.status(404);
+    throw new Error("User not found");
+  }
+
+  if (!req.file) {
+    res.status(400);
+    throw new Error("No file uploaded");
+  }
+
+  const result = await cloudinary.uploader.upload(req.file.path, {
+    folder: "avatars",
+    public_id: `${Date.now()}-${req.file.originalname}`,
+  });
+
+  user.avatar = result.secure_url;
+  await user.save();
+
+  res.json({ success: true, avatar: user.avatar });
+});
 module.exports = {
   registerUser,
   loginUser,
@@ -238,4 +260,5 @@ module.exports = {
   welcome,
   sendMood, // ✅ new
   generateToken,
+  updateAvatar,
 };

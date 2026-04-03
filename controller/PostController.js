@@ -43,6 +43,7 @@ const createPost = asyncHandler(async (req, res) => {
     success: true,
     message: "Post created",
     post: populatedPost,
+    comment: newComment,
   });
 });
 

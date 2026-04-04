@@ -232,16 +232,9 @@ function getTimeOfDay() {
 const updateAvatar = asyncHandler(async (req, res) => {
   const { userId } = req.params;
 
-  // 🔐 Ownership check
   if (req.user._id.toString() !== userId) {
     res.status(403);
     throw new Error("Not authorized");
-  }
-
-  const user = await User.findById(userId);
-  if (!user) {
-    res.status(404);
-    throw new Error("User not found");
   }
 
   if (!req.file) {
@@ -250,10 +243,19 @@ const updateAvatar = asyncHandler(async (req, res) => {
   }
 
   try {
-    // ✅ File already uploaded to Cloudinary
-    console.log("Cloudinary file:", req.file);
+    // ✅ Use the uploaded Cloudinary URL
+    const avatarUrl = req.file.path || req.file.filename || req.file.url;
+    if (!avatarUrl) {
+      throw new Error("Cloudinary did not return a valid URL");
+    }
 
-    user.avatar = req.file.path; // 🔥 THIS is the Cloudinary URL
+    const user = await User.findById(userId);
+    if (!user) {
+      res.status(404);
+      throw new Error("User not found");
+    }
+
+    user.avatar = avatarUrl;
     await user.save();
 
     res.status(200).json({
@@ -262,7 +264,6 @@ const updateAvatar = asyncHandler(async (req, res) => {
     });
   } catch (err) {
     console.error("Avatar update error:", err);
-
     res.status(500).json({
       success: false,
       message: "Avatar update failed",

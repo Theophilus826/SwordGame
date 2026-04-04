@@ -2,6 +2,9 @@ const express = require("express");
 const router = express.Router();
 const multer = require("multer");
 
+const { CloudinaryStorage } = require("multer-storage-cloudinary");
+const cloudinary = require("../config/Cloudinary"); // ✅ FIXED
+
 const {
   registerUser,
   loginUser,
@@ -10,26 +13,26 @@ const {
   resetPassword,
   welcome,
   sendMood,
-  updateAvatar, // ✅ new
+  updateAvatar,
 } = require("../controller/UserController");
 
 const Post = require("../models/PostModel");
 const { protect } = require("../middleware/AuthMiddleware");
 
 // ==========================
-// MULTER CONFIG
+// MULTER CONFIG (Cloudinary)
 // ==========================
-const { CloudinaryStorage } = require("multer-storage-cloudinary");
-
 const storage = new CloudinaryStorage({
   cloudinary,
   params: {
     folder: "avatars",
     resource_type: "image",
+    allowed_formats: ["jpg", "png", "jpeg", "webp"], // ✅ optional but good
   },
 });
 
 const upload = multer({ storage });
+
 // ==========================
 // PUBLIC AUTH ROUTES
 // ==========================
@@ -51,7 +54,7 @@ router.post("/mood", protect, sendMood);
 router.put(
   "/:userId/avatar",
   protect,
-  upload.single("file"), // expecting 'file' from frontend
+  upload.single("file"),
   updateAvatar
 );
 

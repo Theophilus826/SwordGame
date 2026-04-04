@@ -232,7 +232,7 @@ function getTimeOfDay() {
 const updateAvatar = asyncHandler(async (req, res) => {
   const { userId } = req.params;
 
-  // 🔐 Ensure user owns account
+  // 🔐 Ownership check
   if (req.user._id.toString() !== userId) {
     res.status(403);
     throw new Error("Not authorized");
@@ -250,14 +250,10 @@ const updateAvatar = asyncHandler(async (req, res) => {
   }
 
   try {
-    console.log("Uploading file:", req.file.path);
+    // ✅ File already uploaded to Cloudinary
+    console.log("Cloudinary file:", req.file);
 
-    const result = await cloudinary.uploader.upload(req.file.path, {
-      folder: "avatars",
-      public_id: `${Date.now()}-${req.file.originalname}`,
-    });
-
-    user.avatar = result.secure_url;
+    user.avatar = req.file.path; // 🔥 THIS is the Cloudinary URL
     await user.save();
 
     res.status(200).json({
@@ -265,15 +261,14 @@ const updateAvatar = asyncHandler(async (req, res) => {
       avatar: user.avatar,
     });
   } catch (err) {
-    console.error("Cloudinary error:", err);
+    console.error("Avatar update error:", err);
 
     res.status(500).json({
       success: false,
-      message: "Cloudinary upload failed",
+      message: "Avatar update failed",
     });
   }
 });
-
 
 module.exports = {
   registerUser,

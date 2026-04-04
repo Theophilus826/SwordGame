@@ -230,7 +230,15 @@ function getTimeOfDay() {
 }
 
 const updateAvatar = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.params.userId);
+  const { userId } = req.params;
+
+  // 🔐 Ensure user owns account
+  if (req.user._id.toString() !== userId) {
+    res.status(403);
+    throw new Error("Not authorized");
+  }
+
+  const user = await User.findById(userId);
   if (!user) {
     res.status(404);
     throw new Error("User not found");
@@ -241,16 +249,32 @@ const updateAvatar = asyncHandler(async (req, res) => {
     throw new Error("No file uploaded");
   }
 
-  const result = await cloudinary.uploader.upload(req.file.path, {
-    folder: "avatars",
-    public_id: `${Date.now()}-${req.file.originalname}`,
-  });
+  try {
+    console.log("Uploading file:", req.file.path);
 
-  user.avatar = result.secure_url;
-  await user.save();
+    const result = await cloudinary.uploader.upload(req.file.path, {
+      folder: "avatars",
+      public_id: `${Date.now()}-${req.file.originalname}`,
+    });
 
-  res.json({ success: true, avatar: user.avatar });
+    user.avatar = result.secure_url;
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      avatar: user.avatar,
+    });
+  } catch (err) {
+    console.error("Cloudinary error:", err);
+
+    res.status(500).json({
+      success: false,
+      message: "Cloudinary upload failed",
+    });
+  }
 });
+
+
 module.exports = {
   registerUser,
   loginUser,

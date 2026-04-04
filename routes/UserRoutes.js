@@ -4,7 +4,7 @@ const multer = require("multer");
 
 const { CloudinaryStorage } = require("multer-storage-cloudinary");
 const cloudinary = require("../config/Cloudinary"); // ✅ FIXED
-
+import Message from "../models/Message";
 const {
   registerUser,
   loginUser,
@@ -88,6 +88,25 @@ router.get("/:userId/posts", protect, async (req, res) => {
       success: false,
       message: "Failed to fetch user posts",
     });
+  }
+});
+
+// GET chat history between current user and another user
+router.get("/:userId/:otherUserId", async (req, res) => {
+  const { userId, otherUserId } = req.params;
+
+  try {
+    const messages = await Message.find({
+      $or: [
+        { fromUser: userId, toUser: otherUserId },
+        { fromUser: otherUserId, toUser: userId },
+      ],
+    }).sort({ createdAt: 1 }); // oldest first
+
+    res.json({ messages });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to fetch messages" });
   }
 });
 

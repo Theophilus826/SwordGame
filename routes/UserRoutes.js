@@ -1,10 +1,12 @@
 const express = require("express");
 const router = express.Router();
 const multer = require("multer");
-
 const { CloudinaryStorage } = require("multer-storage-cloudinary");
-const cloudinary = require("../config/Cloudinary"); // ✅ FIXED
-import Message from "../models/Message";
+const cloudinary = require("../config/Cloudinary"); // ✅ fixed
+
+const Message = require("../models/Message");
+const Post = require("../models/PostModel");
+
 const {
   registerUser,
   loginUser,
@@ -14,9 +16,10 @@ const {
   welcome,
   sendMood,
   updateAvatar,
+  sendMessage,
+  getMessages,
 } = require("../controller/UserController");
 
-const Post = require("../models/PostModel");
 const { protect } = require("../middleware/AuthMiddleware");
 
 // ==========================
@@ -27,10 +30,9 @@ const storage = new CloudinaryStorage({
   params: {
     folder: "avatars",
     resource_type: "image",
-    allowed_formats: ["jpg", "png", "jpeg", "webp"], // ✅ optional but good
+    allowed_formats: ["jpg", "png", "jpeg", "webp"],
   },
 });
-
 const upload = multer({ storage });
 
 // ==========================
@@ -51,25 +53,13 @@ router.post("/mood", protect, sendMood);
 // ==========================
 // UPDATE AVATAR
 // ==========================
-router.put(
-  "/:userId/avatar",
-  protect,
-  upload.single("file"),
-  updateAvatar
-);
+router.put("/:userId/avatar", protect, upload.single("file"), updateAvatar);
 
 // ==========================
-// GET USER POSTS
+// USER POSTS
 // ==========================
 router.get("/:userId/posts", protect, async (req, res) => {
   const { userId } = req.params;
-
-  if (req.user._id.toString() !== userId && !req.user.isAdmin) {
-    return res.status(403).json({
-      success: false,
-      message: "Forbidden: Access denied",
-    });
-  }
 
   try {
     const posts = await Post.find({ user: userId })
@@ -77,37 +67,21 @@ router.get("/:userId/posts", protect, async (req, res) => {
       .populate("user", "name avatar")
       .lean();
 
-    res.status(200).json({
-      success: true,
-      count: posts.length,
-      posts,
-    });
+    res.status(200).json({ success: true, count: posts.length, posts });
   } catch (err) {
     console.error("Error fetching user posts:", err);
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch user posts",
-    });
+    res.status(500).json({ success: false, message: "Failed to fetch user posts" });
   }
 });
 
-// GET chat history between current user and another user
-router.get("/:userId/:otherUserId", async (req, res) => {
-  const { userId, otherUserId } = req.params;
+// ==========================
+// CHAT ROUTES
+// ==========================
 
-  try {
-    const messages = await Message.find({
-      $or: [
-        { fromUser: userId, toUser: otherUserId },
-        { fromUser: otherUserId, toUser: userId },
-      ],
-    }).sort({ createdAt: 1 }); // oldest first
+// Get chat history between current user and another user
+router.get("/chat/:otherUserId", protect, getMessages);
 
-    res.json({ messages });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Failed to fetch messages" });
-  }
-});
+// Send a message to another user
+router.post("/chat/send", protect, sendMessage);
 
 module.exports = router;

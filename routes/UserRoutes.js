@@ -19,8 +19,17 @@ const { protect } = require("../middleware/AuthMiddleware");
 // ==========================
 // MULTER CONFIG
 // ==========================
-const upload = multer({ dest: "uploads/" }); // temporary storage before Cloudinary
+const { CloudinaryStorage } = require("multer-storage-cloudinary");
 
+const storage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: "avatars",
+    resource_type: "image",
+  },
+});
+
+const upload = multer({ storage });
 // ==========================
 // PUBLIC AUTH ROUTES
 // ==========================

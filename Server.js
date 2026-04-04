@@ -157,10 +157,7 @@ io.on("connection", async (socket) => {
     // mark user online
     await User.findByIdAndUpdate(socket.userId, { online: true });
 
-    io.emit("user:status", {
-      userId: socket.userId,
-      online: true,
-    });
+    io.emit("user:status", { userId: socket.userId, online: true });
 
     // notify admin dashboard
     adminNamespace.emit("activity:event", {
@@ -172,6 +169,31 @@ io.on("connection", async (socket) => {
 
     // register game sockets
     registerGameSockets(io, adminNamespace, socket);
+
+    // ==========================
+    // USER CHAT
+    // ==========================
+    socket.on("chat:send", async ({ toUserId, text }) => {
+      try {
+        if (!toUserId || !text) return;
+
+        // Save message in DB
+        const message = await Message.create({
+          fromUser: socket.userId,
+          toUser: toUserId,
+          text,
+        });
+
+        // Emit message to recipient if online
+        io.to(toUserId.toString()).emit("chat:receive", message);
+
+        // Emit back to sender to confirm delivery
+        socket.emit("chat:receive", message);
+      } catch (err) {
+        console.error("Chat send error:", err);
+        socket.emit("chat:error", { message: "Failed to send message" });
+      }
+    });
 
   } catch (err) {
     console.error("Socket connection setup error:", err);
@@ -186,10 +208,7 @@ io.on("connection", async (socket) => {
 
       await User.findByIdAndUpdate(socket.userId, { online: false });
 
-      io.emit("user:status", {
-        userId: socket.userId,
-        online: false,
-      });
+      io.emit("user:status", { userId: socket.userId, online: false });
 
       adminNamespace.emit("activity:event", {
         type: "USER_OFFLINE",
@@ -197,13 +216,11 @@ io.on("connection", async (socket) => {
         username: socket.user.name,
         timestamp: Date.now(),
       });
-
     } catch (err) {
       console.error("Disconnect error:", err);
     }
   });
 });
-
 // ==========================
 // START SERVER
 // ==========================

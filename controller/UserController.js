@@ -4,6 +4,8 @@ const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 
 const User = require("../models/UserModels");
+const Message = require("../models/Message"); // New: message model
+const cloudinary = require("../config/Cloudinary");
 
 // ================= TOKEN GENERATOR =================
 const generateToken = (id, expiresIn = "1d") => {
@@ -13,34 +15,23 @@ const generateToken = (id, expiresIn = "1d") => {
 // ================= REGISTER =================
 const registerUser = asyncHandler(async (req, res) => {
   let { name, email, password, confirmPassword } = req.body;
-
   email = email?.toLowerCase().trim();
 
   if (!name || !email || !password || !confirmPassword) {
     res.status(400);
     throw new Error("All fields are required");
   }
-
   if (password !== confirmPassword) {
     res.status(400);
     throw new Error("Passwords do not match");
   }
-
-  const userExists = await User.findOne({ email });
-  if (userExists) {
+  if (await User.findOne({ email })) {
     res.status(400);
     throw new Error("User already exists");
   }
 
   const hashedPassword = await bcrypt.hash(password, 10);
-
-  const user = await User.create({
-    name,
-    email,
-    password: hashedPassword,
-    isVerified: true,
-  });
-
+  const user = await User.create({ name, email, password: hashedPassword, isVerified: true });
   const token = generateToken(user._id);
 
   res.cookie("token", token, {
@@ -50,7 +41,6 @@ const registerUser = asyncHandler(async (req, res) => {
     maxAge: 24 * 60 * 60 * 1000,
   });
 
-  // Emit socket event
   if (req.io) {
     req.io.emit("activity:event", {
       type: "USER_ONLINE",
@@ -67,17 +57,16 @@ const registerUser = asyncHandler(async (req, res) => {
     email: user.email,
     token,
     isAdmin: user.isAdmin,
+    avatar: user.avatar || null,
   });
 });
 
 // ================= LOGIN =================
 const loginUser = asyncHandler(async (req, res) => {
   let { email, password } = req.body;
-
   email = email?.toLowerCase().trim();
 
   const user = await User.findOne({ email });
-
   if (!user || !(await bcrypt.compare(password, user.password))) {
     res.status(401);
     throw new Error("Invalid credentials");
@@ -110,31 +99,33 @@ const loginUser = asyncHandler(async (req, res) => {
     email: user.email,
     token,
     isAdmin: user.isAdmin,
+    avatar: user.avatar || null,
   });
+});
+
+// ================= LOGOUT =================
+const logoutUser = asyncHandler(async (req, res) => {
+  res.cookie("token", "", { httpOnly: true, expires: new Date(0) });
+  res.status(200).json({ message: "Logged out successfully" });
 });
 
 // ================= SEND MOOD =================
 const sendMood = asyncHandler(async (req, res) => {
   const { mood } = req.body;
-
   if (!mood) {
     res.status(400);
     throw new Error("Mood is required");
   }
 
-  const userId = req.user._id; // user must be authenticated
-  const user = await User.findById(userId);
-
+  const user = await User.findById(req.user._id);
   if (!user) {
     res.status(404);
     throw new Error("User not found");
   }
 
-  // Save mood to user (optional) or send to admin
   user.mood = mood;
   await user.save();
 
-  // Emit socket event to admin if connected
   if (req.io) {
     req.io.emit("activity:event", {
       type: "USER_MOOD",
@@ -145,46 +136,73 @@ const sendMood = asyncHandler(async (req, res) => {
     });
   }
 
-  res.status(200).json({
-    message: "Mood sent successfully",
-    mood,
-  });
+  res.status(200).json({ message: "Mood sent successfully", mood });
 });
 
-// ================= LOGOUT =================
-const logoutUser = asyncHandler(async (req, res) => {
-  res.cookie("token", "", {
-    httpOnly: true,
-    expires: new Date(0),
+// ================= CHAT FUNCTIONALITY =================
+
+// Send message
+const sendMessage = asyncHandler(async (req, res) => {
+  const { toUserId, message } = req.body;
+
+  if (!toUserId || !message) {
+    res.status(400);
+    throw new Error("Recipient and message are required");
+  }
+
+  const newMessage = await Message.create({
+    fromUser: req.user._id,
+    toUser: toUserId,
+    message,
   });
 
-  res.status(200).json({ message: "Logged out successfully" });
+  // Emit real-time event to recipient and sender
+  if (req.io) {
+    req.io.to(toUserId.toString()).emit("receiveMessage", newMessage);
+    req.io.to(req.user._id.toString()).emit("receiveMessage", newMessage);
+  }
+
+  res.status(201).json({ message: "Message sent", data: newMessage });
+});
+
+// Fetch messages between two users
+const getMessages = asyncHandler(async (req, res) => {
+  const { otherUserId } = req.params;
+  if (!otherUserId) {
+    res.status(400);
+    throw new Error("Other user ID is required");
+  }
+
+  const messages = await Message.find({
+    $or: [
+      { fromUser: req.user._id, toUser: otherUserId },
+      { fromUser: otherUserId, toUser: req.user._id },
+    ],
+  })
+    .sort({ createdAt: 1 })
+    .populate("fromUser", "name avatar")
+    .populate("toUser", "name avatar");
+
+  res.json({ messages });
 });
 
 // ================= FORGOT PASSWORD =================
 const forgotPassword = asyncHandler(async (req, res) => {
   const { email } = req.body;
-
   const user = await User.findOne({ email: email.toLowerCase() });
-
   if (!user) {
     res.status(404);
     throw new Error("User not found");
   }
 
   const resetToken = crypto.randomBytes(32).toString("hex");
-
   const hashedToken = crypto.createHash("sha256").update(resetToken).digest("hex");
 
   user.resetPasswordToken = hashedToken;
   user.resetPasswordExpire = Date.now() + 10 * 60 * 1000;
-
   await user.save();
 
-  res.json({
-    message: "Reset token generated",
-    resetToken,
-  });
+  res.json({ message: "Reset token generated", resetToken });
 });
 
 // ================= RESET PASSWORD =================
@@ -207,19 +225,14 @@ const resetPassword = asyncHandler(async (req, res) => {
   user.password = await bcrypt.hash(password, 10);
   user.resetPasswordToken = undefined;
   user.resetPasswordExpire = undefined;
-
   await user.save();
 
-  res.json({
-    message: "Password reset successful",
-  });
+  res.json({ message: "Password reset successful" });
 });
 
 // ================= WELCOME =================
 const welcome = asyncHandler(async (req, res) => {
-  res.json({
-    message: `Good ${getTimeOfDay()}, ${req.user.name}!`,
-  });
+  res.json({ message: `Good ${getTimeOfDay()}, ${req.user.name}!` });
 });
 
 function getTimeOfDay() {
@@ -229,6 +242,7 @@ function getTimeOfDay() {
   return "Evening";
 }
 
+// ================= UPDATE AVATAR =================
 const updateAvatar = asyncHandler(async (req, res) => {
   const { userId } = req.params;
 
@@ -236,19 +250,13 @@ const updateAvatar = asyncHandler(async (req, res) => {
     res.status(403);
     throw new Error("Not authorized");
   }
-
   if (!req.file) {
     res.status(400);
     throw new Error("No file uploaded");
   }
 
   try {
-    // ✅ Use the uploaded Cloudinary URL
     const avatarUrl = req.file.path || req.file.filename || req.file.url;
-    if (!avatarUrl) {
-      throw new Error("Cloudinary did not return a valid URL");
-    }
-
     const user = await User.findById(userId);
     if (!user) {
       res.status(404);
@@ -258,16 +266,10 @@ const updateAvatar = asyncHandler(async (req, res) => {
     user.avatar = avatarUrl;
     await user.save();
 
-    res.status(200).json({
-      success: true,
-      avatar: user.avatar,
-    });
+    res.status(200).json({ success: true, avatar: user.avatar });
   } catch (err) {
     console.error("Avatar update error:", err);
-    res.status(500).json({
-      success: false,
-      message: "Avatar update failed",
-    });
+    res.status(500).json({ success: false, message: "Avatar update failed" });
   }
 });
 
@@ -278,7 +280,9 @@ module.exports = {
   forgotPassword,
   resetPassword,
   welcome,
-  sendMood, // ✅ new
+  sendMood,
   generateToken,
   updateAvatar,
+  sendMessage, // ✅ new
+  getMessages, // ✅ new
 };

@@ -5,7 +5,7 @@
 const express = require("express");
 const router = express.Router();
 const chatController = require("../controller/ChatController"); // corrected path
-const auth = require("../middleware/AuthMiddleware");
+const { protect } = require("../middleware/AuthMiddleware"); // only the protect middleware
 const upload = require("../middleware/Upload");
 
 // ==========================
@@ -16,20 +16,20 @@ router.get("/stream/:userId/:otherUserId", chatController.streamChat);
 // ==========================
 // CHAT - Send Text Message
 // ==========================
-router.post("/send", auth, chatController.sendMessage);
+router.post("/send", protect, chatController.sendMessage);
 
 // ==========================
 // TYPING - Typing Indicators
 // ==========================
-router.post("/typing", auth, chatController.typing);
-router.post("/stop-typing", auth, chatController.stopTyping);
+router.post("/typing", protect, chatController.typing);
+router.post("/stop-typing", protect, chatController.stopTyping);
 
 // ==========================
 // VOICE - Send Voice Notes
 // ==========================
 router.post(
   "/voice",
-  auth,
+  protect,
   upload.single("audio"),
   chatController.sendVoice
 );

@@ -1,20 +1,32 @@
+// ==========================
+// ChatRoutes.js
+// ==========================
+
 const express = require("express");
 const router = express.Router();
-const chatController = require("../controller/ChatController"); // make sure path matches exactly
+const chatController = require("../controller/ChatController"); // corrected path
 const auth = require("../middleware/AuthMiddleware");
 const upload = require("../middleware/Upload");
 
-/* ================= SSE ================= */
+// ==========================
+// SSE - Stream Chat
+// ==========================
 router.get("/stream/:userId/:otherUserId", chatController.streamChat);
 
-/* ================= CHAT ================= */
+// ==========================
+// CHAT - Send Text Message
+// ==========================
 router.post("/send", auth, chatController.sendMessage);
 
-/* ================= TYPING ================= */
+// ==========================
+// TYPING - Typing Indicators
+// ==========================
 router.post("/typing", auth, chatController.typing);
 router.post("/stop-typing", auth, chatController.stopTyping);
 
-/* ================= VOICE ================= */
+// ==========================
+// VOICE - Send Voice Notes
+// ==========================
 router.post(
   "/voice",
   auth,

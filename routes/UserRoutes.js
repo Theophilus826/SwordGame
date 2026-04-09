@@ -17,7 +17,7 @@ const {
   sendMood,
   updateAvatar,
   sendMessage,
-  getMessages,
+  getMessages, getAllUsers,
 } = require("../controller/UserController");
 
 const { protect } = require("../middleware/AuthMiddleware");
@@ -73,7 +73,7 @@ router.get("/:userId/posts", protect, async (req, res) => {
     res.status(500).json({ success: false, message: "Failed to fetch user posts" });
   }
 });
-
+router.get("/users", protect, getAllUsers);
 // ==========================
 // CHAT ROUTES
 // ==========================

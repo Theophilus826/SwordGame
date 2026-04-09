@@ -12,12 +12,12 @@ const {
   getPosts,
   reactPost,
   commentPost,
-   getPostById,
+  getPostById,
 } = require("../controller/PostController");
 
 const router = express.Router();
 
-// File filter
+// ===== File Filter =====
 const fileFilter = (req, file, cb) => {
   const allowedTypes = [
     "image/jpeg",
@@ -32,38 +32,53 @@ const fileFilter = (req, file, cb) => {
   else cb(new Error("Only images and videos are allowed"), false);
 };
 
-// Cloudinary storage
+// ===== Cloudinary Storage =====
 const storage = new CloudinaryStorage({
   cloudinary,
   params: async (req, file) => {
     const isVideo = file.mimetype.startsWith("video");
-
     return {
       folder: "posts",
       resource_type: isVideo ? "video" : "image",
-      public_id: Date.now() + "-" + file.originalname,
+      public_id: `${Date.now()}-${file.originalname}`,
     };
   },
 });
 
 const upload = multer({ storage, fileFilter });
 
-// Routes
-router.post("/", protect, upload.single("file"), createPost);
-router.post("/:postId/media", protect, upload.single("file"), uploadMedia);
+// ===== Routes =====
+
+// Create post with multiple files
+router.post("/", protect, upload.array("files"), createPost);
+
+// Upload multiple media to existing post
+router.post("/:postId/media", protect, upload.array("files"), uploadMedia);
+
+// Get all posts
 router.get("/", getPosts);
+
+// Get single post
 router.get("/:postId", getPostById);
+
+// React (like/love)
 router.post("/:postId/react", protect, reactPost);
+
+// Comment on post
 router.post("/:postId/comment", protect, commentPost);
 
-router.get("/user/:userId/posts", asyncHandler(async (req, res) => {
-  const posts = await Post.find({ user: req.params.userId })
-    .sort({ createdAt: -1 })
-    .populate("user", "name avatar")
-    .populate("comments.user", "name avatar")
-    .lean();
+// Get posts of a specific user
+router.get(
+  "/user/:userId/posts",
+  asyncHandler(async (req, res) => {
+    const posts = await Post.find({ user: req.params.userId })
+      .sort({ createdAt: -1 })
+      .populate("user", "name avatar")
+      .populate("comments.user", "name avatar")
+      .lean();
 
-  res.json({ success: true, posts });
-}));
+    res.json({ success: true, posts });
+  })
+);
 
 module.exports = router;

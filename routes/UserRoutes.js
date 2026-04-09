@@ -73,7 +73,7 @@ router.get("/:userId/posts", protect, async (req, res) => {
     res.status(500).json({ success: false, message: "Failed to fetch user posts" });
   }
 });
-router.get("/users", protect, getAllUsers);
+router.get("/", protect, getAllUsers);
 // ==========================
 // CHAT ROUTES
 // ==========================

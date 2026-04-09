@@ -33,5 +33,11 @@ router.post(
   upload.single("audio"),
   chatController.sendVoice
 );
+router.post(
+  "/image",
+  protect,
+  upload.single("image"),
+  chatController.sendMedia
+);
 
 module.exports = router;

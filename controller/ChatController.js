@@ -109,41 +109,40 @@ const streamChat = async (req, res) => {
 /* ================= SEND MESSAGE ================= */
 const sendMessage = async (req, res) => {
   try {
-    // ✅ Auth check
+    console.log("BODY:", req.body);
+    console.log("USER:", req.user);
+
     if (!req.user || !req.user._id) {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
     const { toUserId, text } = req.body;
 
-    // ✅ Validate input
-    if (!toUserId || !text || !text.trim()) {
-      return res.status(400).json({ error: "Missing message data" });
+    if (!toUserId || !text) {
+      return res.status(400).json({ error: "Missing fields" });
     }
 
-    // ✅ Validate ObjectId
     if (!mongoose.Types.ObjectId.isValid(toUserId)) {
       return res.status(400).json({ error: "Invalid user ID" });
     }
 
-    const fromUser = req.user._id;
-
-    const message = await saveMessage({
-      fromUser,
-      toUserId,
-      text: text.trim(),
+    const message = await Message.create({
+      fromUser: req.user._id,
+      toUser: toUserId,
+      text,
+      message: text,
+      type: "text",
     });
 
-    // ✅ Push to SSE clients
-    pushMessage(fromUser, toUserId, message);
+    pushMessage(req.user._id, toUserId, message);
 
     res.status(200).json({ message });
+
   } catch (err) {
-    console.error("SEND MESSAGE ERROR:", err);
-    res.status(500).json({ error: "Message sending failed" });
+    console.error("SEND MESSAGE ERROR FULL:", err);
+    res.status(500).json({ error: err.message });
   }
 };
-
 /* ================= TYPING ================= */
 const typing = (req, res) => {
   try {

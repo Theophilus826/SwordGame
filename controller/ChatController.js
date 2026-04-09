@@ -143,6 +143,7 @@ const sendMessage = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
 /* ================= TYPING ================= */
 const typing = (req, res) => {
   try {
@@ -207,6 +208,35 @@ const sendVoice = async (req, res) => {
     res.status(500).json({ error: "Voice note upload failed" });
   }
 };
+// add support for image
+const sendMedia = async (req, res) => {
+  try {
+    if (!req.user?._id) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+
+    const { toUserId } = req.body;
+
+    const message = await Message.create({
+      fromUser: req.user._id,
+      toUser: toUserId,
+      image: req.file.path, // ✅ new field
+      type: "image",
+      status: "sent",
+    });
+
+    pushMessage(req.user._id, toUserId, message);
+
+    res.json({ message });
+  } catch (err) {
+    console.error("IMAGE ERROR:", err);
+    res.status(500).json({ error: "Image send failed" });
+  }
+};
 
 /* ================= EXPORT ================= */
 module.exports = {
@@ -215,4 +245,5 @@ module.exports = {
   typing,
   stopTyping,
   sendVoice,
+  sendMedia,
 };

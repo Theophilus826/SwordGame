@@ -7,7 +7,7 @@ const {
   setOffline,
   isOnline,
   broadcastStatus,
-} = require("../utils/sse");
+} = require("../config/sse");
 
 /* ================= STREAM ================= */
 exports.streamChat = async (req, res) => {

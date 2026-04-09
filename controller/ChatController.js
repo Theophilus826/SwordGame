@@ -1,4 +1,3 @@
-// controllers/ChatController.js
 const Message = require("../models/Message");
 const {
   addClient,
@@ -102,7 +101,7 @@ const sendVoice = async (req, res) => {
     const message = await Message.create({
       fromUser: req.user._id,
       toUser: req.body.toUserId,
-      audio: req.file.path, // Cloudinary URL
+      audio: req.file.path,
       type: "voice",
     });
 

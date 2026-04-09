@@ -1,56 +1,94 @@
 const clients = {};
 const onlineUsers = new Set();
 
+/* ================= HELPER ================= */
+function getKey(userId, otherUserId) {
+  return `${userId}-${otherUserId}`;
+}
+
+/* ================= SAFE WRITE ================= */
+function safeWrite(res, data) {
+  try {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  } catch (err) {
+    console.error("SSE WRITE ERROR:", err);
+  }
+}
+
 /* ================= REGISTER CLIENT ================= */
 function addClient(userId, otherUserId, res) {
-  const key = `${userId}-${otherUserId}`;
-  if (!clients[key]) clients[key] = [];
-  clients[key].push(res);
+  const key = getKey(userId, otherUserId);
+
+  if (!clients[key]) clients[key] = new Set();
+
+  // ✅ prevent duplicates
+  clients[key].add(res);
 }
 
 /* ================= REMOVE CLIENT ================= */
 function removeClient(userId, otherUserId, res) {
-  const key = `${userId}-${otherUserId}`;
-  clients[key] = (clients[key] || []).filter((c) => c !== res);
+  const key = getKey(userId, otherUserId);
+
+  if (!clients[key]) return;
+
+  clients[key].delete(res);
+
+  // ✅ cleanup empty sets
+  if (clients[key].size === 0) {
+    delete clients[key];
+  }
 }
 
 /* ================= PUSH MESSAGE ================= */
 function pushMessage(userId, otherUserId, message) {
-  [ `${userId}-${otherUserId}`, `${otherUserId}-${userId}` ].forEach((key) => {
+  const keys = [
+    getKey(userId, otherUserId),
+    getKey(otherUserId, userId),
+  ];
+
+  keys.forEach((key) => {
     clients[key]?.forEach((res) => {
-      res.write(`data: ${JSON.stringify({ type: "new_message", message })}\n\n`);
+      safeWrite(res, { type: "new_message", message });
     });
   });
 }
 
 /* ================= TYPING ================= */
 function sendTyping(userId, otherUserId, type) {
-  [ `${userId}-${otherUserId}`, `${otherUserId}-${userId}` ].forEach((key) => {
+  const keys = [
+    getKey(userId, otherUserId),
+    getKey(otherUserId, userId),
+  ];
+
+  keys.forEach((key) => {
     clients[key]?.forEach((res) => {
-      res.write(`data: ${JSON.stringify({ type })}\n\n`);
+      safeWrite(res, { type });
     });
   });
 }
 
 /* ================= ONLINE STATUS ================= */
 function setOnline(userId) {
-  onlineUsers.add(userId);
+  onlineUsers.add(String(userId));
 }
 
 function setOffline(userId) {
-  onlineUsers.delete(userId);
+  onlineUsers.delete(String(userId));
 }
 
 function isOnline(userId) {
-  return onlineUsers.has(userId);
+  return onlineUsers.has(String(userId));
 }
 
+/* ================= BROADCAST STATUS ================= */
 function broadcastStatus(userId, status) {
-  Object.values(clients).forEach((arr) => {
-    arr.forEach((res) => {
-      res.write(
-        `data: ${JSON.stringify({ type: "status", userId, status })}\n\n`
-      );
+  Object.values(clients).forEach((set) => {
+    set.forEach((res) => {
+      safeWrite(res, {
+        type: "status",
+        userId,
+        status,
+      });
     });
   });
 }

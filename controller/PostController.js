@@ -3,24 +3,23 @@ const Post = require("../models/PostModel");
 const cloudinary = require("../config/Cloudinary"); // your cloudinary config
 
 // =========================
-// Create Post
+// Create Post (Multiple Files)
 // =========================
 const createPost = asyncHandler(async (req, res) => {
   const text = req.body.text?.trim() || "";
   const media = [];
 
-  if (req.file) {
-    // Upload file to Cloudinary
-    const isVideo = req.file.mimetype.startsWith("video");
-    const result = await cloudinary.uploader.upload(req.file.path, {
-      folder: "posts",
-      resource_type: isVideo ? "video" : "image",
-      public_id: `${Date.now()}-${req.file.originalname}`,
-       quality: "auto",
-       fetch_format: "auto",
-    });
-
-    media.push({ url: result.secure_url, type: isVideo ? "video" : "image" });
+  // Handle multiple files
+  if (req.files && req.files.length > 0) {
+    for (const file of req.files) {
+      const isVideo = file.mimetype.startsWith("video");
+      const result = await cloudinary.uploader.upload(file.path, {
+        folder: "posts",
+        resource_type: isVideo ? "video" : "image",
+        public_id: `${Date.now()}-${file.originalname}`,
+      });
+      media.push({ url: result.secure_url, type: isVideo ? "video" : "image" });
+    }
   }
 
   if (!text && media.length === 0) {
@@ -43,12 +42,11 @@ const createPost = asyncHandler(async (req, res) => {
     success: true,
     message: "Post created",
     post: populatedPost,
-    comment: newComment,
   });
 });
 
 // =========================
-// Upload Media to Existing Post
+// Upload Media to Existing Post (Multiple Files)
 // =========================
 const uploadMedia = asyncHandler(async (req, res) => {
   const post = await Post.findById(req.params.postId);
@@ -62,22 +60,22 @@ const uploadMedia = asyncHandler(async (req, res) => {
     throw new Error("Not authorized");
   }
 
-  if (!req.file) {
+  if (!req.files || req.files.length === 0) {
     res.status(400);
-    throw new Error("No file uploaded");
+    throw new Error("No files uploaded");
   }
 
-  // Upload to Cloudinary
-  const isVideo = req.file.mimetype.startsWith("video");
-  const result = await cloudinary.uploader.upload(req.file.path, {
-    folder: "posts",
-    resource_type: isVideo ? "video" : "image",
-    public_id: `${Date.now()}-${req.file.originalname}`,
-  });
-
-  // Ensure post.media is array
   post.media = Array.isArray(post.media) ? post.media : [];
-  post.media.push({ url: result.secure_url, type: isVideo ? "video" : "image" });
+
+  for (const file of req.files) {
+    const isVideo = file.mimetype.startsWith("video");
+    const result = await cloudinary.uploader.upload(file.path, {
+      folder: "posts",
+      resource_type: isVideo ? "video" : "image",
+      public_id: `${Date.now()}-${file.originalname}`,
+    });
+    post.media.push({ url: result.secure_url, type: isVideo ? "video" : "image" });
+  }
 
   await post.save();
 
@@ -110,6 +108,9 @@ const getPosts = asyncHandler(async (req, res) => {
   });
 });
 
+// =========================
+// Get Single Post
+// =========================
 const getPostById = asyncHandler(async (req, res) => {
   const post = await Post.findById(req.params.postId)
     .populate("user", "name avatar")
@@ -141,26 +142,19 @@ const reactPost = asyncHandler(async (req, res) => {
   }
 
   const userId = req.user._id.toString();
-
-  // Ensure arrays exist
   post.likedBy = Array.isArray(post.likedBy) ? post.likedBy : [];
   post.lovedBy = Array.isArray(post.lovedBy) ? post.lovedBy : [];
 
   if (type === "like") {
-    if (!post.likedBy.includes(userId)) {
-      post.likedBy.push(userId); // Add like
-    } else {
-      post.likedBy = post.likedBy.filter((id) => id.toString() !== userId); // Remove like
-    }
-  } else if (type === "love") {
-    if (!post.lovedBy.includes(userId)) {
-      post.lovedBy.push(userId); // Add love
-    } else {
-      post.lovedBy = post.lovedBy.filter((id) => id.toString() !== userId); // Remove love
-    }
+    post.likedBy.includes(userId)
+      ? post.likedBy.splice(post.likedBy.indexOf(userId), 1)
+      : post.likedBy.push(userId);
+  } else {
+    post.lovedBy.includes(userId)
+      ? post.lovedBy.splice(post.lovedBy.indexOf(userId), 1)
+      : post.lovedBy.push(userId);
   }
 
-  // Update counts
   post.likeCount = post.likedBy.length;
   post.loveCount = post.lovedBy.length;
 
@@ -170,10 +164,11 @@ const reactPost = asyncHandler(async (req, res) => {
     success: true,
     likeCount: post.likeCount,
     loveCount: post.loveCount,
-    likedBy: post.likedBy,   // send arrays for frontend
-    lovedBy: post.lovedBy,   // optional but useful
+    likedBy: post.likedBy,
+    lovedBy: post.lovedBy,
   });
 });
+
 // =========================
 // Comment on Post
 // =========================
@@ -209,7 +204,7 @@ module.exports = {
   createPost,
   uploadMedia,
   getPosts,
+  getPostById,
   reactPost,
   commentPost,
-  getPostById,
 };

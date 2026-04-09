@@ -1,5 +1,5 @@
 // models/Message.js
-import mongoose from "mongoose";
+const mongoose = require("mongoose");
 
 const messageSchema = new mongoose.Schema(
   {
@@ -8,7 +8,6 @@ const messageSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
-
     toUser: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -18,7 +17,7 @@ const messageSchema = new mongoose.Schema(
     /* ================= OLD FIELD (KEEP) ================= */
     message: {
       type: String,
-      default: "", // no longer required (important!)
+      default: "", // backward compatibility
     },
 
     /* ================= NEW FIELDS ================= */
@@ -50,4 +49,5 @@ const messageSchema = new mongoose.Schema(
 );
 
 const Message = mongoose.model("Message", messageSchema);
-export default Message;
+
+module.exports = Message; // ✅ CommonJS export

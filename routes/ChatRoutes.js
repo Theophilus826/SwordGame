@@ -1,13 +1,25 @@
 const express = require("express");
 const router = express.Router();
-const chatController = require("../controller/ChatController"); // make sure path is correct
+const chatController = require("../controller/ChatController"); // make sure path matches exactly
 const auth = require("../middleware/AuthMiddleware");
 const upload = require("../middleware/Upload");
 
-router.get("/stream/:userId/:otherUserId", auth, chatController.streamChat);
+/* ================= SSE ================= */
+router.get("/stream/:userId/:otherUserId", chatController.streamChat);
+
+/* ================= CHAT ================= */
 router.post("/send", auth, chatController.sendMessage);
+
+/* ================= TYPING ================= */
 router.post("/typing", auth, chatController.typing);
 router.post("/stop-typing", auth, chatController.stopTyping);
-router.post("/voice", auth, upload.single("audio"), chatController.sendVoice);
+
+/* ================= VOICE ================= */
+router.post(
+  "/voice",
+  auth,
+  upload.single("audio"),
+  chatController.sendVoice
+);
 
 module.exports = router;

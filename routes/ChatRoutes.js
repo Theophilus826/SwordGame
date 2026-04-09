@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const chatController = require("../controllers/ChatController"); // make sure path is correct
+const chatController = require("../controller/ChatController"); // make sure path is correct
 const auth = require("../middleware/AuthMiddleware");
 const upload = require("../middleware/Upload");
 

@@ -272,6 +272,23 @@ const updateAvatar = asyncHandler(async (req, res) => {
     res.status(500).json({ success: false, message: "Avatar update failed" });
   }
 });
+// ================= GET ALL USERS =================
+const getAllUsers = asyncHandler(async (req, res) => {
+  // Fetch all users except the current logged-in user
+  const users = await User.find({ _id: { $ne: req.user._id } })
+    .select("_id name avatar online") // select only needed fields
+    .lean();
+
+  // Map users to ensure 'online' field is always present
+  const formattedUsers = users.map(u => ({
+    _id: u._id,
+    name: u.name,
+    avatar: u.avatar || null,
+    status: u.online ? "online" : "offline", // convert boolean to string
+  }));
+
+  res.status(200).json({ users: formattedUsers });
+});
 
 module.exports = {
   registerUser,
@@ -285,4 +302,5 @@ module.exports = {
   updateAvatar,
   sendMessage, // ✅ new
   getMessages, // ✅ new
+  getAllUsers,
 };

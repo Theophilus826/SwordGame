@@ -42,10 +42,15 @@ const messageSchema = new mongoose.Schema(
       enum: ["sent", "delivered", "seen"],
       default: "sent",
     },
+    image: {
+      type: String,
+      default: null,
+    },
+    
   },
   {
     timestamps: true, // replaces createdAt
-  }
+  },
 );
 
 const Message = mongoose.model("Message", messageSchema);

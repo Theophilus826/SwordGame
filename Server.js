@@ -15,6 +15,7 @@ const socketAuth = require("./middleware/socketAuth");
 const { registerGameSockets } = require("./games/socketHandler");
 const User = require("./models/UserModels");
 const { getUsersFromDB } = require("./controller/UserHelpers");
+const ChatRoutes = require("./routes/ChatRoutes");
 
 
 // ==========================
@@ -131,7 +132,7 @@ app.use("/api/auth", require("./routes/ShareRoute"));
 app.use("/uploads", express.static("uploads"));
 app.use("/api/notifications", require("./routes/NotificationRoute"));
 app.use("/api/wallet", require("./routes/DepositRoutes"));
-
+app.use("/chat", ChatRoutes);
 // Route to get posts by a specific user
 
 

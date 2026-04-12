@@ -10,8 +10,8 @@ const FeedbackSchema = new mongoose.Schema(
         club: {
             type: String,
             required: [true, 'Please select a club'],
-            enum: ['Chelsea', 'Barcelona', 'Manchester City', 'Juventus', 'Paris Saint-Germain - PSG',
-                'Liverpool FC', 'AC Milan', 'Bayern Munich', 'Manchester United'
+            enum: ['Call of Duty', 'Act of War', 'Car Race', 'Real Punching', 'Real league Football',
+                'Spirit Sword', 'Grand War', 'Ludo Game', 'Subway'
             ],
             trim: true // remove extra spaces
         },

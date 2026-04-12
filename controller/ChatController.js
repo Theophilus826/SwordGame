@@ -180,7 +180,7 @@ const sendVoice = async (req, res) => {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    if (!req.file || !req.file.path) {
+    if (!req.file) {
       return res.status(400).json({ error: "No audio file uploaded" });
     }
 
@@ -195,7 +195,10 @@ const sendVoice = async (req, res) => {
     const message = await Message.create({
       fromUser: req.user._id,
       toUser: req.body.toUserId,
-      audio: req.file.path,
+
+      // ✅ FIXED SAFE PATH
+      audio: req.file.path || req.file.secure_url,
+
       type: "voice",
       status: "sent",
     });

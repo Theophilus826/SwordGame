@@ -7,8 +7,13 @@ const storage = new CloudinaryStorage({
   cloudinary,
   params: {
     folder: "chat-voice-notes",
-    resource_type: "video", // ⚠️ IMPORTANT for audio/webm
-    format: async (req, file) => "webm",
+
+    // ✅ FIX: MUST be "raw" for audio files
+    resource_type: "raw",
+
+    // keep webm format for recordings
+    format: async () => "webm",
+
     public_id: (req, file) => {
       return "voice-" + Date.now();
     },
@@ -24,13 +29,19 @@ const fileFilter = (req, file, cb) => {
     "audio/ogg",
   ];
 
-  if (allowed.includes(file.mimetype)) cb(null, true);
-  else cb(new Error("Only audio allowed"), false);
+  if (allowed.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error("Only audio files are allowed"), false);
+  }
 };
 
+/* ================= UPLOAD ================= */
 const upload = multer({
   storage,
   fileFilter,
+
+  // ✅ safe limit for voice notes
   limits: { fileSize: 10 * 1024 * 1024 },
 });
 

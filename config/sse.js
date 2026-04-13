@@ -92,6 +92,17 @@ function broadcastStatus(userId, status) {
     });
   });
 }
+// push notification to connected clients
+const pushNotification = (userId, notification) => {
+  const clients = clientsMap.get(userId) || [];
+
+  clients.forEach((res) => {
+    res.write(`data: ${JSON.stringify({
+      type: "notification",
+      notification,
+    })}\n\n`);
+  });
+};
 
 module.exports = {
   addClient,
@@ -102,4 +113,5 @@ module.exports = {
   setOffline,
   isOnline,
   broadcastStatus,
+  pushNotification,
 };

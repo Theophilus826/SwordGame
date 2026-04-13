@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const Message = require("../models/Message");
+const Notification = require("../models/Notification"); // ✅ NEW
 
 const {
   addClient,
@@ -10,6 +11,7 @@ const {
   setOffline,
   isOnline,
   broadcastStatus,
+  pushNotification, // ✅ NEW (you must add this in SSE config)
 } = require("../config/sse");
 
 /* ================= HELPERS ================= */
@@ -17,17 +19,51 @@ const {
 // Validate Mongo ID
 const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
 
-// Normalize file URL (local + cloud)
+// Normalize file URL
 const buildFileUrl = (file) => {
   if (!file) return null;
 
   return (
-    file.secure_url || // cloudinary
-    `${process.env.BASE_URL}/${file.path.replace(/\\/g, "/")}` // local
+    file.secure_url ||
+    `${process.env.BASE_URL}/${file.path.replace(/\\/g, "/")}`
   );
 };
 
-// Get chat messages
+// Create notification message text
+const buildNotificationMessage = (senderName, type) => {
+  switch (type) {
+    case "text":
+      return `💬 New message from ${senderName}`;
+    case "voice":
+      return `🎤 Voice message from ${senderName}`;
+    case "image":
+      return `🖼️ Image from ${senderName}`;
+    default:
+      return `New message from ${senderName}`;
+  }
+};
+
+// Create + push notification
+const createNotification = async ({ receiverId, sender, type }) => {
+  try {
+    const messageText = buildNotificationMessage(sender.name, type);
+
+    const notification = await Notification.create({
+      user: receiverId,
+      message: messageText,
+      type: "chat",
+      chatUserId: sender._id,
+    });
+
+    // 🔥 PUSH REAL-TIME NOTIFICATION
+    pushNotification(receiverId, notification);
+
+  } catch (err) {
+    console.error("NOTIFICATION ERROR:", err);
+  }
+};
+
+// Get messages
 const getMessages = async (userId, otherUserId) => {
   try {
     return await Message.find({
@@ -52,25 +88,20 @@ const streamChat = async (req, res) => {
       return res.status(400).end();
     }
 
-    // SSE headers
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
     res.flushHeaders?.();
 
-    // Online status
     setOnline(userId);
     broadcastStatus(userId, "online");
 
-    // Register client
     addClient(userId, otherUserId, res);
 
-    // Initial messages
     const messages = await getMessages(userId, otherUserId);
 
     res.write(`data: ${JSON.stringify({ type: "init", messages })}\n\n`);
 
-    // Send current status
     res.write(
       `data: ${JSON.stringify({
         type: "status",
@@ -79,12 +110,10 @@ const streamChat = async (req, res) => {
       })}\n\n`
     );
 
-    // Keep-alive ping
     const keepAlive = setInterval(() => {
       res.write(`data: ${JSON.stringify({ type: "ping" })}\n\n`);
     }, 25000);
 
-    // Cleanup on disconnect
     req.on("close", () => {
       clearInterval(keepAlive);
       setOffline(userId);
@@ -105,28 +134,28 @@ const sendMessage = async (req, res) => {
     const userId = req.user?._id;
     const { toUserId, text } = req.body;
 
-    if (!userId) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-
-    if (!toUserId || !text?.trim()) {
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    if (!toUserId || !text?.trim())
       return res.status(400).json({ error: "Missing fields" });
-    }
-
-    if (!isValidId(toUserId)) {
+    if (!isValidId(toUserId))
       return res.status(400).json({ error: "Invalid user ID" });
-    }
 
     const message = await Message.create({
       fromUser: userId,
       toUser: toUserId,
       text: text.trim(),
-      message: text.trim(), // backward compatibility
       type: "text",
       status: "sent",
     });
 
     pushMessage(userId, toUserId, message);
+
+    // 🔔 NOTIFICATION
+    await createNotification({
+      receiverId: toUserId,
+      sender: req.user,
+      type: "text",
+    });
 
     res.json({ message });
   } catch (err) {
@@ -142,9 +171,7 @@ const typing = (req, res) => {
     const userId = req.user?._id;
     const { toUserId } = req.body;
 
-    if (!userId || !toUserId) {
-      return res.sendStatus(400);
-    }
+    if (!userId || !toUserId) return res.sendStatus(400);
 
     sendTyping(userId, toUserId, "typing");
     res.sendStatus(200);
@@ -159,9 +186,7 @@ const stopTyping = (req, res) => {
     const userId = req.user?._id;
     const { toUserId } = req.body;
 
-    if (!userId || !toUserId) {
-      return res.sendStatus(400);
-    }
+    if (!userId || !toUserId) return res.sendStatus(400);
 
     sendTyping(userId, toUserId, "stop_typing");
     res.sendStatus(200);
@@ -178,30 +203,28 @@ const sendVoice = async (req, res) => {
     const userId = req.user?._id;
     const { toUserId, duration } = req.body;
 
-    if (!userId) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-
-    if (!req.file) {
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    if (!req.file)
       return res.status(400).json({ error: "No audio uploaded" });
-    }
-
-    if (!toUserId || !isValidId(toUserId)) {
+    if (!toUserId || !isValidId(toUserId))
       return res.status(400).json({ error: "Invalid receiver" });
-    }
-
-    const audioUrl = buildFileUrl(req.file);
 
     const message = await Message.create({
       fromUser: userId,
       toUser: toUserId,
-      audio: audioUrl,
+      audio: buildFileUrl(req.file),
       duration: Number(duration) || 0,
       type: "voice",
       status: "sent",
     });
 
     pushMessage(userId, toUserId, message);
+
+    await createNotification({
+      receiverId: toUserId,
+      sender: req.user,
+      type: "voice",
+    });
 
     res.json({ message });
   } catch (err) {
@@ -217,29 +240,27 @@ const sendMedia = async (req, res) => {
     const userId = req.user?._id;
     const { toUserId } = req.body;
 
-    if (!userId) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-
-    if (!req.file) {
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    if (!req.file)
       return res.status(400).json({ error: "No file uploaded" });
-    }
-
-    if (!toUserId || !isValidId(toUserId)) {
+    if (!toUserId || !isValidId(toUserId))
       return res.status(400).json({ error: "Invalid receiver" });
-    }
-
-    const imageUrl = buildFileUrl(req.file);
 
     const message = await Message.create({
       fromUser: userId,
       toUser: toUserId,
-      image: imageUrl,
+      image: buildFileUrl(req.file),
       type: "image",
       status: "sent",
     });
 
     pushMessage(userId, toUserId, message);
+
+    await createNotification({
+      receiverId: toUserId,
+      sender: req.user,
+      type: "image",
+    });
 
     res.json({ message });
   } catch (err) {

@@ -2,7 +2,7 @@ const Notification = require("../models/Notification");
 const User = require("../models/UserModels");
 const mongoose = require("mongoose");
 
-const { pushNotification } = require("../config/sse"); // ✅ REAL-TIME
+const { pushNotification } = require("../config/sse");
 
 /* =========================
    HELPERS
@@ -10,9 +10,11 @@ const { pushNotification } = require("../config/sse"); // ✅ REAL-TIME
 
 const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
 
-const buildMessage = (message, type, senderName) => {
-  if (message) return message;
+/* =========================
+   AUTO MESSAGE BUILDER
+========================= */
 
+const buildMessage = ({ type, senderName }) => {
   switch (type) {
     case "like":
       return `👍 ${senderName} liked your post`;
@@ -20,24 +22,62 @@ const buildMessage = (message, type, senderName) => {
       return `❤️ ${senderName} loved your post`;
     case "chat":
       return `💬 New message from ${senderName}`;
+    case "comment":
+      return `💬 ${senderName} commented on your post`;
     default:
-      return "🔔 New notification";
+      return `🔔 New notification from ${senderName}`;
+  }
+};
+
+/* =========================
+   CORE NOTIFY FUNCTION
+========================= */
+
+const notify = async ({
+  user,
+  sender,
+  type = "system",
+  message,
+  postId = null,
+  chatUserId = null,
+}) => {
+  try {
+    if (!user) return;
+
+    const senderName = sender?.name || "Someone";
+
+    const finalMessage =
+      message || buildMessage({ type, senderName });
+
+    const notification = await Notification.create({
+      user,
+      sender: sender?._id || null,
+      type,
+      message: finalMessage,
+      postId,
+      chatUserId: chatUserId || sender?._id || null,
+      read: false,
+    });
+
+    // ✅ IMPORTANT FIX: ensure string ID
+    pushNotification(String(user), notification);
+
+    return notification;
+  } catch (err) {
+    console.error("NOTIFY ERROR:", err);
   }
 };
 
 /* =========================
    SEND TO ONE USER
 ========================= */
-exports.sendNotification = async (req, res) => {
+
+const sendNotification = async (req, res) => {
   try {
-    const { userId, message, type = "system", postId = null } = req.body;
+    const { userId, message, type = "system", postId } = req.body;
 
-    if (!userId) {
-      return res.status(400).json({ message: "User ID is required" });
-    }
-
-    if (!isValidId(userId)) {
-      return res.status(400).json({ message: "Invalid user ID" });
+    if (!userId || !isValidId(userId)) {
+      return res.status(400).json({ message: "Valid userId required" });
     }
 
     const user = await User.findById(userId);
@@ -45,26 +85,20 @@ exports.sendNotification = async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    const senderName = req.user?.name || "Someone";
-
-    const notification = await Notification.create({
+    const notification = await notify({
       user: user._id,
-      message: buildMessage(message, type, senderName),
+      sender: req.user,
       type,
+      message,
       postId,
-      chatUserId: req.user?._id || null,
-      read: false,
     });
-
-    // 🔥 REAL-TIME PUSH
-    pushNotification(userId, notification);
 
     res.status(201).json({
       message: "Notification sent",
       notification,
     });
   } catch (err) {
-    console.error("❌ Send error:", err);
+    console.error("SEND ERROR:", err);
     res.status(500).json({ message: err.message });
   }
 };
@@ -72,39 +106,34 @@ exports.sendNotification = async (req, res) => {
 /* =========================
    SEND TO ALL USERS
 ========================= */
-exports.sendNotificationToAll = async (req, res) => {
+
+const sendNotificationToAll = async (req, res) => {
   try {
     const { message, type = "system" } = req.body;
 
     if (!message) {
-      return res.status(400).json({ message: "Message is required" });
+      return res.status(400).json({ message: "Message required" });
     }
 
     const users = await User.find({}, "_id");
 
-    const notifications = users.map((u) => ({
-      user: u._id,
-      message,
-      type,
-      read: false,
-    }));
-
-    const result = await Notification.insertMany(notifications);
-
-    // 🔥 OPTIONAL: real-time broadcast
-    users.forEach((u) => {
-      pushNotification(u._id, {
-        message,
-        type,
-      });
-    });
+    // ⚡ Better performance + safe handling
+    await Promise.all(
+      users.map((u) =>
+        notify({
+          user: u._id,
+          sender: req.user,
+          type,
+          message,
+        })
+      )
+    );
 
     res.json({
-      message: `Notification sent to ${users.length} users`,
-      count: result.length,
+      message: `Sent to ${users.length} users`,
     });
   } catch (err) {
-    console.error("❌ Send all error:", err);
+    console.error("SEND ALL ERROR:", err);
     res.status(500).json({ message: err.message });
   }
 };
@@ -112,7 +141,8 @@ exports.sendNotificationToAll = async (req, res) => {
 /* =========================
    GET USER NOTIFICATIONS
 ========================= */
-exports.getUserNotifications = async (req, res) => {
+
+const getUserNotifications = async (req, res) => {
   try {
     const notifications = await Notification.find({
       user: req.user._id,
@@ -120,7 +150,7 @@ exports.getUserNotifications = async (req, res) => {
 
     res.json(notifications);
   } catch (err) {
-    console.error("❌ Fetch error:", err);
+    console.error("FETCH ERROR:", err);
     res.status(500).json({ message: err.message });
   }
 };
@@ -128,7 +158,8 @@ exports.getUserNotifications = async (req, res) => {
 /* =========================
    MARK AS READ
 ========================= */
-exports.markAsRead = async (req, res) => {
+
+const markAsRead = async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -148,7 +179,7 @@ exports.markAsRead = async (req, res) => {
 
     res.json(notification);
   } catch (err) {
-    console.error("❌ Mark read error:", err);
+    console.error("MARK READ ERROR:", err);
     res.status(500).json({ message: err.message });
   }
 };
@@ -156,12 +187,13 @@ exports.markAsRead = async (req, res) => {
 /* =========================
    DELETE NOTIFICATION
 ========================= */
-exports.deleteNotification = async (req, res) => {
+
+const deleteNotification = async (req, res) => {
   try {
     const { id } = req.params;
 
     if (!isValidId(id)) {
-      return res.status(400).json({ message: "Invalid notification ID" });
+      return res.status(400).json({ message: "Invalid ID" });
     }
 
     const notification = await Notification.findOneAndDelete({
@@ -173,9 +205,22 @@ exports.deleteNotification = async (req, res) => {
       return res.status(404).json({ message: "Notification not found" });
     }
 
-    res.json({ message: "Notification deleted successfully" });
+    res.json({ message: "Deleted successfully" });
   } catch (err) {
-    console.error("❌ Delete error:", err);
+    console.error("DELETE ERROR:", err);
     res.status(500).json({ message: err.message });
   }
+};
+
+/* =========================
+   EXPORTS
+========================= */
+
+module.exports = {
+  sendNotification,
+  sendNotificationToAll,
+  getUserNotifications,
+  markAsRead,
+  deleteNotification,
+  notify,
 };

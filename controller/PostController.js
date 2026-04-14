@@ -1,25 +1,33 @@
 const asyncHandler = require("express-async-handler");
 const Post = require("../models/PostModel");
-const cloudinary = require("../config/Cloudinary"); // your cloudinary config
-const Notification = require("../models/Notification");
-const { pushNotification } = require("../config/sse");
-// =========================
-// Create Post (Multiple Files)
-// =========================
+const cloudinary = require("../config/Cloudinary");
+
+// ✅ NEW (centralized notifications)
+const {
+  notifyPostReaction,
+} = require("../config/NotificationService");
+
+/* =========================
+   CREATE POST
+========================= */
 const createPost = asyncHandler(async (req, res) => {
   const text = req.body.text?.trim() || "";
   const media = [];
 
-  // Handle multiple files
   if (req.files && req.files.length > 0) {
     for (const file of req.files) {
       const isVideo = file.mimetype.startsWith("video");
+
       const result = await cloudinary.uploader.upload(file.path, {
         folder: "posts",
         resource_type: isVideo ? "video" : "image",
         public_id: `${Date.now()}-${file.originalname}`,
       });
-      media.push({ url: result.secure_url, type: isVideo ? "video" : "image" });
+
+      media.push({
+        url: result.secure_url,
+        type: isVideo ? "video" : "image",
+      });
     }
   }
 
@@ -46,11 +54,12 @@ const createPost = asyncHandler(async (req, res) => {
   });
 });
 
-// =========================
-// Upload Media to Existing Post (Multiple Files)
-// =========================
+/* =========================
+   UPLOAD MEDIA
+========================= */
 const uploadMedia = asyncHandler(async (req, res) => {
   const post = await Post.findById(req.params.postId);
+
   if (!post) {
     res.status(404);
     throw new Error("Post not found");
@@ -70,12 +79,17 @@ const uploadMedia = asyncHandler(async (req, res) => {
 
   for (const file of req.files) {
     const isVideo = file.mimetype.startsWith("video");
+
     const result = await cloudinary.uploader.upload(file.path, {
       folder: "posts",
       resource_type: isVideo ? "video" : "image",
       public_id: `${Date.now()}-${file.originalname}`,
     });
-    post.media.push({ url: result.secure_url, type: isVideo ? "video" : "image" });
+
+    post.media.push({
+      url: result.secure_url,
+      type: isVideo ? "video" : "image",
+    });
   }
 
   await post.save();
@@ -92,9 +106,9 @@ const uploadMedia = asyncHandler(async (req, res) => {
   });
 });
 
-// =========================
-// Get All Posts
-// =========================
+/* =========================
+   GET POSTS
+========================= */
 const getPosts = asyncHandler(async (req, res) => {
   const posts = await Post.find()
     .sort({ createdAt: -1 })
@@ -109,9 +123,9 @@ const getPosts = asyncHandler(async (req, res) => {
   });
 });
 
-// =========================
-// Get Single Post
-// =========================
+/* =========================
+   GET SINGLE POST
+========================= */
 const getPostById = asyncHandler(async (req, res) => {
   const post = await Post.findById(req.params.postId)
     .populate("user", "name avatar")
@@ -126,9 +140,9 @@ const getPostById = asyncHandler(async (req, res) => {
   res.json({ success: true, post });
 });
 
-// =========================
-// React to Post (Like / Love)
-// =========================
+/* =========================
+   REACT TO POST
+========================= */
 const reactPost = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -136,27 +150,20 @@ const reactPost = async (req, res) => {
     const { type } = req.body; // like | love
 
     const post = await Post.findById(postId);
+    if (!post) return res.status(404).json({ error: "Post not found" });
 
-    const ownerId = post.userId;
+    const ownerId = post.user; // ✅ FIXED
 
     const result = await PostService.react(postId, userId, type);
 
-    // ================= CREATE NOTIFICATION =================
+    // 🔔 ONLY notify if not reacting to own post
     if (ownerId.toString() !== userId.toString()) {
-      const notification = await Notification.create({
-        userId: ownerId,
-        fromUser: userId,
-        type: type === "like" ? "like" : "love",
-        message:
-          type === "like"
-            ? "👍 Someone liked your post"
-            : "❤️ Someone loved your post",
+      await notifyPostReaction({
+        postOwnerId: ownerId,
+        sender: req.user,
+        type,
         postId,
-        read: false,
       });
-
-      // ================= REALTIME PUSH =================
-      pushNotification(ownerId.toString(), notification);
     }
 
     res.json(result);
@@ -166,17 +173,19 @@ const reactPost = async (req, res) => {
   }
 };
 
-// =========================
-// Comment on Post
-// =========================
+/* =========================
+   COMMENT POST
+========================= */
 const commentPost = asyncHandler(async (req, res) => {
   const text = req.body.text?.trim();
+
   if (!text) {
     res.status(400);
     throw new Error("Comment cannot be empty");
   }
 
   const post = await Post.findById(req.params.postId);
+
   if (!post) {
     res.status(404);
     throw new Error("Post not found");

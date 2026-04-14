@@ -1,6 +1,5 @@
 const mongoose = require("mongoose");
 const Message = require("../models/Message");
-const Notification = require("../models/Notification"); // ✅ NEW
 
 const {
   addClient,
@@ -11,8 +10,12 @@ const {
   setOffline,
   isOnline,
   broadcastStatus,
-  pushNotification, // ✅ NEW (you must add this in SSE config)
 } = require("../config/sse");
+
+// ✅ NEW (centralized notification system)
+const {
+  notifyChatMessage,
+} = require("../config/NotificationService");
 
 /* ================= HELPERS ================= */
 
@@ -27,40 +30,6 @@ const buildFileUrl = (file) => {
     file.secure_url ||
     `${process.env.BASE_URL}/${file.path.replace(/\\/g, "/")}`
   );
-};
-
-// Create notification message text
-const buildNotificationMessage = (senderName, type) => {
-  switch (type) {
-    case "text":
-      return `💬 New message from ${senderName}`;
-    case "voice":
-      return `🎤 Voice message from ${senderName}`;
-    case "image":
-      return `🖼️ Image from ${senderName}`;
-    default:
-      return `New message from ${senderName}`;
-  }
-};
-
-// Create + push notification
-const createNotification = async ({ receiverId, sender, type }) => {
-  try {
-    const messageText = buildNotificationMessage(sender.name, type);
-
-    const notification = await Notification.create({
-      user: receiverId,
-      message: messageText,
-      type: "chat",
-      chatUserId: sender._id,
-    });
-
-    // 🔥 PUSH REAL-TIME NOTIFICATION
-    pushNotification(receiverId, notification);
-
-  } catch (err) {
-    console.error("NOTIFICATION ERROR:", err);
-  }
 };
 
 // Get messages
@@ -148,13 +117,14 @@ const sendMessage = async (req, res) => {
       status: "sent",
     });
 
+    // 🔥 realtime chat
     pushMessage(userId, toUserId, message);
 
-    // 🔔 NOTIFICATION
-    await createNotification({
+    // 🔔 centralized notification
+    await notifyChatMessage({
       receiverId: toUserId,
       sender: req.user,
-      type: "text",
+      messageType: "text",
     });
 
     res.json({ message });
@@ -220,10 +190,10 @@ const sendVoice = async (req, res) => {
 
     pushMessage(userId, toUserId, message);
 
-    await createNotification({
+    await notifyChatMessage({
       receiverId: toUserId,
       sender: req.user,
-      type: "voice",
+      messageType: "voice",
     });
 
     res.json({ message });
@@ -256,10 +226,10 @@ const sendMedia = async (req, res) => {
 
     pushMessage(userId, toUserId, message);
 
-    await createNotification({
+    await notifyChatMessage({
       receiverId: toUserId,
       sender: req.user,
-      type: "image",
+      messageType: "image",
     });
 
     res.json({ message });

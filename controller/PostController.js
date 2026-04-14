@@ -1,7 +1,8 @@
 const asyncHandler = require("express-async-handler");
 const Post = require("../models/PostModel");
 const cloudinary = require("../config/Cloudinary"); // your cloudinary config
-
+const Notification = require("../models/Notification");
+const { pushNotification } = require("../config/sse");
 // =========================
 // Create Post (Multiple Files)
 // =========================
@@ -128,46 +129,42 @@ const getPostById = asyncHandler(async (req, res) => {
 // =========================
 // React to Post (Like / Love)
 // =========================
-const reactPost = asyncHandler(async (req, res) => {
-  const { type } = req.body;
-  if (!["like", "love"].includes(type)) {
-    res.status(400);
-    throw new Error("Invalid reaction type");
+const reactPost = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { postId } = req.params;
+    const { type } = req.body; // like | love
+
+    const post = await Post.findById(postId);
+
+    const ownerId = post.userId;
+
+    const result = await PostService.react(postId, userId, type);
+
+    // ================= CREATE NOTIFICATION =================
+    if (ownerId.toString() !== userId.toString()) {
+      const notification = await Notification.create({
+        userId: ownerId,
+        fromUser: userId,
+        type: type === "like" ? "like" : "love",
+        message:
+          type === "like"
+            ? "👍 Someone liked your post"
+            : "❤️ Someone loved your post",
+        postId,
+        read: false,
+      });
+
+      // ================= REALTIME PUSH =================
+      pushNotification(ownerId.toString(), notification);
+    }
+
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Reaction failed" });
   }
-
-  const post = await Post.findById(req.params.postId);
-  if (!post) {
-    res.status(404);
-    throw new Error("Post not found");
-  }
-
-  const userId = req.user._id.toString();
-  post.likedBy = Array.isArray(post.likedBy) ? post.likedBy : [];
-  post.lovedBy = Array.isArray(post.lovedBy) ? post.lovedBy : [];
-
-  if (type === "like") {
-    post.likedBy.includes(userId)
-      ? post.likedBy.splice(post.likedBy.indexOf(userId), 1)
-      : post.likedBy.push(userId);
-  } else {
-    post.lovedBy.includes(userId)
-      ? post.lovedBy.splice(post.lovedBy.indexOf(userId), 1)
-      : post.lovedBy.push(userId);
-  }
-
-  post.likeCount = post.likedBy.length;
-  post.loveCount = post.lovedBy.length;
-
-  await post.save();
-
-  res.json({
-    success: true,
-    likeCount: post.likeCount,
-    loveCount: post.loveCount,
-    likedBy: post.likedBy,
-    lovedBy: post.lovedBy,
-  });
-});
+};
 
 // =========================
 // Comment on Post

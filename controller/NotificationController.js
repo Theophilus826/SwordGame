@@ -2,7 +2,11 @@ const Notification = require("../models/Notification");
 const User = require("../models/UserModels");
 const mongoose = require("mongoose");
 
-const { pushNotification } = require("../config/sse");
+const {
+  pushNotification,
+  addNotificationClient,
+  removeNotificationClient,
+} = require("../config/sse");
 
 /* =========================
    HELPERS
@@ -59,12 +63,54 @@ const notify = async ({
       read: false,
     });
 
-    // ✅ IMPORTANT FIX: ensure string ID
+    // 🔥 realtime push
     pushNotification(String(user), notification);
 
     return notification;
   } catch (err) {
     console.error("NOTIFY ERROR:", err);
+  }
+};
+
+/* =========================
+   SSE STREAM
+========================= */
+
+const streamNotifications = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders?.();
+
+    addNotificationClient(userId, res);
+
+    // ✅ send latest notifications on connect
+    const notifications = await Notification.find({ user: userId })
+      .sort({ createdAt: -1 })
+      .limit(20);
+
+    res.write(
+      `data: ${JSON.stringify({
+        type: "init",
+        notifications,
+      })}\n\n`
+    );
+
+    const keepAlive = setInterval(() => {
+      res.write(`data: ${JSON.stringify({ type: "ping" })}\n\n`);
+    }, 25000);
+
+    req.on("close", () => {
+      clearInterval(keepAlive);
+      removeNotificationClient(userId, res);
+      res.end();
+    });
+  } catch (err) {
+    console.error("SSE ERROR:", err);
+    res.end();
   }
 };
 
@@ -94,7 +140,7 @@ const sendNotification = async (req, res) => {
     });
 
     res.status(201).json({
-      message: "Notification sent",
+      success: true,
       notification,
     });
   } catch (err) {
@@ -117,7 +163,6 @@ const sendNotificationToAll = async (req, res) => {
 
     const users = await User.find({}, "_id");
 
-    // ⚡ Better performance + safe handling
     await Promise.all(
       users.map((u) =>
         notify({
@@ -130,6 +175,7 @@ const sendNotificationToAll = async (req, res) => {
     );
 
     res.json({
+      success: true,
       message: `Sent to ${users.length} users`,
     });
   } catch (err) {
@@ -148,7 +194,10 @@ const getUserNotifications = async (req, res) => {
       user: req.user._id,
     }).sort({ createdAt: -1 });
 
-    res.json(notifications);
+    res.json({
+      success: true,
+      notifications,
+    });
   } catch (err) {
     console.error("FETCH ERROR:", err);
     res.status(500).json({ message: err.message });
@@ -177,7 +226,10 @@ const markAsRead = async (req, res) => {
       return res.status(404).json({ message: "Notification not found" });
     }
 
-    res.json(notification);
+    res.json({
+      success: true,
+      notification,
+    });
   } catch (err) {
     console.error("MARK READ ERROR:", err);
     res.status(500).json({ message: err.message });
@@ -205,7 +257,10 @@ const deleteNotification = async (req, res) => {
       return res.status(404).json({ message: "Notification not found" });
     }
 
-    res.json({ message: "Deleted successfully" });
+    res.json({
+      success: true,
+      message: "Deleted successfully",
+    });
   } catch (err) {
     console.error("DELETE ERROR:", err);
     res.status(500).json({ message: err.message });
@@ -223,4 +278,5 @@ module.exports = {
   markAsRead,
   deleteNotification,
   notify,
+  streamNotifications, // ✅ IMPORTANT
 };

@@ -10,11 +10,17 @@ function getKey(userId, otherUserId) {
 /* ================= SAFE WRITE ================= */
 function safeWrite(res, data) {
   try {
-    if (!res.writableEnded) {
-      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    if (!res || res.writableEnded || res.destroyed) return false;
+
+    if (!res.headersSent) {
+      res.flushHeaders?.();
     }
+
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+    return true;
   } catch (err) {
-    console.error("SSE WRITE ERROR:", err);
+    console.error("❌ SSE WRITE ERROR:", err.message);
+    return false;
   }
 }
 
@@ -22,11 +28,12 @@ function safeWrite(res, data) {
 function addClient(userId, otherUserId, res) {
   const key = getKey(userId, otherUserId);
 
-  if (!clients[key]) {
-    clients[key] = new Set();
-  }
+  if (!clients[key]) clients[key] = new Set();
 
   clients[key].add(res);
+
+  // optional handshake
+  safeWrite(res, { type: "connected", scope: "chat" });
 }
 
 function removeClient(userId, otherUserId, res) {
@@ -51,8 +58,8 @@ function addNotificationClient(userId, res) {
 
   notificationClients[id].add(res);
 
-  // ✅ send initial ping (important for frontend connection)
-  safeWrite(res, { type: "connected" });
+  // handshake (frontend relies on this sometimes)
+  safeWrite(res, { type: "connected", scope: "notification" });
 }
 
 function removeNotificationClient(userId, res) {
@@ -76,10 +83,14 @@ function pushMessage(userId, otherUserId, message) {
 
   keys.forEach((key) => {
     clients[key]?.forEach((res) => {
-      safeWrite(res, {
+      const ok = safeWrite(res, {
         type: "new_message",
         message,
       });
+
+      if (!ok) {
+        clients[key].delete(res);
+      }
     });
   });
 }
@@ -91,16 +102,19 @@ function pushNotification(userId, notification) {
   const userClients = notificationClients[id];
 
   if (!userClients || userClients.size === 0) {
-    // ✅ helpful debug log
     console.log("⚠️ No active notification clients for:", id);
     return;
   }
 
   userClients.forEach((res) => {
-    safeWrite(res, {
+    const ok = safeWrite(res, {
       type: "notification",
       notification,
     });
+
+    if (!ok) {
+      userClients.delete(res);
+    }
   });
 }
 
@@ -117,12 +131,19 @@ function isOnline(userId) {
   return onlineUsers.has(String(userId));
 }
 
-/* ================= HEARTBEAT (VERY IMPORTANT) ================= */
-// prevents SSE from disconnecting
+/* ================= HEARTBEAT ================= */
 setInterval(() => {
+  // chat heartbeat
+  Object.values(clients).forEach((set) => {
+    set.forEach((res) => {
+      safeWrite(res, { type: "ping", scope: "chat" });
+    });
+  });
+
+  // notification heartbeat
   Object.values(notificationClients).forEach((set) => {
     set.forEach((res) => {
-      safeWrite(res, { type: "ping" });
+      safeWrite(res, { type: "ping", scope: "notification" });
     });
   });
 }, 25000);
@@ -131,10 +152,13 @@ setInterval(() => {
 module.exports = {
   addClient,
   removeClient,
+
   addNotificationClient,
   removeNotificationClient,
+
   pushMessage,
   pushNotification,
+
   setOnline,
   setOffline,
   isOnline,

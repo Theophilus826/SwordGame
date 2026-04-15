@@ -6,12 +6,35 @@ const {
   sendNotification,
   sendNotificationToAll,
   getUserNotifications,
-  markAsRead, deleteNotification
+  markAsRead,
+  deleteNotification,
+  streamNotifications, // ✅ NEW
 } = require("../controller/NotificationController");
 
+/* ==========================
+   SSE (MUST BE FIRST)
+========================== */
+
+// 🔔 Real-time notifications stream
+router.get("/stream", protect, streamNotifications);
+
+/* ==========================
+   REST ROUTES
+========================== */
+
+// Get user notifications
 router.get("/", protect, getUserNotifications);
+
+// Send single notification
 router.post("/", protect, sendNotification);
+
+// Broadcast to all users
 router.post("/broadcast", protect, sendNotificationToAll);
+
+// Mark as read
 router.put("/:id/read", protect, markAsRead);
+
+// Delete notification
 router.delete("/:id", protect, deleteNotification);
+
 module.exports = router;

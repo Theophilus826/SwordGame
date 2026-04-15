@@ -78,7 +78,7 @@ const notify = async ({
 
 const streamNotifications = async (req, res) => {
   try {
-    const userId = req.params.userId;
+    const userId = req.user._id;
 
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");

@@ -13,7 +13,11 @@ function safeWrite(res, data) {
     if (!res || res.writableEnded || res.destroyed) return false;
 
     if (!res.headersSent) {
-      res.flushHeaders?.();
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      });
     }
 
     res.write(`data: ${JSON.stringify(data)}\n\n`);
@@ -32,7 +36,6 @@ function addClient(userId, otherUserId, res) {
 
   clients[key].add(res);
 
-  // optional handshake
   safeWrite(res, { type: "connected", scope: "chat" });
 }
 
@@ -58,7 +61,6 @@ function addNotificationClient(userId, res) {
 
   notificationClients[id].add(res);
 
-  // handshake (frontend relies on this sometimes)
   safeWrite(res, { type: "connected", scope: "notification" });
 }
 
@@ -102,7 +104,6 @@ function pushNotification(userId, notification) {
   const userClients = notificationClients[id];
 
   if (!userClients || userClients.size === 0) {
-    console.log("⚠️ No active notification clients for:", id);
     return;
   }
 
@@ -115,6 +116,18 @@ function pushNotification(userId, notification) {
     if (!ok) {
       userClients.delete(res);
     }
+  });
+}
+
+/* ================= TYPING (FIX ADDED) ================= */
+function sendTyping(fromUser, toUser, status) {
+  const key = getKey(fromUser, toUser);
+
+  clients[key]?.forEach((res) => {
+    safeWrite(res, {
+      type: status, // "typing" | "stop_typing"
+      fromUser,
+    });
   });
 }
 
@@ -131,16 +144,29 @@ function isOnline(userId) {
   return onlineUsers.has(String(userId));
 }
 
+/* ================= BROADCAST STATUS (FIX ADDED) ================= */
+function broadcastStatus(userId, status) {
+  clients[getKey(userId, "*")]?.forEach(() => {});
+
+  Object.values(clients).forEach((set) => {
+    set.forEach((res) => {
+      safeWrite(res, {
+        type: "status",
+        userId,
+        status,
+      });
+    });
+  });
+}
+
 /* ================= HEARTBEAT ================= */
 setInterval(() => {
-  // chat heartbeat
   Object.values(clients).forEach((set) => {
     set.forEach((res) => {
       safeWrite(res, { type: "ping", scope: "chat" });
     });
   });
 
-  // notification heartbeat
   Object.values(notificationClients).forEach((set) => {
     set.forEach((res) => {
       safeWrite(res, { type: "ping", scope: "notification" });
@@ -158,6 +184,9 @@ module.exports = {
 
   pushMessage,
   pushNotification,
+
+  sendTyping,
+  broadcastStatus,
 
   setOnline,
   setOffline,

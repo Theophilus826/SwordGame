@@ -3,24 +3,35 @@ const asyncHandler = require("express-async-handler");
 const User = require("../models/UserModels");
 
 /* =========================
-   AUTH MIDDLEWARE
+   EXTRACT TOKEN (CLEAN)
 ========================= */
-const protect = asyncHandler(async (req, res, next) => {
-  let token;
-
-  // 1️⃣ Get token from cookies
+const getTokenFromRequest = (req) => {
+  // 1️⃣ Cookie
   if (req.cookies?.token) {
-    token = req.cookies.token;
+    return req.cookies.token;
   }
 
-  // 2️⃣ Get token from Authorization header
+  // 2️⃣ Authorization header
   if (
-    !token &&
     req.headers.authorization &&
     req.headers.authorization.startsWith("Bearer")
   ) {
-    token = req.headers.authorization.split(" ")[1];
+    return req.headers.authorization.split(" ")[1];
   }
+
+  // 3️⃣ ✅ SSE support (query param)
+  if (req.query?.token) {
+    return req.query.token;
+  }
+
+  return null;
+};
+
+/* =========================
+   AUTH MIDDLEWARE
+========================= */
+const protect = asyncHandler(async (req, res, next) => {
+  const token = getTokenFromRequest(req);
 
   // ❌ No token
   if (!token) {
@@ -30,10 +41,10 @@ const protect = asyncHandler(async (req, res, next) => {
   }
 
   try {
-    // ✅ Verify token
+    // ✅ Verify JWT
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // ✅ Support both id and _id (VERY IMPORTANT FIX)
+    // ✅ Support both formats
     const userId = decoded.id || decoded._id;
 
     if (!userId) {
@@ -42,7 +53,7 @@ const protect = asyncHandler(async (req, res, next) => {
       });
     }
 
-    // ✅ Get user from DB
+    // ✅ Fetch user
     const user = await User.findById(userId).select("-password");
 
     if (!user) {
@@ -51,11 +62,13 @@ const protect = asyncHandler(async (req, res, next) => {
       });
     }
 
-    // ✅ Attach user to request
+    // ✅ Attach user
     req.user = user;
 
-    // 🔍 Debug (can remove later)
-    console.log("✅ AUTH USER:", user._id);
+    // 🔍 Optional debug (remove in production)
+    if (process.env.NODE_ENV !== "production") {
+      console.log("✅ AUTH USER:", user._id.toString());
+    }
 
     next();
   } catch (error) {
@@ -71,13 +84,13 @@ const protect = asyncHandler(async (req, res, next) => {
    ADMIN MIDDLEWARE
 ========================= */
 const admin = (req, res, next) => {
-  if (req.user && req.user.isAdmin) {
-    next();
-  } else {
-    return res.status(403).json({
-      message: "Admin access only",
-    });
+  if (req.user?.isAdmin) {
+    return next();
   }
+
+  return res.status(403).json({
+    message: "Admin access only",
+  });
 };
 
 module.exports = { protect, admin };

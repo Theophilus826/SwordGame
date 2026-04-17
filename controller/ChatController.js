@@ -26,10 +26,12 @@ const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
 const buildFileUrl = (file) => {
   if (!file) return null;
 
-  return (
-    file.secure_url ||
-    `${process.env.BASE_URL}/${file.path.replace(/\\/g, "/")}`
-  );
+  if (file.secure_url) return file.secure_url;
+
+  const cleanPath = file.path.replace(/\\/g, "/");
+
+  // remove leading "uploads/" duplication if present
+  return `${process.env.BASE_URL}/${cleanPath}`;
 };
 
 // Get messages

@@ -18,7 +18,6 @@ const upload = require("../middleware/Upload");
 // 🔥 Chat stream (conversation-based)
 router.get(
   "/stream/:userId/:otherUserId",
-  protect,
   chatController.streamChat
 );
 

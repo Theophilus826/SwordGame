@@ -4,40 +4,74 @@
 
 const express = require("express");
 const router = express.Router();
-const chatController = require("../controller/ChatController"); // corrected path
-const { protect } = require("../middleware/AuthMiddleware"); // only the protect middleware
+
+const chatController = require("../controller/ChatController");
+const notificationController = require("../controller/NotificationController");
+
+const { protect } = require("../middleware/AuthMiddleware");
 const upload = require("../middleware/Upload");
 
-// ==========================
-// SSE - Stream Chat
-// ==========================
-router.get("/stream/:userId/:otherUserId", chatController.streamChat);
+/* ==========================
+   SSE STREAMS
+========================== */
 
-// ==========================
-// CHAT - Send Text Message
-// ==========================
-router.post("/send", protect, chatController.sendMessage);
+// 🔥 Chat stream (conversation-based)
+router.get(
+  "/stream/:userId/:otherUserId",
+  protect,
+  chatController.streamChat
+);
 
-// ==========================
-// TYPING - Typing Indicators
-// ==========================
-router.post("/typing", protect, chatController.typing);
-router.post("/stop-typing", protect, chatController.stopTyping);
+// 🔔 Notification stream (user-based)
+router.get(
+  "/notifications/stream",
+  protect,
+  notificationController.streamNotifications
+);
 
-// ==========================
-// VOICE - Send Voice Notes
-// ==========================
+/* ==========================
+   MESSAGES
+========================== */
+
+// 💬 Send text message
 router.post(
-  "/voice",
+  "/messages",
+  protect,
+  chatController.sendMessage
+);
+
+// 🎤 Send voice message
+router.post(
+  "/messages/voice",
   protect,
   upload.single("audio"),
   chatController.sendVoice
 );
+
+// 🖼️ Send image/media
 router.post(
-  "/image",
+  "/messages/media",
   protect,
   upload.single("image"),
   chatController.sendMedia
+);
+
+/* ==========================
+   TYPING INDICATORS
+========================== */
+
+// ✍️ User typing
+router.post(
+  "/typing",
+  protect,
+  chatController.typing
+);
+
+// ⛔ Stop typing
+router.post(
+  "/typing/stop",
+  protect,
+  chatController.stopTyping
 );
 
 module.exports = router;

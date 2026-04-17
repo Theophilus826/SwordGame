@@ -135,6 +135,7 @@ app.use("/api/admin", require("./routes/AdminRoutes"));
 app.use("/api/feedbacks", require("./routes/FeedbackRoutes"));
 app.use("/api/post", require("./routes/PostRoute"));
 app.use("/api/auth", require("./routes/ShareRoute"));
+app.use(express.static("public"));
 app.use("/uploads", express.static("uploads"));
 app.use("/api/notifications", require("./routes/NotificationRoute"));
 app.use("/api/wallet", require("./routes/DepositRoutes"));

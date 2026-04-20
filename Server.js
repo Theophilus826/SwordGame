@@ -14,6 +14,7 @@ const { errorHandler } = require("./middleware/ErrorMiddleware");
 const socketAuth = require("./middleware/socketAuth");
 const { registerGameSockets } = require("./games/socketHandler");
 const User = require("./models/UserModels");
+const Message = require("./models/Message");
 const { getUsersFromDB } = require("./controller/UserHelpers");
 const ChatRoutes = require("./routes/ChatRoutes");
 
@@ -181,32 +182,10 @@ io.on("connection", async (socket) => {
     // ==========================
     // USER CHAT
     // ==========================
-    socket.on("chat:send", async ({ toUserId, text }) => {
-      try {
-        if (!toUserId || !text) return;
-
-        // Save message in DB
-        const message = await Message.create({
-          fromUser: socket.userId,
-          toUser: toUserId,
-          text,
-        });
-
-        // Emit message to recipient if online
-        io.to(toUserId.toString()).emit("chat:receive", message);
-
-        // Emit back to sender to confirm delivery
-        socket.emit("chat:receive", message);
-      } catch (err) {
-        console.error("Chat send error:", err);
-        socket.emit("chat:error", { message: "Failed to send message" });
-      }
-    });
-
+   
   } catch (err) {
     console.error("Socket connection setup error:", err);
   }
-
   // ==========================
   // DISCONNECT
   // ==========================

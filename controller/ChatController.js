@@ -26,14 +26,16 @@ const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
 const buildFileUrl = (file) => {
   if (!file) return null;
 
+  // Cloudinary already returns full URL
   if (file.secure_url) return file.secure_url;
 
-  const cleanPath = file.path.replace(/\\/g, "/");
+  if (file.path) {
+    const cleanPath = file.path.replace(/\\/g, "/");
+    return `${process.env.BASE_URL}/${cleanPath}`;
+  }
 
-  // remove leading "uploads/" duplication if present
-  return `${process.env.BASE_URL}/${cleanPath}`;
+  return null;
 };
-
 // Get messages
 const getMessages = async (userId, otherUserId) => {
   try {

@@ -2,7 +2,7 @@ const asyncHandler = require("express-async-handler");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
-
+const { formatPhone } = require("../config/phone");
 const User = require("../models/UserModels");
 const Message = require("../models/Message"); // New: message model
 const cloudinary = require("../config/Cloudinary");
@@ -14,24 +14,55 @@ const generateToken = (id, expiresIn = "1d") => {
 
 // ================= REGISTER =================
 const registerUser = asyncHandler(async (req, res) => {
-  let { name, email, password, confirmPassword } = req.body;
-  email = email?.toLowerCase().trim();
+  let { name, email, phone, password, confirmPassword } = req.body;
 
-  if (!name || !email || !password || !confirmPassword) {
+  email = email?.toLowerCase().trim();
+  phone = formatPhone(phone); // ✅ normalize here
+
+  if (!name || !password || !confirmPassword) {
     res.status(400);
-    throw new Error("All fields are required");
+    throw new Error("Required fields missing");
   }
+
+  if (!email && !phone) {
+    res.status(400);
+    throw new Error("Provide email or valid Nigerian phone number");
+  }
+
+  // ❌ invalid phone input
+  if (req.body.phone && !phone) {
+    res.status(400);
+    throw new Error("Invalid Nigerian phone number");
+  }
+
   if (password !== confirmPassword) {
     res.status(400);
     throw new Error("Passwords do not match");
   }
-  if (await User.findOne({ email })) {
+
+  // ✅ check duplicates (AFTER formatting phone)
+  const existingUser = await User.findOne({
+    $or: [
+      ...(email ? [{ email }] : []),
+      ...(phone ? [{ phone }] : []),
+    ],
+  });
+
+  if (existingUser) {
     res.status(400);
     throw new Error("User already exists");
   }
 
   const hashedPassword = await bcrypt.hash(password, 10);
-  const user = await User.create({ name, email, password: hashedPassword, isVerified: true });
+
+  const user = await User.create({
+    name,
+    email: email || undefined,
+    phone: phone || undefined,
+    password: hashedPassword,
+    isVerified: true,
+  });
+
   const token = generateToken(user._id);
 
   res.cookie("token", token, {
@@ -41,48 +72,45 @@ const registerUser = asyncHandler(async (req, res) => {
     maxAge: 24 * 60 * 60 * 1000,
   });
 
-  if (req.io) {
-    req.io.emit("activity:event", {
-      type: "USER_ONLINE",
-      user: user.name,
-      userId: user._id,
-      timestamp: Date.now(),
-    });
-  }
-
   res.status(201).json({
     message: "Registration successful",
     _id: user._id,
     name: user.name,
     email: user.email,
+    phone: user.phone,
     token,
     isAdmin: user.isAdmin,
     avatar: user.avatar || null,
   });
 });
-
 // ================= LOGIN =================
 const loginUser = asyncHandler(async (req, res) => {
-  let { email, password } = req.body;
-  email = email?.toLowerCase().trim();
+  let { identifier, password } = req.body;
 
-  const user = await User.findOne({ email });
+  if (!identifier || !password) {
+    res.status(400);
+    throw new Error("Identifier and password are required");
+  }
+
+  identifier = identifier.trim();
+
+  const formattedPhone = formatPhone(identifier); // ✅ try parse as phone
+
+  const user = await User.findOne({
+    $or: [
+      { email: identifier.toLowerCase() },
+      ...(formattedPhone ? [{ phone: formattedPhone }] : []),
+    ],
+  });
+
   if (!user || !(await bcrypt.compare(password, user.password))) {
     res.status(401);
     throw new Error("Invalid credentials");
   }
 
   user.online = true;
+  user.lastActive = Date.now();
   await user.save();
-
-  if (req.io) {
-    req.io.emit("activity:event", {
-      type: "USER_ONLINE",
-      user: user.name,
-      userId: user._id,
-      timestamp: Date.now(),
-    });
-  }
 
   const token = generateToken(user._id);
 
@@ -97,12 +125,12 @@ const loginUser = asyncHandler(async (req, res) => {
     _id: user._id,
     name: user.name,
     email: user.email,
+    phone: user.phone,
     token,
     isAdmin: user.isAdmin,
     avatar: user.avatar || null,
   });
 });
-
 // ================= LOGOUT =================
 const logoutUser = asyncHandler(async (req, res) => {
   res.cookie("token", "", { httpOnly: true, expires: new Date(0) });
@@ -188,8 +216,17 @@ const getMessages = asyncHandler(async (req, res) => {
 
 // ================= FORGOT PASSWORD =================
 const forgotPassword = asyncHandler(async (req, res) => {
-  const { email } = req.body;
-  const user = await User.findOne({ email: email.toLowerCase() });
+  const { identifier } = req.body;
+
+  const formattedPhone = formatPhone(identifier);
+
+  const user = await User.findOne({
+    $or: [
+      { email: identifier?.toLowerCase() },
+      ...(formattedPhone ? [{ phone: formattedPhone }] : []),
+    ],
+  });
+
   if (!user) {
     res.status(404);
     throw new Error("User not found");
@@ -200,11 +237,11 @@ const forgotPassword = asyncHandler(async (req, res) => {
 
   user.resetPasswordToken = hashedToken;
   user.resetPasswordExpire = Date.now() + 10 * 60 * 1000;
+
   await user.save();
 
   res.json({ message: "Reset token generated", resetToken });
 });
-
 // ================= RESET PASSWORD =================
 const resetPassword = asyncHandler(async (req, res) => {
   const { token } = req.params;

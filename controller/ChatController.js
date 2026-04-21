@@ -29,12 +29,13 @@ const buildFileUrl = (file) => {
   // Cloudinary already returns full URL
   if (file.secure_url) return file.secure_url;
 
-  if (file.path) {
-    const cleanPath = file.path.replace(/\\/g, "/");
-    return `${process.env.BASE_URL}/${cleanPath}`;
+  if (file.path && file.path.startsWith("http")) {
+    return file.path; // 🔥 FIX: avoid prefixing
   }
 
-  return null;
+  const cleanPath = file.path?.replace(/\\/g, "/");
+
+  return `${process.env.BASE_URL}/${cleanPath}`;
 };
 // Get messages
 const getMessages = async (userId, otherUserId) => {

@@ -16,21 +16,26 @@ const generateToken = (id, expiresIn = "1d") => {
 const registerUser = asyncHandler(async (req, res) => {
   let { name, email, phone, password, confirmPassword } = req.body;
 
-  email = email?.toLowerCase().trim();
-  phone = formatPhone(phone); // ✅ normalize here
-
   if (!name || !password || !confirmPassword) {
     res.status(400);
     throw new Error("Required fields missing");
   }
 
+  // normalize email
+  email = email?.toLowerCase().trim() || null;
+
+  // keep raw phone for validation check
+  const rawPhone = phone?.trim();
+  phone = rawPhone ? formatPhone(rawPhone) : null;
+
+  // must have at least one identifier
   if (!email && !phone) {
     res.status(400);
     throw new Error("Provide email or valid Nigerian phone number");
   }
 
-  // ❌ invalid phone input
-  if (req.body.phone && !phone) {
+  // invalid phone check
+  if (rawPhone && !phone) {
     res.status(400);
     throw new Error("Invalid Nigerian phone number");
   }
@@ -40,12 +45,12 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new Error("Passwords do not match");
   }
 
-  // ✅ check duplicates (AFTER formatting phone)
+  // check duplicates
   const existingUser = await User.findOne({
     $or: [
-      ...(email ? [{ email }] : []),
-      ...(phone ? [{ phone }] : []),
-    ],
+      email ? { email } : null,
+      phone ? { phone } : null,
+    ].filter(Boolean),
   });
 
   if (existingUser) {
@@ -57,8 +62,8 @@ const registerUser = asyncHandler(async (req, res) => {
 
   const user = await User.create({
     name,
-    email: email || undefined,
-    phone: phone || undefined,
+    email,
+    phone,
     password: hashedPassword,
     isVerified: true,
   });
@@ -76,8 +81,8 @@ const registerUser = asyncHandler(async (req, res) => {
     message: "Registration successful",
     _id: user._id,
     name: user.name,
-    email: user.email,
-    phone: user.phone,
+    email: user.email || null,
+    phone: user.phone || null,
     token,
     isAdmin: user.isAdmin,
     avatar: user.avatar || null,
@@ -94,11 +99,12 @@ const loginUser = asyncHandler(async (req, res) => {
 
   identifier = identifier.trim();
 
-  const formattedPhone = formatPhone(identifier); // ✅ try parse as phone
+  const formattedPhone = formatPhone(identifier);
+  const email = identifier.includes("@") ? identifier.toLowerCase() : null;
 
   const user = await User.findOne({
     $or: [
-      { email: identifier.toLowerCase() },
+      ...(email ? [{ email }] : []),
       ...(formattedPhone ? [{ phone: formattedPhone }] : []),
     ],
   });
@@ -124,8 +130,8 @@ const loginUser = asyncHandler(async (req, res) => {
   res.json({
     _id: user._id,
     name: user.name,
-    email: user.email,
-    phone: user.phone,
+    email: user.email || null,
+    phone: user.phone || null,
     token,
     isAdmin: user.isAdmin,
     avatar: user.avatar || null,

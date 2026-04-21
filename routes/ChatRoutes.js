@@ -1,7 +1,3 @@
-// ==========================
-// ChatRoutes.js
-// ==========================
-
 const express = require("express");
 const router = express.Router();
 
@@ -39,19 +35,39 @@ router.post(
   chatController.sendMessage
 );
 
-// 🎤 Send voice message
+// 🎤 Send voice message (FIXED + CLEAN)
 router.post(
   "/messages/voice",
   protect,
-  upload.single("audio"),
+  (req, res, next) => {
+    upload.single("audio")(req, res, (err) => {
+      if (err) {
+        return res.status(400).json({
+          success: false,
+          message: err.message || "Audio upload failed",
+        });
+      }
+      next();
+    });
+  },
   chatController.sendVoice
 );
 
-// 🖼️ Send image/media
+// 🖼️ Send image/media (FIXED SYNTAX BUG)
 router.post(
   "/messages/media",
   protect,
-  upload.single("image"),
+  (req, res, next) => {
+    upload.single("image")(req, res, (err) => {
+      if (err) {
+        return res.status(400).json({
+          success: false,
+          message: err.message || "Image upload failed",
+        });
+      }
+      next();
+    });
+  },
   chatController.sendMedia
 );
 

@@ -9,7 +9,7 @@ const storage = new CloudinaryStorage({
     folder: "chat-voice-notes",
 
     // ✅ FIX: MUST be "raw" for audio files
-    resource_type: "raw",
+    resource_type: "auto",
 
     // keep webm format for recordings
     format: async () => "webm",

@@ -10,9 +10,16 @@ const userSchema = mongoose.Schema(
 
     email: {
       type: String,
-      required: true,
       unique: true,
+      sparse: true, // allows multiple nulls
       lowercase: true,
+      trim: true,
+    },
+
+    phone: {
+      type: String,
+      unique: true,
+      sparse: true, // allows multiple nulls
       trim: true,
     },
 
@@ -34,12 +41,12 @@ const userSchema = mongoose.Schema(
 
     online: {
       type: Boolean,
-      default: false, // used for live online/offline tracking
+      default: false,
     },
 
     lastActive: {
       type: Date,
-      default: Date.now, // updated whenever user does something
+      default: Date.now,
     },
 
     // 🔐 Forgot Password
@@ -47,8 +54,23 @@ const userSchema = mongoose.Schema(
     resetPasswordExpire: Date,
   },
   {
-    timestamps: true, // createdAt and updatedAt
+    timestamps: true,
   }
 );
+
+
+// ✅ Ensure at least email OR phone exists
+userSchema.pre("validate", function (next) {
+  if (!this.email && !this.phone) {
+    return next(new Error("Either email or phone is required"));
+  }
+  next();
+});
+
+
+// ✅ Explicit indexes (safer for production)
+userSchema.index({ email: 1 }, { unique: true, sparse: true });
+userSchema.index({ phone: 1 }, { unique: true, sparse: true });
+
 
 module.exports = mongoose.model("User", userSchema);

@@ -143,36 +143,50 @@ const getPostById = asyncHandler(async (req, res) => {
 /* =========================
    REACT TO POST
 ========================= */
-const reactPost = async (req, res) => {
-  try {
-    const userId = req.user._id;
-    const { postId } = req.params;
-    const { type } = req.body; // like | love
+const reactPost = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+  const { postId } = req.params;
+  const { type } = req.body;
 
-    const post = await Post.findById(postId);
-    if (!post) return res.status(404).json({ error: "Post not found" });
+  const post = await Post.findById(postId);
 
-    const ownerId = post.user; // ✅ FIXED
-
-    const result = await PostService.react(postId, userId, type);
-
-    // 🔔 ONLY notify if not reacting to own post
-    if (ownerId.toString() !== userId.toString()) {
-      await notifyPostReaction({
-        postOwnerId: ownerId,
-        sender: req.user,
-        type,
-        postId,
-      });
-    }
-
-    res.json(result);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Reaction failed" });
+  if (!post) {
+    res.status(404);
+    throw new Error("Post not found");
   }
-};
 
+  post.likes = post.likes || [];
+  post.loves = post.loves || [];
+
+  // remove existing reaction by user
+  post.likes = post.likes.filter(id => id.toString() !== userId.toString());
+  post.loves = post.loves.filter(id => id.toString() !== userId.toString());
+
+  // add new reaction
+  if (type === "like") {
+    post.likes.push(userId);
+  } else if (type === "love") {
+    post.loves.push(userId);
+  }
+
+  await post.save();
+
+  const ownerId = post.user;
+
+  if (ownerId.toString() !== userId.toString()) {
+    await notifyPostReaction({
+      postOwnerId: ownerId,
+      sender: req.user,
+      type,
+      postId,
+    });
+  }
+
+  res.json({
+    likeCount: post.likes.length,
+    loveCount: post.loves.length,
+  });
+});
 /* =========================
    COMMENT POST
 ========================= */

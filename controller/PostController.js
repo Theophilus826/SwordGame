@@ -40,8 +40,6 @@ const createPost = asyncHandler(async (req, res) => {
     user: req.user._id,
     text,
     media,
-    likes: [],   // ✅ add this
-    loves: [],
   });
 
   const populatedPost = await Post.findById(post._id)
@@ -118,18 +116,13 @@ const getPosts = asyncHandler(async (req, res) => {
     .populate("comments.user", "name avatar")
     .lean();
 
-  const formattedPosts = posts.map((post) => ({
-    ...post,
-    likeCount: post.likes?.length || 0,
-    loveCount: post.loves?.length || 0,
-  }));
-
   res.json({
     success: true,
-    count: formattedPosts.length,
-    posts: formattedPosts,
+    count: posts.length,
+    posts,
   });
 });
+
 /* =========================
    GET SINGLE POST
 ========================= */
@@ -144,13 +137,7 @@ const getPostById = asyncHandler(async (req, res) => {
     throw new Error("Post not found");
   }
 
-  const formattedPost = {
-    ...post,
-    likeCount: post.likes?.length || 0,
-    loveCount: post.loves?.length || 0,
-  };
-
-  res.json({ success: true, post: formattedPost });
+  res.json({ success: true, post });
 });
 
 /* =========================
@@ -168,37 +155,34 @@ const reactPost = asyncHandler(async (req, res) => {
     throw new Error("Post not found");
   }
 
-  // Ensure arrays exist (for backward compatibility)
-  post.likes = post.likes || [];
-  post.loves = post.loves || [];
-
-  // ✅ NO MORE REMOVING EXISTING REACTION
-  // Each click adds a new entry
+  // remove user from both first
+  post.likedBy = post.likedBy.filter(
+    (id) => id.toString() !== userId.toString()
+  );
+  post.lovedBy = post.lovedBy.filter(
+    (id) => id.toString() !== userId.toString()
+  );
 
   if (type === "like") {
-    post.likes.push(userId);
-  } else if (type === "love") {
-    post.loves.push(userId);
+    post.likedBy.push(userId);
   }
+
+  if (type === "love") {
+    post.lovedBy.push(userId);
+  }
+
+  // sync counts (VERY IMPORTANT)
+  post.likeCount = post.likedBy.length;
+  post.loveCount = post.lovedBy.length;
 
   await post.save();
 
-  const ownerId = post.user;
-
-  if (ownerId.toString() !== userId.toString()) {
-    await notifyPostReaction({
-      postOwnerId: ownerId,
-      sender: req.user,
-      type,
-      postId,
-    });
-  }
-
   res.json({
-    likeCount: post.likes.length,
-    loveCount: post.loves.length,
+    likeCount: post.likeCount,
+    loveCount: post.loveCount,
   });
 });
+
 /* =========================
    COMMENT POST
 ========================= */

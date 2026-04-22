@@ -45,48 +45,58 @@ const postSchema = new mongoose.Schema(
       default: "",
     },
 
-    media: [mediaSchema],
+    media: {
+      type: [mediaSchema],
+      default: [], // ✅ prevent undefined
+    },
 
-    // ✅ Reactions (source of truth)
-    likedBy: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "User",
-      },
-    ],
-    lovedBy: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "User",
-      },
-    ],
+    // ✅ Reactions (always arrays)
+    likedBy: {
+      type: [mongoose.Schema.Types.ObjectId],
+      ref: "User",
+      default: [], // ✅ critical fix
+    },
 
-    // ✅ Stored counts (auto-managed)
+    lovedBy: {
+      type: [mongoose.Schema.Types.ObjectId],
+      ref: "User",
+      default: [], // ✅ critical fix
+    },
+
+    // ✅ Stored counts
     likeCount: {
       type: Number,
       default: 0,
     },
+
     loveCount: {
       type: Number,
       default: 0,
     },
 
-    comments: [commentSchema],
+    comments: {
+      type: [commentSchema],
+      default: [], // ✅ prevent undefined
+    },
   },
   { timestamps: true }
 );
 
 // ================= PRE-SAVE MIDDLEWARE =================
 postSchema.pre("save", function (next) {
-  // ensure arrays exist
-  this.likedBy = this.likedBy || [];
-  this.lovedBy = this.lovedBy || [];
+  try {
+    // ✅ guarantee arrays (extra safety)
+    if (!Array.isArray(this.likedBy)) this.likedBy = [];
+    if (!Array.isArray(this.lovedBy)) this.lovedBy = [];
 
-  // sync counts
-  this.likeCount = this.likedBy.length;
-  this.loveCount = this.lovedBy.length;
+    // ✅ sync counts
+    this.likeCount = this.likedBy.length;
+    this.loveCount = this.lovedBy.length;
 
-  next();
+    next();
+  } catch (err) {
+    next(err); // ✅ prevents silent crash (fixes 500 issue)
+  }
 });
 
 module.exports = mongoose.model("Post", postSchema);

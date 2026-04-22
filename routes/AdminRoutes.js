@@ -6,7 +6,7 @@ const { adminCreditCoins } = require("../controller/AccountController");
 const { playersByUser } = require("../games/gameState");
 const CoinTransaction = require("../models/CoinTransaction");
 const Slide = require("../models/Slide");
-const upload = require("../middleware/upload");
+const upload = require("../middleware/Upload");
 const cloudinary = require("../config/Cloudinary");
 
 /* ===================== COINS ===================== */

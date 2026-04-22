@@ -40,6 +40,8 @@ const createPost = asyncHandler(async (req, res) => {
     user: req.user._id,
     text,
     media,
+    likes: [],   // ✅ add this
+    loves: [],
   });
 
   const populatedPost = await Post.findById(post._id)
@@ -116,13 +118,18 @@ const getPosts = asyncHandler(async (req, res) => {
     .populate("comments.user", "name avatar")
     .lean();
 
+  const formattedPosts = posts.map((post) => ({
+    ...post,
+    likeCount: post.likes?.length || 0,
+    loveCount: post.loves?.length || 0,
+  }));
+
   res.json({
     success: true,
-    count: posts.length,
-    posts,
+    count: formattedPosts.length,
+    posts: formattedPosts,
   });
 });
-
 /* =========================
    GET SINGLE POST
 ========================= */
@@ -137,7 +144,13 @@ const getPostById = asyncHandler(async (req, res) => {
     throw new Error("Post not found");
   }
 
-  res.json({ success: true, post });
+  const formattedPost = {
+    ...post,
+    likeCount: post.likes?.length || 0,
+    loveCount: post.loves?.length || 0,
+  };
+
+  res.json({ success: true, post: formattedPost });
 });
 
 /* =========================
@@ -155,14 +168,13 @@ const reactPost = asyncHandler(async (req, res) => {
     throw new Error("Post not found");
   }
 
+  // Ensure arrays exist (for backward compatibility)
   post.likes = post.likes || [];
   post.loves = post.loves || [];
 
-  // remove existing reaction by user
-  post.likes = post.likes.filter(id => id.toString() !== userId.toString());
-  post.loves = post.loves.filter(id => id.toString() !== userId.toString());
+  // ✅ NO MORE REMOVING EXISTING REACTION
+  // Each click adds a new entry
 
-  // add new reaction
   if (type === "like") {
     post.likes.push(userId);
   } else if (type === "love") {

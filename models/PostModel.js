@@ -51,14 +51,6 @@ const postSchema = new mongoose.Schema(
     media: [mediaSchema],
 
     // Reactions
-    likeCount: {
-      type: Number,
-      default: 0,
-    },
-    loveCount: {
-      type: Number,
-      default: 0,
-    },
     likedBy: [
       {
         type: mongoose.Schema.Types.ObjectId,

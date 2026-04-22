@@ -2,7 +2,10 @@ const asyncHandler = require("express-async-handler");
 const Post = require("../models/PostModel");
 const cloudinary = require("../config/Cloudinary");
 
-const { notifyPostReaction } = require("../config/NotificationService");
+// ✅ NEW (centralized notifications)
+const {
+  notifyPostReaction,
+} = require("../config/NotificationService");
 
 /* =========================
    CREATE POST
@@ -106,81 +109,20 @@ const uploadMedia = asyncHandler(async (req, res) => {
 /* =========================
    GET POSTS
 ========================= */
-const reactPost = asyncHandler(async (req, res) => {
-  try {
-    const userId = req.user._id;
-    const { postId } = req.params;
-    const { type } = req.body;
+const getPosts = asyncHandler(async (req, res) => {
+  const posts = await Post.find()
+    .sort({ createdAt: -1 })
+    .populate("user", "name avatar")
+    .populate("comments.user", "name avatar")
+    .lean();
 
-    console.log("👉 REACTION:", { userId, postId, type });
-
-    if (!["like", "love"].includes(type)) {
-      res.status(400);
-      throw new Error("Invalid reaction type");
-    }
-
-    const post = await Post.findById(postId);
-
-    if (!post) {
-      res.status(404);
-      throw new Error("Post not found");
-    }
-
-    console.log("👉 POST FOUND:", post._id);
-
-    post.likedBy = post.likedBy || [];
-    post.lovedBy = post.lovedBy || [];
-
-    const alreadyLiked = post.likedBy.some(
-      (id) => id.toString() === userId.toString()
-    );
-
-    const alreadyLoved = post.lovedBy.some(
-      (id) => id.toString() === userId.toString()
-    );
-
-    if (type === "like") {
-      if (alreadyLiked) {
-        post.likedBy = post.likedBy.filter(
-          (id) => id.toString() !== userId.toString()
-        );
-      } else {
-        post.lovedBy = post.lovedBy.filter(
-          (id) => id.toString() !== userId.toString()
-        );
-        post.likedBy.push(userId);
-      }
-    }
-
-    if (type === "love") {
-      if (alreadyLoved) {
-        post.lovedBy = post.lovedBy.filter(
-          (id) => id.toString() !== userId.toString()
-        );
-      } else {
-        post.likedBy = post.likedBy.filter(
-          (id) => id.toString() !== userId.toString()
-        );
-        post.lovedBy.push(userId);
-      }
-    }
-
-    await post.save();
-
-    console.log("✅ SAVED");
-
-    res.json({
-      likeCount: post.likeCount,
-      loveCount: post.loveCount,
-    });
-  } catch (err) {
-    console.error("🔥 FULL ERROR:", err);
-    res.status(500).json({
-      message: err.message,
-      stack: err.stack, // 👈 this will expose the real issue
-    });
-  }
+  res.json({
+    success: true,
+    count: posts.length,
+    posts,
+  });
 });
+
 /* =========================
    GET SINGLE POST
 ========================= */
@@ -199,17 +141,12 @@ const getPostById = asyncHandler(async (req, res) => {
 });
 
 /* =========================
-   REACT TO POST (FIXED)
+   REACT TO POST
 ========================= */
 const reactPost = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { postId } = req.params;
   const { type } = req.body;
-
-  if (!["like", "love"].includes(type)) {
-    res.status(400);
-    throw new Error("Invalid reaction type");
-  }
 
   const post = await Post.findById(postId);
 
@@ -218,48 +155,36 @@ const reactPost = asyncHandler(async (req, res) => {
     throw new Error("Post not found");
   }
 
-  post.likedBy = post.likedBy || [];
-  post.lovedBy = post.lovedBy || [];
+  post.likes = post.likes || [];
+  post.loves = post.loves || [];
 
-  const alreadyLiked = post.likedBy.some(
-    (id) => id.toString() === userId.toString()
-  );
+  // remove existing reaction by user
+  post.likes = post.likes.filter(id => id.toString() !== userId.toString());
+  post.loves = post.loves.filter(id => id.toString() !== userId.toString());
 
-  const alreadyLoved = post.lovedBy.some(
-    (id) => id.toString() === userId.toString()
-  );
-
+  // add new reaction
   if (type === "like") {
-    if (alreadyLiked) {
-      post.likedBy = post.likedBy.filter(
-        (id) => id.toString() !== userId.toString()
-      );
-    } else {
-      post.lovedBy = post.lovedBy.filter(
-        (id) => id.toString() !== userId.toString()
-      );
-      post.likedBy.push(userId);
-    }
-  }
-
-  if (type === "love") {
-    if (alreadyLoved) {
-      post.lovedBy = post.lovedBy.filter(
-        (id) => id.toString() !== userId.toString()
-      );
-    } else {
-      post.likedBy = post.likedBy.filter(
-        (id) => id.toString() !== userId.toString()
-      );
-      post.lovedBy.push(userId);
-    }
+    post.likes.push(userId);
+  } else if (type === "love") {
+    post.loves.push(userId);
   }
 
   await post.save();
 
+  const ownerId = post.user;
+
+  if (ownerId.toString() !== userId.toString()) {
+    await notifyPostReaction({
+      postOwnerId: ownerId,
+      sender: req.user,
+      type,
+      postId,
+    });
+  }
+
   res.json({
-    likeCount: post.likeCount,
-    loveCount: post.loveCount,
+    likeCount: post.likes.length,
+    loveCount: post.loves.length,
   });
 });
 

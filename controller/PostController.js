@@ -145,6 +145,11 @@ const reactPost = asyncHandler(async (req, res) => {
   const { postId } = req.params;
   const { type } = req.body;
 
+  if (!["like", "love"].includes(type)) {
+    res.status(400);
+    throw new Error("Invalid reaction type");
+  }
+
   const post = await Post.findById(postId);
 
   if (!post) {
@@ -163,7 +168,6 @@ const reactPost = asyncHandler(async (req, res) => {
     (id) => id.toString() === userId.toString()
   );
 
-  // 🔁 TOGGLE LOGIC
   if (type === "like") {
     if (alreadyLiked) {
       post.likedBy = post.likedBy.filter(
@@ -190,18 +194,7 @@ const reactPost = asyncHandler(async (req, res) => {
     }
   }
 
-  await post.save(); // ✅ pre("save") handles counts
-
-  const ownerId = post.user;
-
-  if (ownerId.toString() !== userId.toString()) {
-    await notifyPostReaction({
-      postOwnerId: ownerId,
-      sender: req.user,
-      type,
-      postId,
-    });
-  }
+  await post.save();
 
   res.json({
     likeCount: post.likeCount,

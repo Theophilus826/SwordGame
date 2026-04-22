@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-// ===== Comment Schema =====
+// ================= COMMENTS =================
 const commentSchema = new mongoose.Schema(
   {
     user: {
@@ -17,7 +17,7 @@ const commentSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// ===== Media Schema =====
+// ================= MEDIA =================
 const mediaSchema = new mongoose.Schema({
   url: {
     type: String,
@@ -30,27 +30,24 @@ const mediaSchema = new mongoose.Schema({
   },
 });
 
-// ===== Post Schema =====
+// ================= POST =================
 const postSchema = new mongoose.Schema(
   {
-    // Post owner
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
     },
 
-    // Post content
     text: {
       type: String,
       trim: true,
       default: "",
     },
 
-    // Media attachments
     media: [mediaSchema],
 
-    // Reactions
+    // ✅ Reactions (source of truth)
     likedBy: [
       {
         type: mongoose.Schema.Types.ObjectId,
@@ -64,11 +61,32 @@ const postSchema = new mongoose.Schema(
       },
     ],
 
-    // Comments
+    // ✅ Stored counts (auto-managed)
+    likeCount: {
+      type: Number,
+      default: 0,
+    },
+    loveCount: {
+      type: Number,
+      default: 0,
+    },
+
     comments: [commentSchema],
   },
   { timestamps: true }
 );
 
-// ===== Export Post Model =====
+// ================= PRE-SAVE MIDDLEWARE =================
+postSchema.pre("save", function (next) {
+  // ensure arrays exist
+  this.likedBy = this.likedBy || [];
+  this.lovedBy = this.lovedBy || [];
+
+  // sync counts
+  this.likeCount = this.likedBy.length;
+  this.loveCount = this.lovedBy.length;
+
+  next();
+});
+
 module.exports = mongoose.model("Post", postSchema);

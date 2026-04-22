@@ -155,34 +155,72 @@ const reactPost = asyncHandler(async (req, res) => {
     throw new Error("Post not found");
   }
 
-  // remove user from both first
+  // ✅ ensure arrays exist (prevents crash)
+  post.likedBy = post.likedBy || [];
+  post.lovedBy = post.lovedBy || [];
+
+  const isLiking = type === "like";
+  const isLoving = type === "love";
+
+  // ==============================
+  // 🔥 REMOVE USER FROM BOTH (TOGGLE SYSTEM)
+  // ==============================
   post.likedBy = post.likedBy.filter(
     (id) => id.toString() !== userId.toString()
   );
+
   post.lovedBy = post.lovedBy.filter(
     (id) => id.toString() !== userId.toString()
   );
 
-  if (type === "like") {
+  // ==============================
+  // 🔥 APPLY NEW REACTION
+  // ==============================
+  if (isLiking) {
     post.likedBy.push(userId);
   }
 
-  if (type === "love") {
+  if (isLoving) {
     post.lovedBy.push(userId);
   }
 
-  // sync counts (VERY IMPORTANT)
+  // ==============================
+  // 🔥 SYNC COUNTS (SOURCE OF TRUTH)
+  // ==============================
   post.likeCount = post.likedBy.length;
   post.loveCount = post.lovedBy.length;
 
   await post.save();
 
+  // ==============================
+  // 🔔 NOTIFICATION (SAFE)
+  // ==============================
+  try {
+    const ownerId = post.user;
+
+    if (ownerId.toString() !== userId.toString()) {
+      await notifyPostReaction({
+        postOwnerId: ownerId,
+        sender: req.user,
+        type,
+        postId,
+      });
+    }
+  } catch (err) {
+    console.error("Notification error:", err);
+  }
+
+  // ==============================
+  // RESPONSE (CLEAN + FRONTEND FRIENDLY)
+  // ==============================
   res.json({
+    success: true,
     likeCount: post.likeCount,
     loveCount: post.loveCount,
+    likedBy: post.likedBy,
+    lovedBy: post.lovedBy,
   });
 });
-
 /* =========================
    COMMENT POST
 ========================= */

@@ -2,10 +2,7 @@ const asyncHandler = require("express-async-handler");
 const Post = require("../models/PostModel");
 const cloudinary = require("../config/Cloudinary");
 
-// ✅ NEW (centralized notifications)
-const {
-  notifyPostReaction,
-} = require("../config/NotificationService");
+const { notifyPostReaction } = require("../config/NotificationService");
 
 /* =========================
    CREATE POST
@@ -141,7 +138,7 @@ const getPostById = asyncHandler(async (req, res) => {
 });
 
 /* =========================
-   REACT TO POST
+   REACT TO POST (FIXED)
 ========================= */
 const reactPost = asyncHandler(async (req, res) => {
   const userId = req.user._id;
@@ -155,72 +152,63 @@ const reactPost = asyncHandler(async (req, res) => {
     throw new Error("Post not found");
   }
 
-  // ✅ ensure arrays exist (prevents crash)
   post.likedBy = post.likedBy || [];
   post.lovedBy = post.lovedBy || [];
 
-  const isLiking = type === "like";
-  const isLoving = type === "love";
-
-  // ==============================
-  // 🔥 REMOVE USER FROM BOTH (TOGGLE SYSTEM)
-  // ==============================
-  post.likedBy = post.likedBy.filter(
-    (id) => id.toString() !== userId.toString()
+  const alreadyLiked = post.likedBy.some(
+    (id) => id.toString() === userId.toString()
   );
 
-  post.lovedBy = post.lovedBy.filter(
-    (id) => id.toString() !== userId.toString()
+  const alreadyLoved = post.lovedBy.some(
+    (id) => id.toString() === userId.toString()
   );
 
-  // ==============================
-  // 🔥 APPLY NEW REACTION
-  // ==============================
-  if (isLiking) {
-    post.likedBy.push(userId);
-  }
-
-  if (isLoving) {
-    post.lovedBy.push(userId);
-  }
-
-  // ==============================
-  // 🔥 SYNC COUNTS (SOURCE OF TRUTH)
-  // ==============================
-  post.likeCount = post.likedBy.length;
-  post.loveCount = post.lovedBy.length;
-
-  await post.save();
-
-  // ==============================
-  // 🔔 NOTIFICATION (SAFE)
-  // ==============================
-  try {
-    const ownerId = post.user;
-
-    if (ownerId.toString() !== userId.toString()) {
-      await notifyPostReaction({
-        postOwnerId: ownerId,
-        sender: req.user,
-        type,
-        postId,
-      });
+  // 🔁 TOGGLE LOGIC
+  if (type === "like") {
+    if (alreadyLiked) {
+      post.likedBy = post.likedBy.filter(
+        (id) => id.toString() !== userId.toString()
+      );
+    } else {
+      post.lovedBy = post.lovedBy.filter(
+        (id) => id.toString() !== userId.toString()
+      );
+      post.likedBy.push(userId);
     }
-  } catch (err) {
-    console.error("Notification error:", err);
   }
 
-  // ==============================
-  // RESPONSE (CLEAN + FRONTEND FRIENDLY)
-  // ==============================
+  if (type === "love") {
+    if (alreadyLoved) {
+      post.lovedBy = post.lovedBy.filter(
+        (id) => id.toString() !== userId.toString()
+      );
+    } else {
+      post.likedBy = post.likedBy.filter(
+        (id) => id.toString() !== userId.toString()
+      );
+      post.lovedBy.push(userId);
+    }
+  }
+
+  await post.save(); // ✅ pre("save") handles counts
+
+  const ownerId = post.user;
+
+  if (ownerId.toString() !== userId.toString()) {
+    await notifyPostReaction({
+      postOwnerId: ownerId,
+      sender: req.user,
+      type,
+      postId,
+    });
+  }
+
   res.json({
-    success: true,
     likeCount: post.likeCount,
     loveCount: post.loveCount,
-    likedBy: post.likedBy,
-    lovedBy: post.lovedBy,
   });
 });
+
 /* =========================
    COMMENT POST
 ========================= */

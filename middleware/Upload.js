@@ -5,34 +5,52 @@ const cloudinary = require("../config/Cloudinary");
 /* ================= STORAGE ================= */
 const storage = new CloudinaryStorage({
   cloudinary,
-  params: {
-    folder: "chat-voice-notes",
+  params: (req, file) => {
+    let folder = "uploads";
 
-    // ✅ FIX: MUST be "raw" for audio files
-    resource_type: "auto",
+    // auto-route by file type
+    if (file.mimetype.startsWith("image/")) {
+      folder = "carousel-images";
+    } else if (file.mimetype.startsWith("audio/")) {
+      folder = "chat-voice-notes";
+    } else if (file.mimetype.startsWith("video/")) {
+      folder = "videos";
+    }
 
-    // keep webm format for recordings
-    format: async () => "webm",
+    return {
+      folder,
 
-    public_id: (req, file) => {
-      return "voice-" + Date.now();
-    },
+      // IMPORTANT: let Cloudinary decide type correctly
+      resource_type: "auto",
+
+      public_id: `${folder}-${Date.now()}`,
+    };
   },
 });
 
 /* ================= FILTER ================= */
 const fileFilter = (req, file, cb) => {
-  const allowed = [
+  const allowedMimeTypes = [
+    // images (carousel)
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+
+    // audio
     "audio/webm",
     "audio/mpeg",
     "audio/wav",
     "audio/ogg",
+
+    // optional video
+    "video/mp4",
+    "video/webm",
   ];
 
-  if (allowed.includes(file.mimetype)) {
+  if (allowedMimeTypes.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error("Only audio files are allowed"), false);
+    cb(new Error("Unsupported file type"), false);
   }
 };
 
@@ -40,9 +58,9 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({
   storage,
   fileFilter,
-
-  // ✅ safe limit for voice notes
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB
+  },
 });
 
 module.exports = upload;

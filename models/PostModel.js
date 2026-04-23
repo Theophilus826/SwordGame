@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 
-// ================= COMMENTS =================
-const commentSchema = new mongoose.Schema(
+// Comment schema
+const commentSchema = mongoose.Schema(
   {
     user: {
       type: mongoose.Schema.Types.ObjectId,
@@ -17,8 +17,8 @@ const commentSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// ================= MEDIA =================
-const mediaSchema = new mongoose.Schema({
+// Media schema
+const mediaSchema = mongoose.Schema({
   url: {
     type: String,
     required: true,
@@ -30,13 +30,14 @@ const mediaSchema = new mongoose.Schema({
   },
 });
 
-// ================= POST =================
-const postSchema = new mongoose.Schema(
+// Post schema
+const postSchema = mongoose.Schema(
   {
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
+      index: true,
     },
 
     text: {
@@ -45,25 +46,26 @@ const postSchema = new mongoose.Schema(
       default: "",
     },
 
-    media: {
-      type: [mediaSchema],
-      default: [], // ✅ prevent undefined
-    },
+    media: [mediaSchema],
 
-    // ✅ Reactions (always arrays)
-    likedBy: {
-      type: [mongoose.Schema.Types.ObjectId],
-      ref: "User",
-      default: [], // ✅ critical fix
-    },
+    // =========================
+    // REACTIONS (FIXED DESIGN)
+    // =========================
 
-    lovedBy: {
-      type: [mongoose.Schema.Types.ObjectId],
-      ref: "User",
-      default: [], // ✅ critical fix
-    },
+    likedBy: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
 
-    // ✅ Stored counts
+    lovedBy: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+
     likeCount: {
       type: Number,
       default: 0,
@@ -74,29 +76,19 @@ const postSchema = new mongoose.Schema(
       default: 0,
     },
 
-    comments: {
-      type: [commentSchema],
-      default: [], // ✅ prevent undefined
-    },
+    // Comments
+    comments: [commentSchema],
   },
   { timestamps: true }
 );
 
-// ================= PRE-SAVE MIDDLEWARE =================
+// =========================
+// AUTO SYNC COUNTS BEFORE SAVE
+// =========================
 postSchema.pre("save", function (next) {
-  try {
-    // ✅ guarantee arrays (extra safety)
-    if (!Array.isArray(this.likedBy)) this.likedBy = [];
-    if (!Array.isArray(this.lovedBy)) this.lovedBy = [];
-
-    // ✅ sync counts
-    this.likeCount = this.likedBy.length;
-    this.loveCount = this.lovedBy.length;
-
-    next();
-  } catch (err) {
-    next(err); // ✅ prevents silent crash (fixes 500 issue)
-  }
+  this.likeCount = this.likedBy?.length || 0;
+  this.loveCount = this.lovedBy?.length || 0;
+  next();
 });
 
 module.exports = mongoose.model("Post", postSchema);

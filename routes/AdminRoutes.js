@@ -4,10 +4,8 @@ const router = express.Router();
 const { protect, admin } = require("../middleware/AuthMiddleware");
 const { adminCreditCoins } = require("../controller/AccountController");
 const { playersByUser } = require("../games/gameState");
-
 const CoinTransaction = require("../models/CoinTransaction");
 const Slide = require("../models/Slide");
-
 const upload = require("../middleware/Upload");
 const cloudinary = require("../config/Cloudinary");
 
@@ -20,21 +18,21 @@ router.get("/tactical", protect, admin, (req, res) => {
     const players = [];
 
     playersByUser.forEach((player) => {
-      if (!player?.room) return;
+      if (!player.room) return;
 
       players.push({
         userId: player.userId,
         username: player.username,
-        position: player.position || null,
-        health: player.health ?? 0,
+        position: player.position,
+        health: player.health,
         room: player.room,
       });
     });
 
-    return res.status(200).json({ success: true, players });
+    return res.status(200).json({ players });
   } catch (err) {
     console.error("Tactical error:", err);
-    return res.status(500).json({ success: false, message: "Server error" });
+    return res.status(500).json({ message: "Server error" });
   }
 });
 
@@ -42,14 +40,14 @@ router.get("/tactical", protect, admin, (req, res) => {
 router.get("/transactions", protect, admin, async (req, res) => {
   try {
     const page = Math.max(1, Number(req.query.page) || 1);
-    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
+    const limit = Math.max(1, Number(req.query.limit) || 50);
     const skip = (page - 1) * limit;
 
     const { search = "", type } = req.query;
 
     const query = {};
 
-    if (search.trim()) {
+    if (search) {
       query.$or = [
         { referenceId: { $regex: search, $options: "i" } },
         { "user.username": { $regex: search, $options: "i" } },
@@ -66,51 +64,79 @@ router.get("/transactions", protect, admin, async (req, res) => {
       .limit(limit)
       .lean();
 
-    return res.status(200).json({
-      success: true,
-      page,
-      limit,
-      transactions,
-    });
+    return res.status(200).json({ transactions });
   } catch (err) {
     console.error("Transaction error:", err);
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
+    return res.status(500).json({ message: "Server error" });
   }
 });
 
-/* ===================== CAROUSEL UPLOAD ===================== */
+/* ===================== CAROUSEL MULTI UPLOAD ===================== */
 router.post(
   "/carousel/upload",
   protect,
   admin,
-  upload.single("image"),
+  upload.array("images", 10), // 👈 multiple files
   async (req, res) => {
     try {
-      if (!req.file?.path) {
-        return res.status(400).json({
-          success: false,
-          message: "No image uploaded",
-        });
+      if (!req.files || req.files.length === 0) {
+        return res.status(400).json({ message: "No images uploaded" });
       }
 
-      const slide = await Slide.create({
-        src: req.file.path,
-        public_id: req.file.filename || "",
-      });
+      const slides = [];
+
+      for (const file of req.files) {
+        const slide = await Slide.create({
+          src: file.path,        // Cloudinary URL
+          public_id: file.filename, // Cloudinary public_id
+        });
+
+        slides.push(slide);
+      }
 
       return res.status(200).json({
         success: true,
-        slide,
+        count: slides.length,
+        slides,
       });
     } catch (err) {
       console.error("Upload error:", err);
-      return res.status(500).json({
-        success: false,
-        message: "Upload failed",
+      return res.status(500).json({ message: "Upload failed" });
+    }
+  }
+);
+
+/* ===================== CAROUSEL MULTI UPLOAD ===================== */
+router.post(
+  "/carousel/upload",
+  protect,
+  admin,
+  upload.array("images", 10), // 👈 multiple files
+  async (req, res) => {
+    try {
+      if (!req.files || req.files.length === 0) {
+        return res.status(400).json({ message: "No images uploaded" });
+      }
+
+      const slides = [];
+
+      for (const file of req.files) {
+        const slide = await Slide.create({
+          src: file.path,        // Cloudinary URL
+          public_id: file.filename, // Cloudinary public_id
+        });
+
+        slides.push(slide);
+      }
+
+      return res.status(200).json({
+        success: true,
+        count: slides.length,
+        slides,
       });
+    } catch (err) {
+      console.error("Upload error:", err);
+      return res.status(500).json({ message: "Upload failed" });
     }
   }
 );
@@ -120,16 +146,10 @@ router.get("/carousel/slides", async (req, res) => {
   try {
     const slides = await Slide.find().sort({ createdAt: -1 });
 
-    return res.status(200).json({
-      success: true,
-      slides,
-    });
+    return res.status(200).json({ slides });
   } catch (err) {
     console.error("Fetch slides error:", err);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to load slides",
-    });
+    return res.status(500).json({ message: "Failed to load slides" });
   }
 });
 
@@ -139,19 +159,12 @@ router.delete("/carousel/delete/:id", protect, admin, async (req, res) => {
     const slide = await Slide.findById(req.params.id);
 
     if (!slide) {
-      return res.status(404).json({
-        success: false,
-        message: "Slide not found",
-      });
+      return res.status(404).json({ message: "Slide not found" });
     }
 
-    // safe cloudinary delete
+    // delete from Cloudinary
     if (slide.public_id) {
-      try {
-        await cloudinary.uploader.destroy(slide.public_id);
-      } catch (cloudErr) {
-        console.error("Cloudinary delete failed:", cloudErr);
-      }
+      await cloudinary.v2.uploader.destroy(slide.public_id);
     }
 
     await slide.deleteOne();
@@ -162,10 +175,7 @@ router.delete("/carousel/delete/:id", protect, admin, async (req, res) => {
     });
   } catch (err) {
     console.error("Delete error:", err);
-    return res.status(500).json({
-      success: false,
-      message: "Delete failed",
-    });
+    return res.status(500).json({ message: "Delete failed" });
   }
 });
 

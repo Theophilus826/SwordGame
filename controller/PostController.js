@@ -152,35 +152,28 @@ const reactPost = asyncHandler(async (req, res) => {
   console.log("TYPE:", type);
   console.log("USER:", userId);
 
-  // ✅ validate ID
-  if (!mongoose.Types.ObjectId.isValid(postId)) {
+  if (!postId || postId.length < 10) {
     res.status(400);
     throw new Error("Invalid postId");
   }
 
   const post = await Post.findById(postId);
 
+  console.log("POST FOUND:", post);
+
   if (!post) {
     res.status(404);
     throw new Error("Post not found");
   }
 
-  // ✅ SAFE ARRAYS
   post.likedBy = Array.isArray(post.likedBy) ? post.likedBy : [];
   post.lovedBy = Array.isArray(post.lovedBy) ? post.lovedBy : [];
 
   const userIdStr = userId.toString();
 
-  // remove previous reaction
-  post.likedBy = post.likedBy.filter(
-    (id) => id.toString() !== userIdStr
-  );
+  post.likedBy = post.likedBy.filter(id => id.toString() !== userIdStr);
+  post.lovedBy = post.lovedBy.filter(id => id.toString() !== userIdStr);
 
-  post.lovedBy = post.lovedBy.filter(
-    (id) => id.toString() !== userIdStr
-  );
-
-  // add new reaction
   if (type === "like") {
     post.likedBy.push(userIdStr);
   } else if (type === "love") {
@@ -190,7 +183,6 @@ const reactPost = asyncHandler(async (req, res) => {
     throw new Error("Invalid reaction type");
   }
 
-  // sync counts
   post.likeCount = post.likedBy.length;
   post.loveCount = post.lovedBy.length;
 
@@ -200,8 +192,7 @@ const reactPost = asyncHandler(async (req, res) => {
     likeCount: post.likeCount,
     loveCount: post.loveCount,
   });
-});
-/* =========================
+});/* =========================
    COMMENT POST
 ========================= */
 const commentPost = asyncHandler(async (req, res) => {

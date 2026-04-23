@@ -1,7 +1,7 @@
 const asyncHandler = require("express-async-handler");
 const Post = require("../models/PostModel");
 const cloudinary = require("../config/Cloudinary");
-
+const mongoose = require("mongoose");
 // ✅ NEW (centralized notifications)
 const {
   notifyPostReaction,
@@ -148,12 +148,15 @@ const reactPost = asyncHandler(async (req, res) => {
   const { postId } = req.params;
   const { type } = req.body;
 
-  // ======================
-  // DEBUG LOGS (ADD HERE)
-  // ======================
   console.log("POST ID:", postId);
   console.log("TYPE:", type);
   console.log("USER:", userId);
+
+  // ✅ validate ID
+  if (!mongoose.Types.ObjectId.isValid(postId)) {
+    res.status(400);
+    throw new Error("Invalid postId");
+  }
 
   const post = await Post.findById(postId);
 
@@ -162,27 +165,32 @@ const reactPost = asyncHandler(async (req, res) => {
     throw new Error("Post not found");
   }
 
-  post.likedBy = post.likedBy || [];
-  post.lovedBy = post.lovedBy || [];
+  // ✅ SAFE ARRAYS
+  post.likedBy = Array.isArray(post.likedBy) ? post.likedBy : [];
+  post.lovedBy = Array.isArray(post.lovedBy) ? post.lovedBy : [];
 
   const userIdStr = userId.toString();
 
+  // remove previous reaction
   post.likedBy = post.likedBy.filter(
     (id) => id.toString() !== userIdStr
   );
+
   post.lovedBy = post.lovedBy.filter(
     (id) => id.toString() !== userIdStr
   );
 
+  // add new reaction
   if (type === "like") {
-    post.likedBy.push(userId);
+    post.likedBy.push(userIdStr);
   } else if (type === "love") {
-    post.lovedBy.push(userId);
+    post.lovedBy.push(userIdStr);
   } else {
     res.status(400);
     throw new Error("Invalid reaction type");
   }
 
+  // sync counts
   post.likeCount = post.likedBy.length;
   post.loveCount = post.lovedBy.length;
 
@@ -193,7 +201,6 @@ const reactPost = asyncHandler(async (req, res) => {
     loveCount: post.loveCount,
   });
 });
-
 /* =========================
    COMMENT POST
 ========================= */

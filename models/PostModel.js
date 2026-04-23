@@ -14,7 +14,7 @@ const commentSchema = mongoose.Schema(
       trim: true,
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 // Media schema
@@ -52,19 +52,17 @@ const postSchema = mongoose.Schema(
     // REACTIONS (FIXED DESIGN)
     // =========================
 
-    likedBy: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "User",
-      },
-    ],
+    likedBy: {
+      type: [mongoose.Schema.Types.ObjectId],
+      ref: "User",
+      default: [],
+    },
 
-    lovedBy: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "User",
-      },
-    ],
+    lovedBy: {
+      type: [mongoose.Schema.Types.ObjectId],
+      ref: "User",
+      default: [],
+    },
 
     likeCount: {
       type: Number,
@@ -79,7 +77,7 @@ const postSchema = mongoose.Schema(
     // Comments
     comments: [commentSchema],
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 // =========================

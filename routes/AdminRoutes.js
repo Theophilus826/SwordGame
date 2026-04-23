@@ -106,41 +106,6 @@ router.post(
   }
 );
 
-/* ===================== CAROUSEL MULTI UPLOAD ===================== */
-router.post(
-  "/carousel/upload",
-  protect,
-  admin,
-  upload.array("images", 10), // 👈 multiple files
-  async (req, res) => {
-    try {
-      if (!req.files || req.files.length === 0) {
-        return res.status(400).json({ message: "No images uploaded" });
-      }
-
-      const slides = [];
-
-      for (const file of req.files) {
-        const slide = await Slide.create({
-          src: file.path,        // Cloudinary URL
-          public_id: file.filename, // Cloudinary public_id
-        });
-
-        slides.push(slide);
-      }
-
-      return res.status(200).json({
-        success: true,
-        count: slides.length,
-        slides,
-      });
-    } catch (err) {
-      console.error("Upload error:", err);
-      return res.status(500).json({ message: "Upload failed" });
-    }
-  }
-);
-
 /* ===================== GET CAROUSEL SLIDES ===================== */
 router.get("/carousel/slides", async (req, res) => {
   try {
@@ -162,9 +127,13 @@ router.delete("/carousel/delete/:id", protect, admin, async (req, res) => {
       return res.status(404).json({ message: "Slide not found" });
     }
 
-    // delete from Cloudinary
+    // ✅ SAFE cloudinary delete
     if (slide.public_id) {
-      await cloudinary.v2.uploader.destroy(slide.public_id);
+      try {
+        await cloudinary.uploader.destroy(slide.public_id);
+      } catch (cloudErr) {
+        console.error("Cloudinary error:", cloudErr.message);
+      }
     }
 
     await slide.deleteOne();
@@ -175,7 +144,9 @@ router.delete("/carousel/delete/:id", protect, admin, async (req, res) => {
     });
   } catch (err) {
     console.error("Delete error:", err);
-    return res.status(500).json({ message: "Delete failed" });
+    return res.status(500).json({
+      message: err.message || "Delete failed",
+    });
   }
 });
 

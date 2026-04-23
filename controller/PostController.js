@@ -148,6 +148,13 @@ const reactPost = asyncHandler(async (req, res) => {
   const { postId } = req.params;
   const { type } = req.body;
 
+  // ======================
+  // DEBUG LOGS (ADD HERE)
+  // ======================
+  console.log("POST ID:", postId);
+  console.log("TYPE:", type);
+  console.log("USER:", userId);
+
   const post = await Post.findById(postId);
 
   if (!post) {
@@ -155,36 +162,35 @@ const reactPost = asyncHandler(async (req, res) => {
     throw new Error("Post not found");
   }
 
-  post.likes = post.likes || [];
-  post.loves = post.loves || [];
+  post.likedBy = post.likedBy || [];
+  post.lovedBy = post.lovedBy || [];
 
-  // remove existing reaction by user
-  post.likes = post.likes.filter(id => id.toString() !== userId.toString());
-  post.loves = post.loves.filter(id => id.toString() !== userId.toString());
+  const userIdStr = userId.toString();
 
-  // add new reaction
+  post.likedBy = post.likedBy.filter(
+    (id) => id.toString() !== userIdStr
+  );
+  post.lovedBy = post.lovedBy.filter(
+    (id) => id.toString() !== userIdStr
+  );
+
   if (type === "like") {
-    post.likes.push(userId);
+    post.likedBy.push(userId);
   } else if (type === "love") {
-    post.loves.push(userId);
+    post.lovedBy.push(userId);
+  } else {
+    res.status(400);
+    throw new Error("Invalid reaction type");
   }
+
+  post.likeCount = post.likedBy.length;
+  post.loveCount = post.lovedBy.length;
 
   await post.save();
 
-  const ownerId = post.user;
-
-  if (ownerId.toString() !== userId.toString()) {
-    await notifyPostReaction({
-      postOwnerId: ownerId,
-      sender: req.user,
-      type,
-      postId,
-    });
-  }
-
   res.json({
-    likeCount: post.likes.length,
-    loveCount: post.loves.length,
+    likeCount: post.likeCount,
+    loveCount: post.loveCount,
   });
 });
 

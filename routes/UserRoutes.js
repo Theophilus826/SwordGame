@@ -17,7 +17,7 @@ const {
   sendMood,
   updateAvatar,
   sendMessage,
-  getMessages, getAllUsers,
+  getMessages,getAllUsers,syncContacts,
 } = require("../controller/UserController");
 
 const { protect } = require("../middleware/AuthMiddleware");
@@ -49,7 +49,7 @@ router.put("/reset-password/:token", resetPassword);
 // ==========================
 router.get("/welcome", protect, welcome);
 router.post("/mood", protect, sendMood);
-
+router.post("/sync-contacts", protect, syncContacts);
 // ==========================
 // UPDATE AVATAR
 // ==========================
@@ -74,6 +74,7 @@ router.get("/:userId/posts", protect, async (req, res) => {
   }
 });
 router.get("/", protect, getAllUsers);
+
 // ==========================
 // CHAT ROUTES
 // ==========================

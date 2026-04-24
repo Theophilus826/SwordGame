@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 
-// Comment schema
-const commentSchema = mongoose.Schema(
+// ===== Comment Schema =====
+const commentSchema = new mongoose.Schema(
   {
     user: {
       type: mongoose.Schema.Types.ObjectId,
@@ -14,11 +14,11 @@ const commentSchema = mongoose.Schema(
       trim: true,
     },
   },
-  { timestamps: true },
+  { timestamps: true }
 );
 
-// Media schema
-const mediaSchema = mongoose.Schema({
+// ===== Media Schema =====
+const mediaSchema = new mongoose.Schema({
   url: {
     type: String,
     required: true,
@@ -30,63 +30,53 @@ const mediaSchema = mongoose.Schema({
   },
 });
 
-// Post schema
-const postSchema = mongoose.Schema(
+// ===== Post Schema =====
+const postSchema = new mongoose.Schema(
   {
+    // Post owner
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
-      index: true,
     },
 
+    // Post content
     text: {
       type: String,
       trim: true,
       default: "",
     },
 
+    // Media attachments
     media: [mediaSchema],
 
-    // =========================
-    // REACTIONS (FIXED DESIGN)
-    // =========================
-
-    likedBy: {
-      type: [mongoose.Schema.Types.ObjectId],
-      ref: "User",
-      default: [],
-    },
-
-    lovedBy: {
-      type: [mongoose.Schema.Types.ObjectId],
-      ref: "User",
-      default: [],
-    },
-
+    // Reactions
     likeCount: {
       type: Number,
       default: 0,
     },
-
     loveCount: {
       type: Number,
       default: 0,
     },
+    likedBy: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+    lovedBy: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
 
     // Comments
     comments: [commentSchema],
   },
-  { timestamps: true },
+  { timestamps: true }
 );
 
-// =========================
-// AUTO SYNC COUNTS BEFORE SAVE
-// =========================
-postSchema.pre("save", function (next) {
-  this.likeCount = this.likedBy?.length || 0;
-  this.loveCount = this.lovedBy?.length || 0;
-  next();
-});
-
+// ===== Export Post Model =====
 module.exports = mongoose.model("Post", postSchema);

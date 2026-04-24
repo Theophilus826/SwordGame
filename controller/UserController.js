@@ -61,13 +61,13 @@ const registerUser = asyncHandler(async (req, res) => {
   const hashedPassword = await bcrypt.hash(password, 10);
 
   const user = await User.create({
-    name,
-    email,
-    phone,
-    password: hashedPassword,
-    isVerified: true,
-  });
-
+  name,
+  email,
+  phone,
+  phoneHash: phone ? hashPhone(phone) : null, // ✅ ADD THIS
+  password: hashedPassword,
+  isVerified: true,
+});
   const token = generateToken(user._id);
 
   res.cookie("token", token, {
@@ -332,6 +332,34 @@ const getAllUsers = asyncHandler(async (req, res) => {
 
   res.status(200).json({ users: formattedUsers });
 });
+// ================= SYNC CONTACTS =================
+const syncContacts = asyncHandler(async (req, res) => {
+  const { contacts } = req.body;
+
+  if (!contacts || !contacts.length) {
+    res.status(400);
+    throw new Error("No contacts provided");
+  }
+
+  // contacts = array of hashed phone numbers from mobile app
+
+  const users = await User.find({
+    phoneHash: { $in: contacts },
+    _id: { $ne: req.user._id },
+  })
+    .select("_id name avatar online phone")
+    .lean();
+
+  const formattedUsers = users.map((u) => ({
+    _id: u._id,
+    name: u.name,
+    avatar: u.avatar || null,
+    phone: u.phone,
+    status: u.online ? "online" : "offline",
+  }));
+
+  res.status(200).json({ users: formattedUsers });
+});
 
 module.exports = {
   registerUser,
@@ -346,4 +374,5 @@ module.exports = {
   sendMessage, // ✅ new
   getMessages, // ✅ new
   getAllUsers,
+  syncContacts,
 };

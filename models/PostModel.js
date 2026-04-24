@@ -1,82 +1,59 @@
 const mongoose = require("mongoose");
 
-// ===== Comment Schema =====
-const commentSchema = new mongoose.Schema(
+const userSchema = mongoose.Schema(
   {
-    user: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-    },
-    text: {
+    name: {
       type: String,
       required: true,
       trim: true,
     },
-  },
-  { timestamps: true }
-);
 
-// ===== Media Schema =====
-const mediaSchema = new mongoose.Schema({
-  url: {
-    type: String,
-    required: true,
-  },
-  type: {
-    type: String,
-    enum: ["image", "video"],
-    default: "image",
-  },
-});
+    email: {
+      type: String,
+      required: true,
+      unique: true,
+      lowercase: true,
+      trim: true,
+    },
 
-// ===== Post Schema =====
-const postSchema = new mongoose.Schema(
-  {
-    // Post owner
-    user: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
+    password: {
+      type: String,
       required: true,
     },
 
-    // Post content
-    text: {
+    avatar: {
       type: String,
-      trim: true,
-      default: "",
+      default: null, // ✅ ADD THIS
     },
 
-    // Media attachments
-    media: [mediaSchema],
-
-    // Reactions
-    likeCount: {
+    coins: {
       type: Number,
       default: 0,
+      min: 0,
     },
-    loveCount: {
-      type: Number,
-      default: 0,
-    },
-    likedBy: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "User",
-      },
-    ],
-    lovedBy: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "User",
-      },
-    ],
 
-    // Comments
-    comments: [commentSchema],
+    isAdmin: {
+      type: Boolean,
+      default: false,
+    },
+
+    online: {
+      type: Boolean,
+      default: false, // used for live online/offline tracking
+    },
+
+    lastActive: {
+      type: Date,
+      default: Date.now, // updated whenever user does something
+    },
+
+    // 🔐 Forgot Password
+    resetPasswordToken: String,
+    resetPasswordExpire: Date,
   },
-  { timestamps: true }
+  {
+    timestamps: true, // createdAt and updatedAt
+  }
 );
 
-// ===== Export Post Model =====
-module.exports = mongoose.model("Post", postSchema);
+module.exports = mongoose.model("User", userSchema);

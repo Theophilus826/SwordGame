@@ -1,15 +1,15 @@
 const asyncHandler = require("express-async-handler");
+
 const Post = require("../models/PostModel");
 const cloudinary = require("../config/Cloudinary");
-const mongoose = require("mongoose");
+
 // ✅ NEW (centralized notifications)
-const {
-  notifyPostReaction,
-} = require("../config/NotificationService");
+const { notifyPostReaction } = require("../config/NotificationService");
 
 /* =========================
    CREATE POST
 ========================= */
+
 const createPost = asyncHandler(async (req, res) => {
   const text = req.body.text?.trim() || "";
   const media = [];
@@ -143,56 +143,34 @@ const getPostById = asyncHandler(async (req, res) => {
 /* =========================
    REACT TO POST
 ========================= */
-const reactPost = asyncHandler(async (req, res) => {
-  const userId = req.user._id;
-  const { postId } = req.params;
-  const { type } = req.body;
+const reactPost = async (req, res) => {
+  try {
+    const { type } = req.body;
+    const post = await Post.findById(req.params.postId);
+    if (!post) return res.status(404).json({ success: false, message: "Post not found" });
 
-  console.log("POST ID:", postId);
-  console.log("TYPE:", type);
-  console.log("USER:", userId);
+    const userId = req.user._id.toString();
 
-  if (!postId || postId.length < 10) {
-    res.status(400);
-    throw new Error("Invalid postId");
+    if (type === "like") {
+      const index = post.likedBy.indexOf(userId);
+      index > -1 ? (post.likedBy.splice(index, 1), post.likeCount--) : (post.likedBy.push(userId), post.likeCount++);
+    }
+
+    if (type === "love") {
+      const index = post.lovedBy.indexOf(userId);
+      index > -1 ? (post.lovedBy.splice(index, 1), post.loveCount--) : (post.lovedBy.push(userId), post.loveCount++);
+    }
+
+    await post.save();
+
+    res.json({ success: true, likeCount: post.likeCount, loveCount: post.loveCount });
+  } catch (err) {
+    console.error("ReactPost Error:", err);
+    res.status(500).json({ success: false, message: err.message });
   }
+};
 
-  const post = await Post.findById(postId);
-
-  console.log("POST FOUND:", post);
-
-  if (!post) {
-    res.status(404);
-    throw new Error("Post not found");
-  }
-
-  post.likedBy = Array.isArray(post.likedBy) ? post.likedBy : [];
-  post.lovedBy = Array.isArray(post.lovedBy) ? post.lovedBy : [];
-
-  const userIdStr = userId.toString();
-
-  post.likedBy = post.likedBy.filter(id => id.toString() !== userIdStr);
-  post.lovedBy = post.lovedBy.filter(id => id.toString() !== userIdStr);
-
-  if (type === "like") {
-    post.likedBy.push(userIdStr);
-  } else if (type === "love") {
-    post.lovedBy.push(userIdStr);
-  } else {
-    res.status(400);
-    throw new Error("Invalid reaction type");
-  }
-
-  post.likeCount = post.likedBy.length;
-  post.loveCount = post.lovedBy.length;
-
-  await post.save();
-
-  res.json({
-    likeCount: post.likeCount,
-    loveCount: post.loveCount,
-  });
-});/* =========================
+/* =========================
    COMMENT POST
 ========================= */
 const commentPost = asyncHandler(async (req, res) => {

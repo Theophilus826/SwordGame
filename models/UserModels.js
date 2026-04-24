@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const userSchema = new mongoose.Schema(
+const userSchema = mongoose.Schema(
   {
     name: {
       type: String,
@@ -11,23 +11,30 @@ const userSchema = new mongoose.Schema(
     email: {
       type: String,
       unique: true,
-      sparse: true, // ✅ IMPORTANT for optional email
       lowercase: true,
       trim: true,
-      default: undefined,
+      sparse: true,
     },
 
     phone: {
       type: String,
       unique: true,
-      sparse: true, // ✅ IMPORTANT for optional phone
-      trim: true,
-      default: undefined,
+      sparse: true,
+    },
+
+    phoneHash: {
+      type: String,
+      index: true,
     },
 
     password: {
       type: String,
       required: true,
+    },
+
+    avatar: {
+      type: String,
+      default: null,
     },
 
     coins: {
@@ -51,6 +58,11 @@ const userSchema = new mongoose.Schema(
       default: Date.now,
     },
 
+    mood: {
+      type: String,
+      default: null,
+    },
+
     resetPasswordToken: String,
     resetPasswordExpire: Date,
   },
@@ -59,8 +71,5 @@ const userSchema = new mongoose.Schema(
   }
 );
 
-// ✅ Keep only ONE way of indexing
-userSchema.index({ email: 1 }, { unique: true, sparse: true });
-userSchema.index({ phone: 1 }, { unique: true, sparse: true });
-
-module.exports = mongoose.model("User", userSchema);
+module.exports =
+  mongoose.models.User || mongoose.model("User", userSchema);

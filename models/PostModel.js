@@ -1,59 +1,82 @@
 const mongoose = require("mongoose");
-
-const userSchema = mongoose.Schema(
+const User = require("./UserModels");
+// ===== Comment Schema =====
+const commentSchema = new mongoose.Schema(
   {
-    name: {
+    User: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    text: {
       type: String,
       required: true,
       trim: true,
     },
-
-    email: {
-      type: String,
-      required: true,
-      unique: true,
-      lowercase: true,
-      trim: true,
-    },
-
-    password: {
-      type: String,
-      required: true,
-    },
-
-    avatar: {
-      type: String,
-      default: null, // ✅ ADD THIS
-    },
-
-    coins: {
-      type: Number,
-      default: 0,
-      min: 0,
-    },
-
-    isAdmin: {
-      type: Boolean,
-      default: false,
-    },
-
-    online: {
-      type: Boolean,
-      default: false, // used for live online/offline tracking
-    },
-
-    lastActive: {
-      type: Date,
-      default: Date.now, // updated whenever user does something
-    },
-
-    // 🔐 Forgot Password
-    resetPasswordToken: String,
-    resetPasswordExpire: Date,
   },
-  {
-    timestamps: true, // createdAt and updatedAt
-  }
+  { timestamps: true }
 );
 
-module.exports = mongoose.model("User", userSchema);
+// ===== Media Schema =====
+const mediaSchema = new mongoose.Schema({
+  url: {
+    type: String,
+    required: true,
+  },
+  type: {
+    type: String,
+    enum: ["image", "video"],
+    default: "image",
+  },
+});
+
+// ===== Post Schema =====
+const postSchema = new mongoose.Schema(
+  {
+    // Post owner
+    User: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+
+    // Post content
+    text: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    // Media attachments
+    media: [mediaSchema],
+
+    // Reactions
+    likeCount: {
+      type: Number,
+      default: 0,
+    },
+    loveCount: {
+      type: Number,
+      default: 0,
+    },
+    likedBy: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+    lovedBy: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+
+    // Comments
+    comments: [commentSchema],
+  },
+  { timestamps: true }
+);
+
+// ===== Export Post Model =====
+module.exports = mongoose.model("Post", postSchema);

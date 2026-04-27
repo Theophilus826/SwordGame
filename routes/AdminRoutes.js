@@ -2,152 +2,41 @@ const express = require("express");
 const router = express.Router();
 
 const { protect, admin } = require("../middleware/AuthMiddleware");
-const { adminCreditCoins } = require("../controller/AccountController");
-const { playersByUser } = require("../games/gameState");
-const CoinTransaction = require("../models/CoinTransaction");
-const Slide = require("../models/Slide");
 const upload = require("../middleware/Upload");
-const cloudinary = require("../config/Cloudinary");
 
-/* ===================== COINS ===================== */
+const {
+  getPendingDeposits,
+  approveDeposit,
+  rejectDeposit,
+  adminCreditCoins,
+  uploadCarousel,
+  getSlides,
+  deleteSlide,
+  getTactical,
+  getTransactions,
+} = require("../controllers/adminController");
+
+// COINS
 router.put("/credit-coins", protect, admin, adminCreditCoins);
+// TACTICAL
+router.get("/tactical", protect, admin, getTactical);
 
-/* ===================== TACTICAL MONITOR ===================== */
-router.get("/tactical", protect, admin, (req, res) => {
-  try {
-    const players = [];
+// TRANSACTIONS
+router.get("/transactions", protect, admin, getTransactions);
+// DEPOSITS
+router.get("/deposits/pending", protect, admin, getPendingDeposits);
+router.put("/deposits/approve/:depositId", protect, admin, approveDeposit);
+router.put("/deposits/reject/:depositId", protect, admin, rejectDeposit);
 
-    playersByUser.forEach((player) => {
-      if (!player.room) return;
-
-      players.push({
-        userId: player.userId,
-        username: player.username,
-        position: player.position,
-        health: player.health,
-        room: player.room,
-      });
-    });
-
-    return res.status(200).json({ players });
-  } catch (err) {
-    console.error("Tactical error:", err);
-    return res.status(500).json({ message: "Server error" });
-  }
-});
-
-/* ===================== TRANSACTIONS ===================== */
-router.get("/transactions", protect, admin, async (req, res) => {
-  try {
-    const page = Math.max(1, Number(req.query.page) || 1);
-    const limit = Math.max(1, Number(req.query.limit) || 50);
-    const skip = (page - 1) * limit;
-
-    const { search = "", type } = req.query;
-
-    const query = {};
-
-    if (search) {
-      query.$or = [
-        { referenceId: { $regex: search, $options: "i" } },
-        { "user.username": { $regex: search, $options: "i" } },
-      ];
-    }
-
-    if (type) query.type = type;
-
-    const transactions = await CoinTransaction.find(query)
-      .populate("user", "username email")
-      .populate("performedBy", "username email")
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean();
-
-    return res.status(200).json({ transactions });
-  } catch (err) {
-    console.error("Transaction error:", err);
-    return res.status(500).json({ message: "Server error" });
-  }
-});
-
-/* ===================== CAROUSEL MULTI UPLOAD ===================== */
+// CAROUSEL
 router.post(
   "/carousel/upload",
   protect,
   admin,
-  upload.array("images", 10), // 👈 multiple files
-  async (req, res) => {
-    try {
-      if (!req.files || req.files.length === 0) {
-        return res.status(400).json({ message: "No images uploaded" });
-      }
-
-      const slides = [];
-
-      for (const file of req.files) {
-        const slide = await Slide.create({
-          src: file.path,        // Cloudinary URL
-          public_id: file.filename, // Cloudinary public_id
-        });
-
-        slides.push(slide);
-      }
-
-      return res.status(200).json({
-        success: true,
-        count: slides.length,
-        slides,
-      });
-    } catch (err) {
-      console.error("Upload error:", err);
-      return res.status(500).json({ message: "Upload failed" });
-    }
-  }
+  upload.array("images", 10),
+  uploadCarousel
 );
-
-/* ===================== GET CAROUSEL SLIDES ===================== */
-router.get("/carousel/slides", async (req, res) => {
-  try {
-    const slides = await Slide.find().sort({ createdAt: -1 });
-
-    return res.status(200).json({ slides });
-  } catch (err) {
-    console.error("Fetch slides error:", err);
-    return res.status(500).json({ message: "Failed to load slides" });
-  }
-});
-
-/* ===================== DELETE CAROUSEL SLIDE ===================== */
-router.delete("/carousel/delete/:id", protect, admin, async (req, res) => {
-  try {
-    const slide = await Slide.findById(req.params.id);
-
-    if (!slide) {
-      return res.status(404).json({ message: "Slide not found" });
-    }
-
-    // ✅ SAFE cloudinary delete
-    if (slide.public_id) {
-      try {
-        await cloudinary.uploader.destroy(slide.public_id);
-      } catch (cloudErr) {
-        console.error("Cloudinary error:", cloudErr.message);
-      }
-    }
-
-    await slide.deleteOne();
-
-    return res.status(200).json({
-      success: true,
-      message: "Slide deleted",
-    });
-  } catch (err) {
-    console.error("Delete error:", err);
-    return res.status(500).json({
-      message: err.message || "Delete failed",
-    });
-  }
-});
+router.get("/carousel/slides", getSlides);
+router.delete("/carousel/delete/:id", protect, admin, deleteSlide);
 
 module.exports = router;

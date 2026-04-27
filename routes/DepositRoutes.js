@@ -1,23 +1,29 @@
 const express = require("express");
-const { 
-  generateDepositAccount, 
-  confirmDeposit, 
+
+const {
+  generateDepositAccount,
+  confirmDeposit,
   getDepositHistory,
-  virtualAccountWebhook // ✅ add webhook handler
+  virtualAccountWebhook,
 } = require("../controller/DepositController");
-const {getWalletBalance} = require("../controller/AccountController")
+
+const { getWalletBalance } = require("../controller/AccountController");
+
+const { protect } = require("../middleware/AuthMiddleware"); // ✅ FIX ADDED
+
 const upload = require("../middleware/Upload");
+
 const router = express.Router();
 
 // ==========================
-// Protected frontend routes
+// Protected routes
 // ==========================
 router.post("/deposit-account", protect, generateDepositAccount);
 router.post("/confirm", protect, confirmDeposit);
 router.get("/deposit-history", protect, getDepositHistory);
 
 // ==========================
-// Public webhook route (called by PalmPay/XIXAPAY)
+// Public webhook route
 // ==========================
 router.post("/webhook/virtual-account", virtualAccountWebhook);
 

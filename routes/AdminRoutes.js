@@ -14,7 +14,7 @@ const {
   deleteSlide,
   getTactical,
   getTransactions,
-} = require("../controllers/adminController");
+} = require("../controller/AdminController");
 
 // COINS
 router.put("/credit-coins", protect, admin, adminCreditCoins);

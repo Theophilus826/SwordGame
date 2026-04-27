@@ -19,141 +19,118 @@ const getUserFromRequest = (req) => {
 const generateDepositAccount = asyncHandler(async (req, res) => {
   try {
     const { id: userId, name, email } = getUserFromRequest(req);
-    const { amount } = req.body;
+    const { amount, method } = req.body;
 
-    // ✅ Validate amount
     if (!amount || amount < 100) {
       return res.status(400).json({ message: "Minimum deposit is ₦100" });
     }
 
-    // ===============================
-    // ✅ CHECK EXISTING VALID DEPOSIT
-    // ===============================
+    if (!["ngn", "opay", "palmpay"].includes(method)) {
+      return res.status(400).json({ message: "Invalid deposit method" });
+    }
+
+    // Check existing pending
     const existingDeposit = await Deposit.findOne({
       user: userId,
       status: "PENDING",
+      method
     }).sort({ createdAt: -1 });
 
-    if (
-      existingDeposit &&
-      existingDeposit.accountNumber &&
-      existingDeposit.bankName &&
-      existingDeposit.accountName
-    ) {
-      console.log("♻️ Reusing valid account:", existingDeposit.accountNumber);
-
-      return res.json({
-        accountNumber: existingDeposit.accountNumber,
-        bankName: existingDeposit.bankName,
-        accountName: existingDeposit.accountName,
-        reference: existingDeposit.reference,
-      });
+    if (existingDeposit) {
+      return res.json(existingDeposit);
     }
 
-    // ===============================
-    // ✅ MONNIFY CONFIG
-    // ===============================
-    const {
-      MONNIFY_API_KEY,
-      MONNIFY_SECRET_KEY,
-      MONNIFY_CONTRACT_CODE,
-      MONNIFY_BASE_URL,
-    } = process.env;
+    // =========================
+    // 🏦 MONNIFY (NGN BANK)
+    // =========================
+    if (method === "ngn") {
+      const auth = Buffer.from(
+        `${process.env.MONNIFY_API_KEY}:${process.env.MONNIFY_SECRET_KEY}`
+      ).toString("base64");
 
-    if (
-      !MONNIFY_API_KEY ||
-      !MONNIFY_SECRET_KEY ||
-      !MONNIFY_CONTRACT_CODE ||
-      !MONNIFY_BASE_URL
-    ) {
-      throw new Error("Missing Monnify ENV");
-    }
+      const authRes = await axios.post(
+        `${process.env.MONNIFY_BASE_URL}/api/v1/auth/login`,
+        {},
+        { headers: { Authorization: `Basic ${auth}` } }
+      );
 
-    // ===============================
-    // ✅ GET ACCESS TOKEN
-    // ===============================
-    const auth = Buffer.from(
-      `${MONNIFY_API_KEY}:${MONNIFY_SECRET_KEY}`
-    ).toString("base64");
+      const token = authRes.data.responseBody.accessToken;
 
-    const authRes = await axios.post(
-      `${MONNIFY_BASE_URL}/api/v1/auth/login`,
-      {},
-      {
-        headers: { Authorization: `Basic ${auth}` },
-      }
-    );
+      const accountReference = `deposit-${userId}-${Date.now()}`;
 
-    const accessToken = authRes.data?.responseBody?.accessToken;
-
-    if (!accessToken) throw new Error("No access token received");
-
-    // ===============================
-    // ✅ CREATE RESERVED ACCOUNT
-    // ===============================
-    const accountReference = `deposit-${userId}-${Date.now()}`;
-
-    const accountRes = await axios.post(
-      `${MONNIFY_BASE_URL}/api/v2/bank-transfer/reserved-accounts`,
-      {
-        accountReference,
-        accountName: name,
-        currencyCode: "NGN",
-        contractCode: MONNIFY_CONTRACT_CODE,
-        customerEmail: email,
-        getAllAvailableBanks: true,
-        expectedPayment: amount,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
+      const accountRes = await axios.post(
+        `${process.env.MONNIFY_BASE_URL}/api/v2/bank-transfer/reserved-accounts`,
+        {
+          accountReference,
+          accountName: name,
+          currencyCode: "NGN",
+          contractCode: process.env.MONNIFY_CONTRACT_CODE,
+          customerEmail: email,
+          getAllAvailableBanks: true,
+          expectedPayment: amount,
         },
-      }
-    );
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
 
-    const account = accountRes.data?.responseBody?.accounts?.[0];
+      const account = accountRes.data.responseBody.accounts[0];
 
-    console.log("📤 Monnify response:", account);
+      const deposit = await Deposit.create({
+        user: userId,
+        accountNumber: account.accountNumber,
+        bankName: account.bankName,
+        accountName: account.accountName,
+        expectedAmount: amount,
+        method: "ngn",
+        reference: accountReference,
+      });
 
-    if (!account) throw new Error("No accounts returned from Monnify");
+      return res.json(deposit);
+    }
 
-    // ===============================
-    // ✅ SAVE DEPOSIT
-    // ===============================
+    // =========================
+    // 📱 OPAY / PALMPAY (MANUAL)
+    // =========================
+
+    let accountDetails;
+
+    if (method === "opay") {
+      accountDetails = {
+        accountNumber: "6119948718",
+        bankName: "OPay",
+        accountName: "Theophilus Telecom",
+      };
+    }
+
+    if (method === "palmpay") {
+      accountDetails = {
+        accountNumber: "8902710561",
+        bankName: "PalmPay",
+        accountName: "Theophilus Telecom",
+      };
+    }
+
     const deposit = await Deposit.create({
       user: userId,
-      accountNumber: account.accountNumber,
-      bankName: account.bankName,
-      accountName: account.accountName,
-      amount: 0,
+      ...accountDetails,
       expectedAmount: amount,
-      method: "ngn",
-      reference: accountReference,
+      method,
+      reference: `manual-${method}-${Date.now()}`,
       status: "PENDING",
     });
 
-    console.log("💾 Saved deposit:", deposit);
-
-    // ===============================
-    // ✅ CLEAN RESPONSE (IMPORTANT)
-    // ===============================
-    return res.json({
-      accountNumber: deposit.accountNumber,
-      bankName: deposit.bankName,
-      accountName: deposit.accountName,
-      reference: deposit.reference,
-    });
+    res.json(deposit);
 
   } catch (err) {
-    console.error("❌ generateDepositAccount error:", err);
-
-    return res.status(500).json({
-      message: "Deposit account generation failed",
-      error: err.response?.data || err.message,
-    });
+    console.error(err);
+    res.status(500).json({ error: err.message });
   }
 });
+
 // ==========================
 // Confirm deposit manually
 // ==========================

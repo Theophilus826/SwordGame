@@ -3,7 +3,7 @@
 // ===============================
 const asyncHandler = require("express-async-handler");
 // MODELS
-const User = require("../models/User");
+const User = require("../models/UserModels");
 const Wallet = require("../models/Wallet");
 const Deposit = require("../models/Deposit");
 const CoinTransaction = require("../models/CoinTransaction");

@@ -1,47 +1,200 @@
-exports.adminCreditCoins = asyncHandler(async (req, res) => {
-    const { userId, amount, description } = req.body;
+// ===============================
+// controllers/adminController.js
+// ===============================
+const asyncHandler = require("express-async-handler");
+// MODELS
+const User = require("../models/User");
+const Wallet = require("../models/Wallet");
+const Deposit = require("../models/Deposit");
+const CoinTransaction = require("../models/CoinTransaction");
+const Slide = require("../models/Slide");
+// UTILS
+const cloudinary = require("../config/Cloudinary");
+const { playersByUser } = require("../games/gameState");
+// ===============================
+// COINS
+// ===============================
+const adminCreditCoins = asyncHandler(async (req, res) => {
+  const { userId, amount, description } = req.body;
 
-    if (!amount || amount <= 0) {
-        res.status(400);
-        throw new Error("Invalid credit amount");
-    }
+  if (!userId) throw new Error("User ID is required");
+  if (!amount || amount <= 0) throw new Error("Invalid amount");
 
-    const existingUser = await User.findById(userId);
+  const existingUser = await User.findById(userId);
+  if (!existingUser) throw new Error("User not found");
 
-    if (!existingUser) {
-        res.status(404);
-        throw new Error("User not found");
-    }
+  const balanceBefore = existingUser.coins;
 
-    const balanceBefore = existingUser.coins;
+  const user = await User.findByIdAndUpdate(
+    userId,
+    { $inc: { coins: amount } },
+    { new: true },
+  );
 
-    // ✅ Atomic update (same pattern as debit)
-    const user = await User.findOneAndUpdate(
-        { _id: userId },               // condition kept for symmetry
-        { $inc: { coins: amount } },
-        { new: true }
-    );
+  await CoinTransaction.create({
+    user: user._id,
+    amount,
+    type: "ADMIN_CREDIT",
+    description: description || "Admin credit",
+    balanceBefore,
+    balanceAfter: user.coins,
+    performedBy: req.user._id,
+  });
 
-    if (!user) {
-        res.status(400);
-        throw new Error("Credit failed");
-    }
-
-    await CoinTransaction.create({
-        user: user._id,
-        amount: amount,                 // ✅ positive value
-        type: "ADMIN_CREDIT",
-        description: description || "Admin credit",
-
-        balanceBefore,
-        balanceAfter: user.coins,
-
-        // ✅ Audit Trail
-        performedBy: req.user._id,
-    });
-
-    res.json({
-        message: "Coins credited successfully",
-        coins: user.coins,
-    });
+  res.json({ message: "Coins credited", coins: user.coins });
 });
+
+// ===============================
+// DEPOSITS
+// ===============================
+const getPendingDeposits = asyncHandler(async (req, res) => {
+  const deposits = await Deposit.find({
+    $or: [{ status: "PENDING" }, { reviewStatus: "PENDING_REVIEW" }],
+  })
+    .populate("user", "name email")
+    .sort({ createdAt: -1 });
+
+  res.json(deposits);
+});
+
+const approveDeposit = asyncHandler(async (req, res) => {
+  const deposit = await Deposit.findById(req.params.depositId);
+
+  if (!deposit) throw new Error("Deposit not found");
+  if (deposit.status !== "PENDING") throw new Error("Already processed");
+
+  const amount = deposit.amount || deposit.expectedAmount;
+
+  // 🔥 create wallet if not exists
+  const wallet = await Wallet.findOrCreate(deposit.user);
+
+  wallet.balance += amount;
+  wallet.totalDeposited += amount;
+  await wallet.save();
+
+  deposit.status = "COMPLETED";
+  deposit.reviewStatus = "APPROVED";
+  deposit.amount = amount;
+
+  await deposit.save();
+
+  res.json({
+    message: "Deposit approved",
+    walletBalance: wallet.balance,
+    deposit,
+  });
+});
+
+const rejectDeposit = asyncHandler(async (req, res) => {
+  const deposit = await Deposit.findById(req.params.depositId);
+
+  if (!deposit) throw new Error("Deposit not found");
+
+  deposit.status = "FAILED";
+  deposit.reviewStatus = "REJECTED";
+  deposit.rejectionReason = req.body.reason || "Not specified";
+
+  await deposit.save();
+
+  res.json({ message: "Deposit rejected", deposit });
+});
+
+const getTactical = asyncHandler(async (req, res) => {
+  const players = [];
+
+  playersByUser.forEach((player) => {
+    if (!player.room) return;
+
+    players.push({
+      userId: player.userId,
+      username: player.username,
+      position: player.position,
+      health: player.health,
+      room: player.room,
+    });
+  });
+
+  res.status(200).json({ players });
+});
+
+const getTransactions = asyncHandler(async (req, res) => {
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.max(1, Number(req.query.limit) || 50);
+  const skip = (page - 1) * limit;
+
+  const { search = "", type } = req.query;
+
+  const query = {};
+
+  if (search) {
+    query.$or = [
+      { referenceId: { $regex: search, $options: "i" } },
+      { "user.username": { $regex: search, $options: "i" } },
+    ];
+  }
+
+  if (type) query.type = type;
+
+  const transactions = await CoinTransaction.find(query)
+    .populate("user", "username email")
+    .populate("performedBy", "username email")
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit)
+    .lean();
+
+  res.status(200).json({ transactions });
+});
+
+// ===============================
+// CAROUSEL
+// ===============================
+const uploadCarousel = asyncHandler(async (req, res) => {
+  if (!req.files?.length) throw new Error("No images uploaded");
+
+  const slides = [];
+
+  for (const file of req.files) {
+    const slide = await Slide.create({
+      src: file.path,
+      public_id: file.filename,
+    });
+    slides.push(slide);
+  }
+
+  res.json({ success: true, count: slides.length, slides });
+});
+
+const getSlides = asyncHandler(async (req, res) => {
+  const slides = await Slide.find().sort({ createdAt: -1 });
+  res.json({ slides });
+});
+
+const deleteSlide = asyncHandler(async (req, res) => {
+  const slide = await Slide.findById(req.params.id);
+  if (!slide) throw new Error("Slide not found");
+
+  if (slide.public_id) {
+    try {
+      await cloudinary.uploader.destroy(slide.public_id);
+    } catch (err) {
+      console.error(err.message);
+    }
+  }
+
+  await slide.deleteOne();
+
+  res.json({ message: "Slide deleted" });
+});
+
+module.exports = {
+  getPendingDeposits,
+  approveDeposit,
+  rejectDeposit,
+  adminCreditCoins,
+  uploadCarousel,
+  getSlides,
+  deleteSlide,
+  getTactical,
+  getTransactions,
+};

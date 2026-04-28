@@ -22,68 +22,65 @@ const getUserFromRequest = (req) => {
 // GENERATE DEPOSIT ACCOUNT (OPAY / PALMPAY ONLY)
 // ==========================
 const generateDepositAccount = asyncHandler(async (req, res) => {
-  const { id: userId } = getUserFromRequest(req);
-  const { amount, method } = req.body;
+  try {
+    if (!req.user) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
 
-  const allowedMethods = ["opay", "palmpay"];
+    const userId = req.user.id || req.user._id;
+    const { name = "User", email = "" } = req.user || {};
+    const { amount, method } = req.body;
 
-  // ✅ MINIMUM DEPOSIT
-  if (!amount || amount < 500) {
-    return res.status(400).json({
-      message: "Minimum deposit is ₦500",
+    // VALIDATION
+    if (!amount || amount < 500) {
+      return res.status(400).json({ message: "Minimum deposit is ₦500" });
+    }
+
+    const allowed = ["opay", "palmpay"];
+    if (!allowed.includes(method)) {
+      return res.status(400).json({ message: "Invalid method" });
+    }
+
+    let accountDetails = null;
+
+    if (method === "opay") {
+      accountDetails = {
+        accountNumber: "6119948718",
+        bankName: "OPay",
+        accountName: "Theophilus Telecom",
+      };
+    }
+
+    if (method === "palmpay") {
+      accountDetails = {
+        accountNumber: "8902710561",
+        bankName: "PalmPay",
+        accountName: "Theophilus Telecom",
+      };
+    }
+
+    if (!accountDetails) {
+      return res.status(400).json({ message: "Account not configured" });
+    }
+
+    const deposit = await Deposit.create({
+      user: userId,
+      ...accountDetails,
+      expectedAmount: amount,
+      method,
+      reference: `${method}-${userId}-${Date.now()}`,
+      status: "PENDING",
+    });
+
+    return res.json(deposit);
+  } catch (err) {
+    console.error("DEPOSIT ERROR:", err); // 🔥 THIS IS KEY
+    return res.status(500).json({
+      message: "Server error creating deposit",
+      error: err.message,
     });
   }
-
-  if (!allowedMethods.includes(method)) {
-    return res.status(400).json({
-      message: "Invalid deposit method",
-    });
-  }
-
-  // =========================
-  // CHECK EXISTING PENDING
-  // =========================
-  const existing = await Deposit.findOne({
-    user: userId,
-    status: "PENDING",
-    method,
-  }).sort({ createdAt: -1 });
-
-  if (existing) return res.json(existing);
-
-  // =========================
-  // MANUAL ACCOUNTS ONLY
-  // =========================
-  let accountDetails = null;
-
-  if (method === "opay") {
-    accountDetails = {
-      accountNumber: "6119948718",
-      bankName: "OPay",
-      accountName: "Theophilus Telecom",
-    };
-  }
-
-  if (method === "palmpay") {
-    accountDetails = {
-      accountNumber: "8902710561",
-      bankName: "PalmPay",
-      accountName: "Theophilus Telecom",
-    };
-  }
-
-  const deposit = await Deposit.create({
-    user: userId,
-    ...accountDetails,
-    expectedAmount: amount,
-    method,
-    reference: `${method}-${userId}-${Date.now()}`,
-    status: "PENDING",
-  });
-
-  return res.json(deposit);
 });
-
 // ==========================
 // CONFIRM DEPOSIT (MANUAL)
 // ==========================

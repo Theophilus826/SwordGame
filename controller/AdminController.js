@@ -4,7 +4,7 @@
 const asyncHandler = require("express-async-handler");
 // MODELS
 const User = require("../models/UserModels");
-const Wallet = require("../models/Wallet");
+const { updateCoins } = require("./AccountController");
 const Deposit = require("../models/DepositModel");
 const CoinTransaction = require("../models/CoinTransaction");
 const Slide = require("../models/Slide");
@@ -65,12 +65,13 @@ const approveDeposit = asyncHandler(async (req, res) => {
 
   const amount = deposit.amount || deposit.expectedAmount;
 
-  // 🔥 create wallet if not exists
-  const wallet = await Wallet.findOrCreate(deposit.user);
-
-  wallet.balance += amount;
-  wallet.totalDeposited += amount;
-  await wallet.save();
+  // ✅ CREDIT USER COINS (single source of truth)
+  const result = await updateCoins({
+    userId: deposit.user,
+    amount,
+    type: "DEPOSIT",
+    description: "Admin approved deposit",
+  });
 
   deposit.status = "COMPLETED";
   deposit.reviewStatus = "APPROVED";
@@ -80,7 +81,7 @@ const approveDeposit = asyncHandler(async (req, res) => {
 
   res.json({
     message: "Deposit approved",
-    walletBalance: wallet.balance,
+    coins: result.coins,
     deposit,
   });
 });

@@ -23,23 +23,25 @@ const getUserFromRequest = (req) => {
 // ==========================
 const generateDepositAccount = asyncHandler(async (req, res) => {
   try {
-    console.log("USER:", req.user);
-    console.log("BODY:", req.body);
+    if (!req.user) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
 
-    const { id: userId } = getUserFromRequest(req);
+    const userId = req.user.id || req.user._id;
+    const { name = "User", email = "" } = req.user || {};
     const { amount, method } = req.body;
 
+    // VALIDATION
     if (!amount || amount < 500) {
       return res.status(400).json({ message: "Minimum deposit is ₦500" });
     }
 
-    const allowedMethods = ["opay", "palmpay"];
-
-    if (!allowedMethods.includes(method)) {
+    const allowed = ["opay", "palmpay"];
+    if (!allowed.includes(method)) {
       return res.status(400).json({ message: "Invalid method" });
     }
 
-    let accountDetails;
+    let accountDetails = null;
 
     if (method === "opay") {
       accountDetails = {
@@ -57,19 +59,26 @@ const generateDepositAccount = asyncHandler(async (req, res) => {
       };
     }
 
+    if (!accountDetails) {
+      return res.status(400).json({ message: "Account not configured" });
+    }
+
     const deposit = await Deposit.create({
       user: userId,
       ...accountDetails,
       expectedAmount: amount,
       method,
-      reference: `${method}-${Date.now()}`,
+      reference: `${method}-${userId}-${Date.now()}`,
       status: "PENDING",
     });
 
     return res.json(deposit);
   } catch (err) {
-    console.error("DEPOSIT ERROR:", err);
-    return res.status(500).json({ message: err.message });
+    console.error("DEPOSIT ERROR:", err); // 🔥 THIS IS KEY
+    return res.status(500).json({
+      message: "Server error creating deposit",
+      error: err.message,
+    });
   }
 });
 

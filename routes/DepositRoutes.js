@@ -21,6 +21,7 @@ const router = express.Router();
 router.post("/deposit-account", protect, generateDepositAccount);
 router.post("/confirm", protect, confirmDeposit);
 router.get("/deposit-history", protect, getDepositHistory);
+router.get("/balance", protect, getWalletBalance);
 
 // ==========================
 // Public webhook route

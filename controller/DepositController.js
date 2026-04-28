@@ -7,33 +7,37 @@ const { updateCoins } = require("./AccountController");
 // AUTH HELPER
 // ==========================
 const getUserFromRequest = (req) => {
-  if (!req.user || !req.user.id) {
+  if (!req.user) {
     throw new Error("User not authenticated");
   }
 
   return {
-    id: req.user.id,
-    name: req.user.name,
-    email: req.user.email,
+    id: req.user.id || req.user._id,
+    name: req.user.name || "User",
+    email: req.user.email || "",
   };
 };
 
 // ==========================
-// GENERATE DEPOSIT ACCOUNT
+// GENERATE DEPOSIT ACCOUNT (OPAY / PALMPAY ONLY)
 // ==========================
 const generateDepositAccount = asyncHandler(async (req, res) => {
-  const { id: userId, name, email } = getUserFromRequest(req);
+  const { id: userId } = getUserFromRequest(req);
   const { amount, method } = req.body;
 
-  const allowedMethods = ["ngn", "opay", "palmpay"];
+  const allowedMethods = ["opay", "palmpay"];
 
-  // ✅ VALIDATION
+  // ✅ MINIMUM DEPOSIT
   if (!amount || amount < 500) {
-    return res.status(400).json({ message: "Minimum deposit is ₦500" });
+    return res.status(400).json({
+      message: "Minimum deposit is ₦500",
+    });
   }
 
   if (!allowedMethods.includes(method)) {
-    return res.status(400).json({ message: "Invalid deposit method" });
+    return res.status(400).json({
+      message: "Invalid deposit method",
+    });
   }
 
   // =========================
@@ -45,67 +49,12 @@ const generateDepositAccount = asyncHandler(async (req, res) => {
     method,
   }).sort({ createdAt: -1 });
 
-  if (existing) {
-    return res.json(existing);
-  }
+  if (existing) return res.json(existing);
 
   // =========================
-  // NGN → MONNIFY
+  // MANUAL ACCOUNTS ONLY
   // =========================
-  if (method === "ngn") {
-    const auth = Buffer.from(
-      `${process.env.MONNIFY_API_KEY}:${process.env.MONNIFY_SECRET_KEY}`
-    ).toString("base64");
-
-    const authRes = await axios.post(
-      `${process.env.MONNIFY_BASE_URL}/api/v1/auth/login`,
-      {},
-      { headers: { Authorization: `Basic ${auth}` } }
-    );
-
-    const token = authRes.data.responseBody.accessToken;
-
-    const reference = `deposit-${userId}-${Date.now()}`;
-
-    const accountRes = await axios.post(
-      `${process.env.MONNIFY_BASE_URL}/api/v2/bank-transfer/reserved-accounts`,
-      {
-        accountReference: reference,
-        accountName: name,
-        currencyCode: "NGN",
-        contractCode: process.env.MONNIFY_CONTRACT_CODE,
-        customerEmail: email,
-        getAllAvailableBanks: true,
-        expectedPayment: amount,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
-
-    const account = accountRes.data.responseBody.accounts[0];
-
-    const deposit = await Deposit.create({
-      user: userId,
-      accountNumber: account.accountNumber,
-      bankName: account.bankName,
-      accountName: account.accountName,
-      expectedAmount: amount,
-      method,
-      reference,
-      status: "PENDING",
-    });
-
-    return res.json(deposit);
-  }
-
-  // =========================
-  // MANUAL METHODS (OPAY / PALMPAY)
-  // =========================
-  let accountDetails;
+  let accountDetails = null;
 
   if (method === "opay") {
     accountDetails = {
@@ -128,11 +77,11 @@ const generateDepositAccount = asyncHandler(async (req, res) => {
     ...accountDetails,
     expectedAmount: amount,
     method,
-    reference: `manual-${method}-${Date.now()}`,
+    reference: `${method}-${userId}-${Date.now()}`,
     status: "PENDING",
   });
 
-  res.json(deposit);
+  return res.json(deposit);
 });
 
 // ==========================

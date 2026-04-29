@@ -2,30 +2,34 @@ const mongoose = require("mongoose");
 
 const depositSchema = new mongoose.Schema(
   {
+    // =========================
+    // USER
+    // =========================
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
+      index: true,
     },
 
     // =========================
     // ACCOUNT DETAILS
     // =========================
-    accountNumber: { type: String },
-    bankName: { type: String },
-    accountName: { type: String },
+    accountNumber: String,
+    bankName: String,
+    accountName: String,
 
     // =========================
     // AMOUNTS
     // =========================
     amount: {
       type: Number,
-      default: 0, // actual paid amount
+      default: 0, // actual paid
     },
 
     expectedAmount: {
       type: Number,
-      required: true, // what user was told to pay
+      required: true,
     },
 
     // =========================
@@ -44,25 +48,48 @@ const depositSchema = new mongoose.Schema(
     },
 
     // =========================
-    // STATUS TRACKING
+    // STATUS
     // =========================
     status: {
       type: String,
       enum: ["PENDING", "COMPLETED", "FAILED"],
       default: "PENDING",
-    },
-
-    receipt: {
-      type: String,
+      index: true,
     },
 
     reviewStatus: {
       type: String,
       enum: ["NONE", "PENDING_REVIEW", "APPROVED", "REJECTED"],
       default: "NONE",
+      index: true,
     },
 
-    rejectionReason: { type: String },
+    // =========================
+    // RECEIPT (MANUAL FLOW)
+    // =========================
+    receipt: {
+      type: String, // URL or file path
+    },
+
+    isRead: {
+      type: Boolean,
+      default: false,
+    },
+
+    // =========================
+    // ADMIN TRACKING
+    // =========================
+    approvedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+
+    reviewedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+
+    rejectionReason: String,
 
     // =========================
     // REFERENCES
@@ -70,24 +97,16 @@ const depositSchema = new mongoose.Schema(
     reference: {
       type: String,
       unique: true,
+      index: true,
     },
 
-    transactionReference: {
-      type: String, // user-provided or gateway reference
-    },
+    transactionReference: String,
 
     // =========================
-    // RECEIPT (MANUAL FLOW)
-    // =========================
-    receipt: {
-      type: String, // file path / URL
-    },
-
-    // =========================
-    // PAYMENT DATA (WEBHOOK LOG)
+    // PAYMENT DATA (WEBHOOK)
     // =========================
     paymentData: {
-      type: Object, // store full webhook payload
+      type: Object,
     },
 
     // =========================
@@ -95,9 +114,17 @@ const depositSchema = new mongoose.Schema(
     // =========================
     expiresAt: {
       type: Date,
+      index: true,
     },
   },
-  { timestamps: true },
+  { timestamps: true }
 );
+
+// =========================
+// AUTO EXPIRE HELPER
+// =========================
+depositSchema.methods.isExpired = function () {
+  return this.expiresAt && new Date() > this.expiresAt;
+};
 
 module.exports = mongoose.model("Deposit", depositSchema);

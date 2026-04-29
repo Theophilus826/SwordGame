@@ -201,6 +201,56 @@ const getTransactions = asyncHandler(async (req, res) => {
   res.status(200).json({ transactions });
 });
 
+const uploadReceipt = asyncHandler(async (req, res) => {
+  const { id: userId } = getUserFromRequest(req);
+  const { depositId } = req.body;
+
+  if (!depositId) {
+    return res.status(400).json({ message: "Deposit ID required" });
+  }
+
+  if (!req.file) {
+    return res.status(400).json({ message: "No receipt file uploaded" });
+  }
+
+  const deposit = await Deposit.findById(depositId);
+
+  if (!deposit) {
+    return res.status(404).json({ message: "Deposit not found" });
+  }
+
+  // 🔒 Ensure user owns deposit
+  if (deposit.user.toString() !== userId.toString()) {
+    return res.status(403).json({ message: "Unauthorized" });
+  }
+
+  // ❌ Prevent duplicate uploads
+  if (deposit.receipt) {
+    return res.status(400).json({ message: "Receipt already uploaded" });
+  }
+
+  // ✅ SAVE RECEIPT
+  deposit.receipt = req.file.path;
+
+  // ✅ MARK FOR ADMIN REVIEW
+  deposit.reviewStatus = "PENDING_REVIEW";
+
+  await deposit.save();
+
+  // 🔔 Notify admin (optional but powerful)
+  if (req.io) {
+    req.io.emit("admin:new-receipt", {
+      depositId: deposit._id,
+      userId,
+    });
+  }
+
+  res.json({
+    message: "Receipt uploaded successfully",
+    deposit,
+  });
+});
+
 // ===============================
 // CAROUSEL
 // ===============================
@@ -247,6 +297,7 @@ module.exports = {
   approveDeposit,
   rejectDeposit,
   markDepositAsRead,
+  uploadReceipt,
   adminCreditCoins,
   uploadCarousel,
   getSlides,

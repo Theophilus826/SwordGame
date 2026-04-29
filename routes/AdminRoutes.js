@@ -13,7 +13,9 @@ const {
   getSlides,
   deleteSlide,
   getTactical,
-  getTransactions,markDepositAsRead,
+  getTransactions,
+  markDepositAsRead,
+  uploadReceipt,
 } = require("../controller/AdminController");
 
 // COINS
@@ -33,7 +35,15 @@ router.put(
   admin,
   markDepositAsRead
 );
-router.put("/deposits/upload-receipt/:id")
+
+router.put(
+  "/deposits/upload-receipt",
+  protect,
+  admin,
+  upload.single("receipt"),
+  uploadReceipt
+);
+
 // CAROUSEL
 router.post(
   "/carousel/upload",

@@ -13,7 +13,7 @@ const {
   getSlides,
   deleteSlide,
   getTactical,
-  getTransactions,
+  getTransactions,markDepositAsRead,
 } = require("../controller/AdminController");
 
 // COINS
@@ -27,7 +27,12 @@ router.get("/transactions", protect, admin, getTransactions);
 router.get("/deposits/pending", protect, admin, getPendingDeposits);
 router.put("/deposits/approve/:depositId", protect, admin, approveDeposit);
 router.put("/deposits/reject/:depositId", protect, admin, rejectDeposit);
-
+router.put(
+  "/deposits/read/:depositId",
+  protect,
+  admin,
+  markDepositAsRead
+);
 // CAROUSEL
 router.post(
   "/carousel/upload",

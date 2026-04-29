@@ -33,6 +33,7 @@ router.put(
   admin,
   markDepositAsRead
 );
+router.put("/deposits/upload-receipt/:id")
 // CAROUSEL
 router.post(
   "/carousel/upload",

@@ -47,25 +47,46 @@ const adminCreditCoins = asyncHandler(async (req, res) => {
 // ===============================
 // DEPOSITS
 // ===============================
+
+// ✅ GET PENDING + REVIEW
 const getPendingDeposits = asyncHandler(async (req, res) => {
   const deposits = await Deposit.find({
-    $or: [{ status: "PENDING" }, { reviewStatus: "PENDING_REVIEW" }],
+    $or: [
+      { status: "PENDING" },
+      { reviewStatus: "PENDING_REVIEW" },
+    ],
   })
     .populate("user", "name email")
-    .sort({ createdAt: -1 });
+    .sort({ createdAt: -1 })
+    .lean();
 
-  res.json(deposits);
+  const formatted = deposits.map((d) => ({
+    ...d,
+    hasReceipt: !!d.receipt,
+    isAwaitingReview: d.reviewStatus === "PENDING_REVIEW",
+  }));
+
+  res.json(formatted);
 });
 
+
+// ✅ APPROVE
 const approveDeposit = asyncHandler(async (req, res) => {
   const deposit = await Deposit.findById(req.params.depositId);
 
   if (!deposit) throw new Error("Deposit not found");
-  if (deposit.status !== "PENDING") throw new Error("Already processed");
+
+  if (deposit.status !== "PENDING") {
+    throw new Error("Already processed");
+  }
+
+  // 🔒 REQUIRE RECEIPT
+  if (!deposit.receipt) {
+    throw new Error("Cannot approve without receipt");
+  }
 
   const amount = deposit.amount || deposit.expectedAmount;
 
-  // ✅ CREDIT USER COINS (single source of truth)
   const result = await updateCoins({
     userId: deposit.user,
     amount,
@@ -76,8 +97,17 @@ const approveDeposit = asyncHandler(async (req, res) => {
   deposit.status = "COMPLETED";
   deposit.reviewStatus = "APPROVED";
   deposit.amount = amount;
+  deposit.approvedBy = req.user._id;
 
   await deposit.save();
+
+  // 🔔 REAL-TIME USER UPDATE
+  if (req.io) {
+    req.io.to(deposit.user.toString()).emit("wallet:update", {
+      coins: result.coins,
+      depositId: deposit._id,
+    });
+  }
 
   res.json({
     message: "Deposit approved",
@@ -86,18 +116,42 @@ const approveDeposit = asyncHandler(async (req, res) => {
   });
 });
 
+
+// ❌ REJECT
 const rejectDeposit = asyncHandler(async (req, res) => {
   const deposit = await Deposit.findById(req.params.depositId);
 
   if (!deposit) throw new Error("Deposit not found");
 
+  if (deposit.status !== "PENDING") {
+    throw new Error("Already processed");
+  }
+
   deposit.status = "FAILED";
   deposit.reviewStatus = "REJECTED";
   deposit.rejectionReason = req.body.reason || "Not specified";
+  deposit.reviewedBy = req.user._id;
 
   await deposit.save();
 
-  res.json({ message: "Deposit rejected", deposit });
+  res.json({
+    message: "Deposit rejected",
+    deposit,
+  });
+});
+
+
+// 👁️ MARK AS READ (for your inbox UI)
+const markDepositAsRead = asyncHandler(async (req, res) => {
+  const deposit = await Deposit.findById(req.params.depositId);
+
+  if (!deposit) throw new Error("Deposit not found");
+
+  deposit.isRead = true;
+
+  await deposit.save();
+
+  res.json({ message: "Marked as read" });
 });
 
 const getTactical = asyncHandler(async (req, res) => {
@@ -192,6 +246,7 @@ module.exports = {
   getPendingDeposits,
   approveDeposit,
   rejectDeposit,
+  markDepositAsRead,
   adminCreditCoins,
   uploadCarousel,
   getSlides,

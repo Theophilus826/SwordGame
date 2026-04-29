@@ -5,6 +5,7 @@ const {
   confirmDeposit,
   getDepositHistory,
   virtualAccountWebhook,
+  uploadReceipt,
 } = require("../controller/DepositController");
 
 const { getWalletBalance } = require("../controller/AccountController");
@@ -22,7 +23,12 @@ router.post("/deposit-account", protect, generateDepositAccount);
 router.post("/confirm", protect, confirmDeposit);
 router.get("/deposit-history", protect, getDepositHistory);
 router.get("/balance", protect, getWalletBalance);
-
+router.post(
+  "/upload-receipt",
+  protect,
+  upload.single("receipt"), // ✅ IMPORTANT (matches frontend)
+  uploadReceipt,
+);
 // ==========================
 // Public webhook route
 // ==========================

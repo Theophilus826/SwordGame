@@ -1,7 +1,7 @@
 const asyncHandler = require("express-async-handler");
 const Withdrawal = require("../models/Withdrawal");
 const User = require("../models/UserModels");
-const { updateCoins } = require("../controllers/AccountController");
+const { updateCoins } = require("../controller/AccountController");
 
 // ===============================
 // USER: REQUEST WITHDRAWAL

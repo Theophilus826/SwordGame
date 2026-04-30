@@ -55,8 +55,8 @@ const requestWithdrawal = asyncHandler(async (req, res) => {
   }
 
   /* ================= FIND ADMIN ================= */
-  const admin = await User.findOne({ role: "ADMIN" });
-
+   const admin = await User.findOne({ isAdmin: true });
+   
   if (!admin) {
     console.error("❌ Withdrawal blocked: No admin user found");
     return res.status(500).json({

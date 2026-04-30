@@ -14,18 +14,19 @@ const updateCoins = async ({
     if (typeof amount !== "number") throw new Error("Amount must be numeric");
     if (!type) throw new Error("Transaction type required");
 
-    const user = await User.findOneAndUpdate(
-        allowNegative
-            ? { _id: userId }
-            : { _id: userId, coins: { $gte: amount < 0 ? Math.abs(amount) : 0 } },
-        { $inc: { coins: amount } },
-        { new: true }
-    );
+    const user = await User.findById(userId);
 
-    if (!user) throw new Error("Insufficient coin balance");
+    if (!user) throw new Error("User not found");
 
-    const balanceAfter = user.coins;
-    const balanceBefore = balanceAfter - amount;
+    const balanceBefore = user.coins || 0;
+
+    // ❗ prevent negative unless allowed
+    if (!allowNegative && balanceBefore + amount < 0) {
+        throw new Error("Insufficient coin balance");
+    }
+
+    user.coins = balanceBefore + amount;
+    await user.save();
 
     const transaction = await CoinTransaction.create({
         user: userId,
@@ -33,12 +34,11 @@ const updateCoins = async ({
         type,
         description,
         balanceBefore,
-        balanceAfter,
+        balanceAfter: user.coins,
     });
 
-    return { coins: balanceAfter, transaction };
+    return { coins: user.coins, transaction };
 };
-
 // ================= USER COINS =================
 const creditCoins = asyncHandler(async (req, res) => {
     const { coins } = req.body;

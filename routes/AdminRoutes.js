@@ -38,8 +38,7 @@ router.put(
 
 router.put(
   "/deposits/upload-receipt",
-  protect,
-  admin,
+  protect, // ✅ remove admin
   upload.single("receipt"),
   uploadReceipt
 );

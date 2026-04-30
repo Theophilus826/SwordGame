@@ -11,7 +11,7 @@ const {
 // ===============================
 // MIDDLEWARE (adjust to your setup)
 // ===============================
-const { protect, admin } = require("../middleware/authMiddleware");
+const { protect, admin } = require("../middleware/AuthMiddleware");
 
 // ===============================
 // USER ROUTES

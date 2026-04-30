@@ -102,12 +102,19 @@ const approveDeposit = asyncHandler(async (req, res) => {
   await deposit.save();
 
   // 🔔 REAL-TIME USER UPDATE
-  if (req.io) {
-    req.io.to(deposit.user.toString()).emit("wallet:update", {
+  if (req.io && deposit.user) {
+  const userId =
+    typeof deposit.user === "string"
+      ? deposit.user
+      : deposit.user.toString?.() || deposit.user._id?.toString();
+
+  if (userId) {
+    req.io.to(userId).emit("wallet:update", {
       coins: result.coins,
       depositId: deposit._id,
     });
   }
+}
 
   res.json({
     message: "Deposit approved",

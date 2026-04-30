@@ -142,7 +142,7 @@ app.use("/uploads", express.static("uploads"));
 app.use("/api/notifications", require("./routes/NotificationRoute"));
 app.use("/api/wallet", require("./routes/DepositRoutes"));
 app.use("/api/chat", ChatRoutes);
-app.use("/api/withdrawals", withdrawalRoutes);
+app.use("/api/withdrawals", WithdrawalRoutes);
 
 // Route to get posts by a specific user
 

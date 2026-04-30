@@ -51,10 +51,7 @@ const adminCreditCoins = asyncHandler(async (req, res) => {
 // ✅ GET PENDING + REVIEW
 const getPendingDeposits = asyncHandler(async (req, res) => {
   const deposits = await Deposit.find({
-    $or: [
-      { status: "PENDING" },
-      { reviewStatus: "PENDING_REVIEW" },
-    ],
+    $or: [{ status: "PENDING" }, { reviewStatus: "PENDING_REVIEW" }],
   })
     .populate("user", "name email")
     .sort({ createdAt: -1 })
@@ -69,60 +66,84 @@ const getPendingDeposits = asyncHandler(async (req, res) => {
   res.json(formatted);
 });
 
-
 // ✅ APPROVE
 const approveDeposit = asyncHandler(async (req, res) => {
-  const deposit = await Deposit.findById(req.params.depositId);
+  try {
+    const deposit = await Deposit.findById(req.params.depositId);
 
-  if (!deposit) throw new Error("Deposit not found");
+    if (!deposit) {
+      return res.status(404).json({ message: "Deposit not found" });
+    }
 
-  if (deposit.status !== "PENDING") {
-    throw new Error("Already processed");
-  }
+    if (deposit.status !== "PENDING") {
+      return res.status(400).json({ message: "Already processed" });
+    }
 
-  // 🔒 REQUIRE RECEIPT
-  if (!deposit.receipt) {
-    throw new Error("Cannot approve without receipt");
-  }
+    if (!deposit.receipt) {
+      return res.status(400).json({ message: "Cannot approve without receipt" });
+    }
 
-  const amount = deposit.amount || deposit.expectedAmount;
+    const amount = deposit.amount || deposit.expectedAmount;
 
-  const result = await updateCoins({
-    userId: deposit.user,
-    amount,
-    type: "DEPOSIT",
-    description: "Admin approved deposit",
-  });
+    // ===============================
+    // CREDIT USER (CORE LOGIC)
+    // ===============================
+    const result = await updateCoins({
+      userId: deposit.user.toString(),
+      amount,
+      type: "DEPOSIT",
+      description: "Admin approved deposit",
+    });
 
-  deposit.status = "COMPLETED";
-  deposit.reviewStatus = "APPROVED";
-  deposit.amount = amount;
-  deposit.approvedBy = req.user._id;
+    // ===============================
+    // UPDATE DEPOSIT
+    // ===============================
+    deposit.status = "COMPLETED";
+    deposit.reviewStatus = "APPROVED";
+    deposit.amount = amount;
+    deposit.approvedBy = req.user._id;
 
-  await deposit.save();
+    await deposit.save();
 
-  // 🔔 REAL-TIME USER UPDATE
-  if (req.io && deposit.user) {
-  const userId =
-    typeof deposit.user === "string"
-      ? deposit.user
-      : deposit.user.toString?.() || deposit.user._id?.toString();
+    // ===============================
+    // SOCKET UPDATE (SAFE - NO CRASH)
+    // ===============================
+    if (req.io) {
+      setImmediate(() => {
+        try {
+          const userId =
+            typeof deposit.user === "string"
+              ? deposit.user
+              : deposit.user._id
+              ? deposit.user._id.toString()
+              : deposit.user.toString();
 
-  if (userId) {
-    req.io.to(userId).emit("wallet:update", {
+          req.io.to(userId).emit("wallet:update", {
+            coins: result.coins,
+            depositId: deposit._id,
+          });
+        } catch (err) {
+          console.error("Socket emit failed (ignored):", err.message);
+        }
+      });
+    }
+
+    // ===============================
+    // RESPONSE
+    // ===============================
+    return res.json({
+      message: "Deposit approved",
       coins: result.coins,
-      depositId: deposit._id,
+      deposit,
+    });
+
+  } catch (err) {
+    console.error("❌ ApproveDeposit error:", err);
+    return res.status(500).json({
+      message: err.message || "Internal server error",
     });
   }
-}
-
-  res.json({
-    message: "Deposit approved",
-    coins: result.coins,
-    deposit,
-  });
 });
-
 
 // ❌ REJECT
 const rejectDeposit = asyncHandler(async (req, res) => {
@@ -146,7 +167,6 @@ const rejectDeposit = asyncHandler(async (req, res) => {
     deposit,
   });
 });
-
 
 // 👁️ MARK AS READ (for your inbox UI)
 const markDepositAsRead = asyncHandler(async (req, res) => {
@@ -236,15 +256,15 @@ const uploadReceipt = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "Receipt already uploaded" });
   }
 
-  // ✅ SAVE RECEIPT
+  // ✅ SAVE RECEIPT (Cloudinary or local upload)
   deposit.receipt = req.file.path;
 
-  // ✅ MARK FOR ADMIN REVIEW
+  // ✅ FLAG FOR REVIEW
   deposit.reviewStatus = "PENDING_REVIEW";
 
   await deposit.save();
 
-  // 🔔 Notify admin (optional but powerful)
+  // 🔔 notify admin panel
   if (req.io) {
     req.io.emit("admin:new-receipt", {
       depositId: deposit._id,

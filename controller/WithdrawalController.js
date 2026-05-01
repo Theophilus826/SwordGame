@@ -41,19 +41,7 @@ const requestWithdrawal = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "Insufficient balance" });
   }
 
-  const existing = await Withdrawal.findOne({
-    user: user._id,
-    status: "PENDING",
-  });
-
-  console.log("⏳ Existing Pending Withdrawal:", existing);
-
-  if (existing) {
-    console.log("❌ Already has pending withdrawal");
-    return res.status(400).json({
-      message: "You already have a pending withdrawal",
-    });
-  }
+  
 
   const withdrawal = await Withdrawal.create({
     user: user._id,

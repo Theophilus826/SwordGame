@@ -8,6 +8,7 @@ const { updateCoins } = require("./AccountController");
 const Deposit = require("../models/DepositModel");
 const CoinTransaction = require("../models/CoinTransaction");
 const Slide = require("../models/Slide");
+const Withdrawal = require("../models/Withdrawal");
 // UTILS
 const cloudinary = require("../config/Cloudinary");
 const { playersByUser } = require("../games/gameState");
@@ -277,7 +278,127 @@ const uploadReceipt = asyncHandler(async (req, res) => {
     deposit,
   });
 });
+// ===============================
+// ADMIN: GET WITHDRAWAL FEED
+// ===============================
+const getWithdrawalFeed = asyncHandler(async (req, res) => {
+  const { status = "ALL", search = "" } = req.query;
 
+  const query = {};
+
+  // filter by status
+  if (status !== "ALL") {
+    query.status = status;
+  }
+
+  // search filter
+  if (search) {
+    query.$or = [
+      { bankName: { $regex: search, $options: "i" } },
+      { accountNumber: { $regex: search, $options: "i" } },
+      { amount: Number(search) || 0 },
+    ];
+  }
+
+  const withdrawals = await Withdrawal.find(query)
+    .populate("user", "name email coins")
+    .populate("reviewedBy", "name email")
+    .sort({ createdAt: -1 })
+    .lean();
+
+  const formatted = withdrawals.map((w) => ({
+    id: w._id,
+    userId: w.user?._id,
+    userName: w.user?.name,
+    email: w.user?.email,
+    amount: w.amount,
+    bankName: w.bankName,
+    accountNumber: w.accountNumber,
+    status: w.status,
+    createdAt: w.createdAt,
+    reviewedBy: w.reviewedBy?.name || null,
+    isPending: w.status === "PENDING",
+    isApproved: w.status === "APPROVED",
+    isRejected: w.status === "REJECTED",
+  }));
+
+  res.json({
+    total: formatted.length,
+    withdrawals: formatted,
+  });
+});
+// ===============================
+// ADMIN: APPROVE WITHDRAWAL
+// ===============================
+const approveWithdrawal = asyncHandler(async (req, res) => {
+  const withdrawal = await Withdrawal.findById(req.params.id);
+
+  if (!withdrawal) {
+    return res.status(404).json({ message: "Withdrawal not found" });
+  }
+
+  if (withdrawal.status !== "PENDING") {
+    return res.status(400).json({ message: "Already processed" });
+  }
+
+  withdrawal.status = "APPROVED";
+  withdrawal.reviewedBy = req.user._id;
+
+  await withdrawal.save();
+
+  res.json({
+    message: "Withdrawal approved (pay manually)",
+    withdrawal,
+  });
+});
+
+// ===============================
+// ADMIN: REJECT WITHDRAWAL (REFUND)
+// ===============================
+const rejectWithdrawal = asyncHandler(async (req, res) => {
+  const { reason } = req.body;
+
+  const withdrawal = await Withdrawal.findById(req.params.id);
+
+  if (!withdrawal) {
+    return res.status(404).json({ message: "Withdrawal not found" });
+  }
+
+  if (withdrawal.status !== "PENDING") {
+    return res.status(400).json({ message: "Already processed" });
+  }
+
+  try {
+    const user = await User.findById(withdrawal.user);
+
+    if (user) {
+      await updateCoins({
+        userId: user._id,
+        amount: withdrawal.amount,
+        type: "REFUND",
+        description: "Withdrawal rejected refund",
+        performedBy: req.user._id,
+      });
+    }
+
+    withdrawal.status = "REJECTED";
+    withdrawal.note = reason || "Rejected by admin";
+    withdrawal.reviewedBy = req.user._id;
+
+    await withdrawal.save();
+
+    res.json({
+      message: "Withdrawal rejected and refunded",
+      withdrawal,
+    });
+  } catch (error) {
+    console.error("❌ Reject withdrawal error:", error);
+
+    res.status(500).json({
+      message: error.message || "Failed to reject withdrawal",
+    });
+  }
+});
 // ===============================
 // CAROUSEL
 // ===============================
@@ -331,4 +452,7 @@ module.exports = {
   deleteSlide,
   getTactical,
   getTransactions,
+  getWithdrawalFeed,
+  approveWithdrawal,
+  rejectWithdrawal,
 };

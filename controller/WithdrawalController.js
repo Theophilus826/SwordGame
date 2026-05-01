@@ -9,102 +9,48 @@ const { updateCoins } = require("../controller/AccountController");
 const requestWithdrawal = asyncHandler(async (req, res) => {
   const { amount, bankName, accountNumber } = req.body;
 
-  const MIN_WITHDRAW = 1000;
+  const MIN = 1000;
 
-  /* ================= VALIDATION ================= */
-  if (!amount || isNaN(amount)) {
-    return res.status(400).json({ message: "Amount is required" });
-  }
-
-  if (Number(amount) < MIN_WITHDRAW) {
+  if (!amount || amount < MIN) {
     return res.status(400).json({
-      message: `Minimum withdrawal is ₦${MIN_WITHDRAW.toLocaleString()}`,
+      message: `Minimum withdrawal is ₦${MIN.toLocaleString()}`,
     });
   }
 
-  if (!bankName || !accountNumber) {
-    return res.status(400).json({ message: "Bank details are required" });
-  }
-
-  if (accountNumber.length < 10) {
-    return res.status(400).json({ message: "Invalid account number" });
-  }
-
-  /* ================= GET USER ================= */
   const user = await User.findById(req.user._id);
 
-  if (!user) {
-    return res.status(404).json({ message: "User not found" });
-  }
+  if (!user) return res.status(404).json({ message: "User not found" });
 
-  /* ================= BALANCE CHECK ================= */
   if (user.coins < amount) {
     return res.status(400).json({ message: "Insufficient balance" });
   }
 
-  /* ================= PREVENT MULTIPLE REQUESTS ================= */
-  const existingPending = await Withdrawal.findOne({
+  const existing = await Withdrawal.findOne({
     user: user._id,
     status: "PENDING",
   });
 
-  if (existingPending) {
+  if (existing) {
     return res.status(400).json({
-      message: "You already have a pending withdrawal request",
+      message: "You already have a pending withdrawal",
     });
   }
 
-  /* ================= FIND ADMIN ================= */
-  const admin = await User.findOne({ isAdmin: true });
+  // ❌ DO NOT credit admin here
+  // ❌ DO NOT move money yet
 
-  if (!admin) {
-    console.error("❌ Withdrawal blocked: No admin user found");
-    return res.status(500).json({
-      message: "Withdrawal system not configured. Contact support.",
-    });
-  }
+  const withdrawal = await Withdrawal.create({
+    user: user._id,
+    amount,
+    bankName,
+    accountNumber,
+    status: "PENDING",
+  });
 
-  try {
-    /* ================= 1. DEBIT USER ================= */
-    const debitResult = await updateCoins({
-      userId: user._id,
-      amount: -amount,
-      type: "TRANSFER_SENT",
-      description: "Withdrawal request",
-      performedBy: user._id,
-    });
-
-    /* ================= 2. CREDIT ADMIN ================= */
-    await updateCoins({
-      userId: admin._id,
-      amount: amount,
-      type: "ADMIN_CREDIT",
-      description: `Withdrawal from user ${user._id}`,
-      performedBy: user._id,
-    });
-
-    /* ================= 3. CREATE WITHDRAWAL ================= */
-    const withdrawal = await Withdrawal.create({
-      user: user._id,
-      amount,
-      bankName: bankName.trim(),
-      accountNumber: accountNumber.trim(),
-      status: "PENDING",
-    });
-
-    /* ================= RESPONSE ================= */
-    res.status(201).json({
-      message: "Withdrawal request submitted successfully",
-      withdrawal,
-      balance: debitResult.coins, // ✅ guaranteed correct
-    });
-  } catch (error) {
-    console.error("❌ Withdrawal failed:", error);
-
-    return res.status(500).json({
-      message: error.message || "Withdrawal failed",
-    });
-  }
+  res.status(201).json({
+    message: "Withdrawal request sent successfully",
+    withdrawal,
+  });
 });
 
 /* =====================================================

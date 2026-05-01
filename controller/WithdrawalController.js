@@ -4,37 +4,29 @@ const User = require("../models/UserModels");
 const { updateCoins } = require("../controller/AccountController");
 
 /* =====================================================
-   USER: REQUEST WITHDRAWAL (DEBUG VERSION)
+   USER: REQUEST WITHDRAWAL
 ===================================================== */
 const requestWithdrawal = asyncHandler(async (req, res) => {
-  console.log("📥 WITHDRAW REQUEST BODY:", req.body);
-
-  let { amount, bankName, accountNumber } = req.body;
+  const { amount, bankName, accountNumber } = req.body;
 
   const MIN_WITHDRAW = 1000;
 
-  // normalize
-  amount = Number(amount);
-
   /* ================= VALIDATION ================= */
   if (!amount || isNaN(amount)) {
-    console.log("❌ INVALID AMOUNT:", amount);
-    return res.status(400).json({ message: "Amount is required or invalid" });
+    return res.status(400).json({ message: "Amount is required" });
   }
 
-  if (amount < MIN_WITHDRAW) {
+  if (Number(amount) < MIN_WITHDRAW) {
     return res.status(400).json({
       message: `Minimum withdrawal is ₦${MIN_WITHDRAW.toLocaleString()}`,
     });
   }
 
   if (!bankName || !accountNumber) {
-    console.log("❌ MISSING BANK DETAILS");
     return res.status(400).json({ message: "Bank details are required" });
   }
 
   if (accountNumber.length < 10) {
-    console.log("❌ INVALID ACCOUNT NUMBER:", accountNumber);
     return res.status(400).json({ message: "Invalid account number" });
   }
 
@@ -42,26 +34,21 @@ const requestWithdrawal = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user._id);
 
   if (!user) {
-    console.log("❌ USER NOT FOUND:", req.user._id);
     return res.status(404).json({ message: "User not found" });
   }
 
-  console.log("👤 USER COINS:", user.coins);
-
   /* ================= BALANCE CHECK ================= */
   if (user.coins < amount) {
-    console.log("❌ INSUFFICIENT BALANCE:", user.coins, amount);
     return res.status(400).json({ message: "Insufficient balance" });
   }
 
-  /* ================= CHECK PENDING ================= */
+  /* ================= PREVENT MULTIPLE REQUESTS ================= */
   const existingPending = await Withdrawal.findOne({
     user: user._id,
     status: "PENDING",
   });
 
   if (existingPending) {
-    console.log("❌ PENDING EXISTS");
     return res.status(400).json({
       message: "You already have a pending withdrawal request",
     });
@@ -71,16 +58,14 @@ const requestWithdrawal = asyncHandler(async (req, res) => {
   const admin = await User.findOne({ isAdmin: true });
 
   if (!admin) {
-    console.log("❌ NO ADMIN FOUND");
+    console.error("❌ Withdrawal blocked: No admin user found");
     return res.status(500).json({
-      message: "No admin configured",
+      message: "Withdrawal system not configured. Contact support.",
     });
   }
 
-  console.log("🛡 ADMIN FOUND:", admin._id);
-
   try {
-    /* ================= DEBIT USER ================= */
+    /* ================= 1. DEBIT USER ================= */
     const debitResult = await updateCoins({
       userId: user._id,
       amount: -amount,
@@ -89,16 +74,16 @@ const requestWithdrawal = asyncHandler(async (req, res) => {
       performedBy: user._id,
     });
 
-    /* ================= CREDIT ADMIN ================= */
+    /* ================= 2. CREDIT ADMIN ================= */
     await updateCoins({
       userId: admin._id,
       amount: amount,
       type: "ADMIN_CREDIT",
-      description: `Withdrawal from ${user._id}`,
+      description: `Withdrawal from user ${user._id}`,
       performedBy: user._id,
     });
 
-    /* ================= CREATE WITHDRAWAL ================= */
+    /* ================= 3. CREATE WITHDRAWAL ================= */
     const withdrawal = await Withdrawal.create({
       user: user._id,
       amount,
@@ -107,24 +92,23 @@ const requestWithdrawal = asyncHandler(async (req, res) => {
       status: "PENDING",
     });
 
-    console.log("✅ WITHDRAWAL CREATED:", withdrawal._id);
-
-    return res.status(201).json({
-      message: "Withdrawal submitted",
+    /* ================= RESPONSE ================= */
+    res.status(201).json({
+      message: "Withdrawal request submitted successfully",
       withdrawal,
-      balance: debitResult.coins,
+      balance: debitResult.coins, // ✅ guaranteed correct
     });
   } catch (error) {
-    console.error("❌ WITHDRAW ERROR:", error);
+    console.error("❌ Withdrawal failed:", error);
 
     return res.status(500).json({
-      message: error.message,
+      message: error.message || "Withdrawal failed",
     });
   }
 });
 
 /* =====================================================
-   ADMIN: GET ALL
+   ADMIN: GET ALL WITHDRAWALS
 ===================================================== */
 const getWithdrawals = asyncHandler(async (req, res) => {
   const withdrawals = await Withdrawal.find()
@@ -135,13 +119,17 @@ const getWithdrawals = asyncHandler(async (req, res) => {
 });
 
 /* =====================================================
-   ADMIN: APPROVE
+   ADMIN: APPROVE WITHDRAWAL
 ===================================================== */
 const approveWithdrawal = asyncHandler(async (req, res) => {
   const withdrawal = await Withdrawal.findById(req.params.id);
 
   if (!withdrawal) {
-    return res.status(404).json({ message: "Not found" });
+    return res.status(404).json({ message: "Withdrawal not found" });
+  }
+
+  if (withdrawal.status !== "PENDING") {
+    return res.status(400).json({ message: "Already processed" });
   }
 
   withdrawal.status = "APPROVED";
@@ -149,11 +137,14 @@ const approveWithdrawal = asyncHandler(async (req, res) => {
 
   await withdrawal.save();
 
-  res.json({ message: "Approved", withdrawal });
+  res.json({
+    message: "Withdrawal approved (complete payment manually)",
+    withdrawal,
+  });
 });
 
 /* =====================================================
-   ADMIN: REJECT
+   ADMIN: REJECT WITHDRAWAL (WITH REFUND)
 ===================================================== */
 const rejectWithdrawal = asyncHandler(async (req, res) => {
   const { reason } = req.body;
@@ -161,27 +152,42 @@ const rejectWithdrawal = asyncHandler(async (req, res) => {
   const withdrawal = await Withdrawal.findById(req.params.id);
 
   if (!withdrawal) {
-    return res.status(404).json({ message: "Not found" });
+    return res.status(404).json({ message: "Withdrawal not found" });
   }
 
-  const user = await User.findById(withdrawal.user);
+  if (withdrawal.status !== "PENDING") {
+    return res.status(400).json({ message: "Already processed" });
+  }
 
-  if (user) {
-    await updateCoins({
-      userId: user._id,
-      amount: withdrawal.amount,
-      type: "REFUND",
-      description: "Withdrawal refund",
-      performedBy: req.user._id,
+  try {
+    const user = await User.findById(withdrawal.user);
+
+    if (user) {
+      await updateCoins({
+        userId: user._id,
+        amount: withdrawal.amount,
+        type: "REFUND",
+        description: "Withdrawal rejected refund",
+        performedBy: req.user._id,
+      });
+    }
+
+    withdrawal.status = "REJECTED";
+    withdrawal.note = reason || "Rejected by admin";
+
+    await withdrawal.save();
+
+    res.json({
+      message: "Withdrawal rejected and refunded",
+      withdrawal,
+    });
+  } catch (error) {
+    console.error("❌ Reject withdrawal error:", error);
+
+    res.status(500).json({
+      message: error.message || "Failed to reject withdrawal",
     });
   }
-
-  withdrawal.status = "REJECTED";
-  withdrawal.note = reason || "Rejected";
-
-  await withdrawal.save();
-
-  res.json({ message: "Rejected", withdrawal });
 });
 
 /* ===================================================== */

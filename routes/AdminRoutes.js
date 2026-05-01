@@ -16,34 +16,56 @@ const {
   getTransactions,
   markDepositAsRead,
   uploadReceipt,
+  approveWithdrawal,
+  rejectWithdrawal,
+  getWithdrawalFeed, // ✅ ADD THIS
 } = require("../controller/AdminController");
 
-// COINS
+// ================= COINS =================
 router.put("/credit-coins", protect, admin, adminCreditCoins);
-// TACTICAL
+
+// ================= TACTICAL =================
 router.get("/tactical", protect, admin, getTactical);
 
-// TRANSACTIONS
+// ================= TRANSACTIONS =================
 router.get("/transactions", protect, admin, getTransactions);
-// DEPOSITS
+
+// ================= DEPOSITS =================
 router.get("/deposits/pending", protect, admin, getPendingDeposits);
 router.put("/deposits/approve/:depositId", protect, admin, approveDeposit);
 router.put("/deposits/reject/:depositId", protect, admin, rejectDeposit);
-router.put(
-  "/deposits/read/:depositId",
-  protect,
-  admin,
-  markDepositAsRead
-);
+router.put("/deposits/read/:depositId", protect, admin, markDepositAsRead);
 
+// 👇 USER upload receipt (correct)
 router.put(
   "/deposits/upload-receipt",
-  protect, // ✅ remove admin
+  protect,
   upload.single("receipt"),
   uploadReceipt
 );
 
-// CAROUSEL
+// ================= WITHDRAWALS (🔥 FIXED) =================
+
+// ✅ FETCH withdrawals (THIS WAS MISSING)
+router.get("/withdrawals", protect, admin, getWithdrawalFeed);
+
+// ✅ APPROVE withdrawal
+router.put(
+  "/withdrawals/approve/:id",
+  protect,
+  admin,
+  approveWithdrawal
+);
+
+// ✅ REJECT withdrawal
+router.put(
+  "/withdrawals/reject/:id",
+  protect,
+  admin,
+  rejectWithdrawal
+);
+
+// ================= CAROUSEL =================
 router.post(
   "/carousel/upload",
   protect,
@@ -51,6 +73,7 @@ router.post(
   upload.array("images", 10),
   uploadCarousel
 );
+
 router.get("/carousel/slides", getSlides);
 router.delete("/carousel/delete/:id", protect, admin, deleteSlide);
 

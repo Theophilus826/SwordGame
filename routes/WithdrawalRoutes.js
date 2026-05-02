@@ -8,7 +8,7 @@ const {
   rejectWithdrawal,
 } = require("../controller/WithdrawalController");
 
-// ===============================
+// ===============================v
 // MIDDLEWARE (adjust to your setup)
 // ===============================
 const { protect, admin } = require("../middleware/AuthMiddleware");
@@ -25,12 +25,12 @@ router.post("/request", protect, requestWithdrawal);
 // ===============================
 
 // Get all withdrawals (ADMIN)
-router.get("/", protect, getWithdrawals);
+router.get("/", protect, admin, getWithdrawals);
 
 // Approve withdrawal (ADMIN)
-router.put("/approve/:id", protect, approveWithdrawal);
+router.put("/approve/:id", protect, admin, approveWithdrawal);
 
 // Reject withdrawal (ADMIN)
-router.put("/reject/:id", protect, rejectWithdrawal);
+router.put("/reject/:id", protect, admin, rejectWithdrawal);
 
 module.exports = router;

@@ -282,45 +282,57 @@ const uploadReceipt = asyncHandler(async (req, res) => {
 // ===============================
 // ADMIN: GET WITHDRAWAL FEED
 // ===============================
-const getWithdrawalFeed = async (req, res) => {
+const getWithdrawalFeed = asyncHandler(async (req, res) => {
   console.log("🔥 ADMIN WITHDRAWALS HIT");
+
   try {
-    const { status, search } = req.query;
+    const { status = "ALL", search = "" } = req.query;
 
-    let query = {};
+    const query = {};
 
-    // filter by status
-    if (status && status !== "ALL") {
+    if (status !== "ALL") {
       query.status = status;
     }
 
     let withdrawals = await Withdrawal.find(query)
-      .populate("user", "name phone") // 🔥 IMPORTANT
-      .sort({ createdAt: -1 });
+      .populate("user", "name phone")
+      .sort({ createdAt: -1 })
+      .lean();
 
-    // search filter
+    // safer search (avoid crash if user missing)
     if (search) {
-      withdrawals = withdrawals.filter((w) =>
-        w.user?.name?.toLowerCase().includes(search.toLowerCase()) ||
-        w.bankName?.toLowerCase().includes(search.toLowerCase()) ||
-        w.accountNumber?.includes(search)
-      );
+      const s = search.toLowerCase();
+
+      withdrawals = withdrawals.filter((w) => {
+        const name = w.user?.name?.toLowerCase() || "";
+        const bank = w.bankName?.toLowerCase() || "";
+        const acc = w.accountNumber || "";
+
+        return (
+          name.includes(s) ||
+          bank.includes(s) ||
+          acc.includes(search)
+        );
+      });
     }
 
-    // format response
     const formatted = withdrawals.map((w) => ({
-      ...w._doc,
+      ...w,
       userName: w.user?.name || "Unknown",
       phone: w.user?.phone || "",
     }));
 
-    res.json({ withdrawals: formatted });
-
+    res.json({
+      success: true,
+      withdrawals: formatted,
+    });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Failed to fetch withdrawals" });
+    console.error("WITHDRAWAL FEED ERROR:", err);
+    res.status(500).json({
+      message: "Failed to fetch withdrawals",
+    });
   }
-};
+});
 // ===============================
 // ADMIN: APPROVE WITHDRAWAL
 // ===============================
@@ -362,36 +374,28 @@ const rejectWithdrawal = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "Already processed" });
   }
 
-  try {
-    const user = await User.findById(withdrawal.user);
+  const user = await User.findById(withdrawal.user);
 
-    if (user) {
-      await updateCoins({
-        userId: user._id,
-        amount: withdrawal.amount,
-        type: "REFUND",
-        description: "Withdrawal rejected refund",
-        performedBy: req.user._id,
-      });
-    }
-
-    withdrawal.status = "REJECTED";
-    withdrawal.note = reason || "Rejected by admin";
-    withdrawal.reviewedBy = req.user._id;
-
-    await withdrawal.save();
-
-    res.json({
-      message: "Withdrawal rejected and refunded",
-      withdrawal,
-    });
-  } catch (error) {
-    console.error("❌ Reject withdrawal error:", error);
-
-    res.status(500).json({
-      message: error.message || "Failed to reject withdrawal",
+  if (user) {
+    await updateCoins({
+      userId: user._id,
+      amount: withdrawal.amount,
+      type: "REFUND",
+      description: "Withdrawal rejected refund",
+      performedBy: req.user._id,
     });
   }
+
+  withdrawal.status = "REJECTED";
+  withdrawal.note = reason || "Rejected by admin";
+  withdrawal.reviewedBy = req.user._id;
+
+  await withdrawal.save();
+
+  res.json({
+    message: "Withdrawal rejected and refunded",
+    withdrawal,
+  });
 });
 // ===============================
 // CAROUSEL

@@ -47,13 +47,12 @@ router.put(
 // ================= WITHDRAWALS (🔥 FIXED) =================
 
 // ✅ FETCH withdrawals (THIS WAS MISSING)
-router.get("/withdrawals", protect, admin, getWithdrawalFeed);
+router.get("/withdrawals", protect, getWithdrawalFeed);
 
 // ✅ APPROVE withdrawal
 router.put(
   "/withdrawals/approve/:id",
   protect,
-  admin,
   approveWithdrawal
 );
 
@@ -61,7 +60,6 @@ router.put(
 router.put(
   "/withdrawals/reject/:id",
   protect,
-  admin,
   rejectWithdrawal
 );
 

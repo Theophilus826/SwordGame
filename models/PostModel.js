@@ -33,7 +33,7 @@ const mediaSchema = new mongoose.Schema({
 // ===== Post Schema =====
 const postSchema = new mongoose.Schema(
   {
-    // Post owner
+    // Post owner (FIXED: lowercase for consistency)
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -47,36 +47,44 @@ const postSchema = new mongoose.Schema(
       default: "",
     },
 
-    // Media attachments
+    // Media
     media: [mediaSchema],
 
-    // Reactions
-    likeCount: {
-      type: Number,
-      default: 0,
-    },
-    loveCount: {
-      type: Number,
-      default: 0,
-    },
+    // =========================
+    // REACTIONS (SOURCE OF TRUTH)
+    // =========================
     likedBy: [
       {
         type: mongoose.Schema.Types.ObjectId,
         ref: "User",
       },
     ],
+
     lovedBy: [
       {
         type: mongoose.Schema.Types.ObjectId,
         ref: "User",
       },
     ],
-
-    // Comments
-    comments: [commentSchema],
   },
   { timestamps: true }
 );
 
-// ===== Export Post Model =====
+/* =========================
+   VIRTUAL COUNTS (AUTO)
+   ========================= */
+postSchema.virtual("likeCount").get(function () {
+  return this.likedBy?.length || 0;
+});
+
+postSchema.virtual("loveCount").get(function () {
+  return this.lovedBy?.length || 0;
+});
+
+/* =========================
+   ENABLE VIRTUALS IN JSON
+   ========================= */
+postSchema.set("toJSON", { virtuals: true });
+postSchema.set("toObject", { virtuals: true });
+
 module.exports = mongoose.model("Post", postSchema);

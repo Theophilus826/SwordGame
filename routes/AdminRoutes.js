@@ -49,21 +49,6 @@ router.put(
 // ✅ FETCH withdrawals (THIS WAS MISSING)
 router.get("/withdrawals", protect, admin, getWithdrawalFeed);
 
-// ✅ APPROVE withdrawal
-router.put(
-  "/withdrawals/approve/:id",
-  protect,
-  admin,
-  approveWithdrawal
-);
-
-// ✅ REJECT withdrawal
-router.put(
-  "/withdrawals/reject/:id",
-  protect,
-  admin,
-  rejectWithdrawal
-);
 
 // ================= CAROUSEL =================
 router.post(

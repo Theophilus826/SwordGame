@@ -25,12 +25,12 @@ router.post("/request", protect, requestWithdrawal);
 // ===============================
 
 // Get all withdrawals (ADMIN)
-router.get("/", protect, admin, getWithdrawals);
+router.get("/", protect, getWithdrawals);
 
 // Approve withdrawal (ADMIN)
-router.put("/approve/:id", protect, admin, approveWithdrawal);
+router.put("/approve/:id", protect, approveWithdrawal);
 
 // Reject withdrawal (ADMIN)
-router.put("/reject/:id", protect, admin, rejectWithdrawal);
+router.put("/reject/:id", protect, rejectWithdrawal);
 
 module.exports = router;

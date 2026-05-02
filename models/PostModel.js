@@ -34,7 +34,7 @@ const mediaSchema = new mongoose.Schema({
 const postSchema = new mongoose.Schema(
   {
     // Post owner (FIXED: lowercase for consistency)
-    user: {
+    User: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,

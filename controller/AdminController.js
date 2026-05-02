@@ -282,48 +282,45 @@ const uploadReceipt = asyncHandler(async (req, res) => {
 // ===============================
 // ADMIN: GET WITHDRAWAL FEED
 // ===============================
-const getWithdrawalFeed = asyncHandler(async (req, res) => {
-  const { status = "ALL", search = "" } = req.query;
+const getWithdrawalFeed = async (req, res) => {
   console.log("🔥 ADMIN WITHDRAWALS HIT");
-  const query = {};
+  try {
+    const { status, search } = req.query;
 
-  // filter by status
-  if (status !== "ALL") {
-    query.status = status;
+    let query = {};
+
+    // filter by status
+    if (status && status !== "ALL") {
+      query.status = status;
+    }
+
+    let withdrawals = await Withdrawal.find(query)
+      .populate("user", "name phone") // 🔥 IMPORTANT
+      .sort({ createdAt: -1 });
+
+    // search filter
+    if (search) {
+      withdrawals = withdrawals.filter((w) =>
+        w.user?.name?.toLowerCase().includes(search.toLowerCase()) ||
+        w.bankName?.toLowerCase().includes(search.toLowerCase()) ||
+        w.accountNumber?.includes(search)
+      );
+    }
+
+    // format response
+    const formatted = withdrawals.map((w) => ({
+      ...w._doc,
+      userName: w.user?.name || "Unknown",
+      phone: w.user?.phone || "",
+    }));
+
+    res.json({ withdrawals: formatted });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to fetch withdrawals" });
   }
-
-  // search filter
-  if (search) {
-    query.$or = [
-      { bankName: { $regex: search, $options: "i" } },
-      { accountNumber: { $regex: search, $options: "i" } },
-      { amount: Number(search) || 0 },
-    ];
-  }
-
-  const withdrawals = await Withdrawal.find(query)
-    .populate("user", "name email coins")
-    .populate("reviewedBy", "name email")
-    .sort({ createdAt: -1 })
-    .lean();
-
-  const formatted = withdrawals.map((w) => ({
-    _id: w._id, // ✅ REQUIRED
-    userId: w.user?._id,
-    userName: w.user?.name,
-    email: w.user?.email,
-    amount: w.amount,
-    bankName: w.bankName,
-    accountNumber: w.accountNumber,
-    status: w.status,
-    createdAt: w.createdAt,
-  }));
-
-  res.json({
-    total: formatted.length,
-    withdrawals: formatted,
-  });
-});
+};
 // ===============================
 // ADMIN: APPROVE WITHDRAWAL
 // ===============================

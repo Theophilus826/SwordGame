@@ -284,7 +284,7 @@ const uploadReceipt = asyncHandler(async (req, res) => {
 // ===============================
 const getWithdrawalFeed = asyncHandler(async (req, res) => {
   const { status = "ALL", search = "" } = req.query;
-
+  console.log("🔥 ADMIN WITHDRAWALS HIT");
   const query = {};
 
   // filter by status

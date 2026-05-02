@@ -81,7 +81,9 @@ const approveDeposit = asyncHandler(async (req, res) => {
     }
 
     if (!deposit.receipt) {
-      return res.status(400).json({ message: "Cannot approve without receipt" });
+      return res
+        .status(400)
+        .json({ message: "Cannot approve without receipt" });
     }
 
     const amount = deposit.amount || deposit.expectedAmount;
@@ -116,8 +118,8 @@ const approveDeposit = asyncHandler(async (req, res) => {
             typeof deposit.user === "string"
               ? deposit.user
               : deposit.user._id
-              ? deposit.user._id.toString()
-              : deposit.user.toString();
+                ? deposit.user._id.toString()
+                : deposit.user.toString();
 
           req.io.to(userId).emit("wallet:update", {
             coins: result.coins,
@@ -137,7 +139,6 @@ const approveDeposit = asyncHandler(async (req, res) => {
       coins: result.coins,
       deposit,
     });
-
   } catch (err) {
     console.error("❌ ApproveDeposit error:", err);
     return res.status(500).json({
@@ -307,7 +308,7 @@ const getWithdrawalFeed = asyncHandler(async (req, res) => {
     .lean();
 
   const formatted = withdrawals.map((w) => ({
-    id: w._id,
+    _id: w._id, // ✅ REQUIRED
     userId: w.user?._id,
     userName: w.user?.name,
     email: w.user?.email,
@@ -316,10 +317,6 @@ const getWithdrawalFeed = asyncHandler(async (req, res) => {
     accountNumber: w.accountNumber,
     status: w.status,
     createdAt: w.createdAt,
-    reviewedBy: w.reviewedBy?.name || null,
-    isPending: w.status === "PENDING",
-    isApproved: w.status === "APPROVED",
-    isRejected: w.status === "REJECTED",
   }));
 
   res.json({

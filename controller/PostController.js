@@ -146,75 +146,30 @@ const getPostById = asyncHandler(async (req, res) => {
 const reactPost = async (req, res) => {
   try {
     const { type } = req.body;
-
     const post = await Post.findById(req.params.postId);
-    if (!post) {
-      return res.status(404).json({
-        success: false,
-        message: "Post not found",
-      });
-    }
+    if (!post) return res.status(404).json({ success: false, message: "Post not found" });
 
     const userId = req.user._id.toString();
 
-    post.likedBy = post.likedBy || [];
-    post.lovedBy = post.lovedBy || [];
-
-    let userReaction = null;
-
-    /* ================= LIKE ================= */
     if (type === "like") {
-      const hasLiked = post.likedBy.includes(userId);
-
-      if (hasLiked) {
-        post.likedBy = post.likedBy.filter((id) => id !== userId);
-      } else {
-        post.likedBy.push(userId);
-
-        // optional: remove love if switching
-        post.lovedBy = post.lovedBy.filter((id) => id !== userId);
-      }
+      const index = post.likedBy.indexOf(userId);
+      index > -1 ? (post.likedBy.splice(index, 1), post.likeCount--) : (post.likedBy.push(userId), post.likeCount++);
     }
 
-    /* ================= LOVE ================= */
     if (type === "love") {
-      const hasLoved = post.lovedBy.includes(userId);
-
-      if (hasLoved) {
-        post.lovedBy = post.lovedBy.filter((id) => id !== userId);
-      } else {
-        post.lovedBy.push(userId);
-
-        // optional: remove like if switching
-        post.likedBy = post.likedBy.filter((id) => id !== userId);
-      }
+      const index = post.lovedBy.indexOf(userId);
+      index > -1 ? (post.lovedBy.splice(index, 1), post.loveCount--) : (post.lovedBy.push(userId), post.loveCount++);
     }
 
     await post.save();
 
-    /* ================= DETECT USER STATE ================= */
-    if (post.likedBy.includes(userId)) userReaction = "like";
-    if (post.lovedBy.includes(userId)) userReaction = "love";
-
-    return res.json({
-      success: true,
-
-      likedBy: post.likedBy,
-      lovedBy: post.lovedBy,
-
-      likeCount: post.likedBy.length,
-      loveCount: post.lovedBy.length,
-
-      userReaction,
-    });
+    res.json({ success: true, likeCount: post.likeCount, loveCount: post.loveCount });
   } catch (err) {
     console.error("ReactPost Error:", err);
-    return res.status(500).json({
-      success: false,
-      message: err.message,
-    });
+    res.status(500).json({ success: false, message: err.message });
   }
 };
+
 /* =========================
    COMMENT POST
 ========================= */

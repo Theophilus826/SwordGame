@@ -1,9 +1,9 @@
 const mongoose = require("mongoose");
-const User = require("./UserModels");
+
 // ===== Comment Schema =====
 const commentSchema = new mongoose.Schema(
   {
-    User: {
+    user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
@@ -34,7 +34,7 @@ const mediaSchema = new mongoose.Schema({
 const postSchema = new mongoose.Schema(
   {
     // Post owner
-    User: {
+    user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,

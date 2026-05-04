@@ -110,16 +110,28 @@ const uploadMedia = asyncHandler(async (req, res) => {
    GET POSTS
 ========================= */
 const getPosts = asyncHandler(async (req, res) => {
+  const userId = req.user?._id?.toString();
+
   const posts = await Post.find()
     .sort({ createdAt: -1 })
     .populate("user", "name avatar")
     .populate("comments.user", "name avatar")
     .lean();
 
+  const formattedPosts = posts.map((post) => ({
+    ...post,
+    liked: userId
+      ? post.likedBy.some((id) => id.toString() === userId)
+      : false,
+    loved: userId
+      ? post.lovedBy.some((id) => id.toString() === userId)
+      : false,
+  }));
+
   res.json({
     success: true,
-    count: posts.length,
-    posts,
+    count: formattedPosts.length,
+    posts: formattedPosts,
   });
 });
 
@@ -127,6 +139,8 @@ const getPosts = asyncHandler(async (req, res) => {
    GET SINGLE POST
 ========================= */
 const getPostById = asyncHandler(async (req, res) => {
+  const userId = req.user?._id?.toString();
+
   const post = await Post.findById(req.params.postId)
     .populate("user", "name avatar")
     .populate("comments.user", "name avatar")
@@ -137,7 +151,17 @@ const getPostById = asyncHandler(async (req, res) => {
     throw new Error("Post not found");
   }
 
-  res.json({ success: true, post });
+  const formattedPost = {
+    ...post,
+    liked: userId
+      ? post.likedBy.some((id) => id.toString() === userId)
+      : false,
+    loved: userId
+      ? post.lovedBy.some((id) => id.toString() === userId)
+      : false,
+  };
+
+  res.json({ success: true, post: formattedPost });
 });
 
 /* =========================
@@ -147,26 +171,71 @@ const reactPost = async (req, res) => {
   try {
     const { type } = req.body;
     const post = await Post.findById(req.params.postId);
-    if (!post) return res.status(404).json({ success: false, message: "Post not found" });
+
+    if (!post) {
+      return res.status(404).json({
+        success: false,
+        message: "Post not found",
+      });
+    }
 
     const userId = req.user._id.toString();
 
+    /* ===== LIKE ===== */
     if (type === "like") {
-      const index = post.likedBy.indexOf(userId);
-      index > -1 ? (post.likedBy.splice(index, 1), post.likeCount--) : (post.likedBy.push(userId), post.likeCount++);
+      const index = post.likedBy.findIndex(
+        (id) => id.toString() === userId
+      );
+
+      if (index > -1) {
+        post.likedBy.splice(index, 1);
+        post.likeCount = Math.max(0, post.likeCount - 1);
+      } else {
+        post.likedBy.push(req.user._id);
+        post.likeCount += 1;
+
+        // 🔔 optional notification
+        if (post.user.toString() !== userId) {
+          notifyPostReaction(post.user, req.user._id, "like", post._id);
+        }
+      }
     }
 
+    /* ===== LOVE ===== */
     if (type === "love") {
-      const index = post.lovedBy.indexOf(userId);
-      index > -1 ? (post.lovedBy.splice(index, 1), post.loveCount--) : (post.lovedBy.push(userId), post.loveCount++);
+      const index = post.lovedBy.findIndex(
+        (id) => id.toString() === userId
+      );
+
+      if (index > -1) {
+        post.lovedBy.splice(index, 1);
+        post.loveCount = Math.max(0, post.loveCount - 1);
+      } else {
+        post.lovedBy.push(req.user._id);
+        post.loveCount += 1;
+
+        // 🔔 optional notification
+        if (post.user.toString() !== userId) {
+          notifyPostReaction(post.user, req.user._id, "love", post._id);
+        }
+      }
     }
 
     await post.save();
 
-    res.json({ success: true, likeCount: post.likeCount, loveCount: post.loveCount });
+    res.json({
+      success: true,
+      likeCount: post.likeCount,
+      loveCount: post.loveCount,
+      liked: post.likedBy.some((id) => id.toString() === userId),
+      loved: post.lovedBy.some((id) => id.toString() === userId),
+    });
   } catch (err) {
     console.error("ReactPost Error:", err);
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({
+      success: false,
+      message: err.message,
+    });
   }
 };
 
@@ -188,8 +257,14 @@ const commentPost = asyncHandler(async (req, res) => {
     throw new Error("Post not found");
   }
 
-  post.comments = Array.isArray(post.comments) ? post.comments : [];
-  post.comments.push({ user: req.user._id, text });
+  post.comments = Array.isArray(post.comments)
+    ? post.comments
+    : [];
+
+  post.comments.push({
+    user: req.user._id,
+    text,
+  });
 
   await post.save();
 

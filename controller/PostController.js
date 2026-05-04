@@ -134,7 +134,6 @@ const getPosts = asyncHandler(async (req, res) => {
     posts: formattedPosts,
   });
 });
-
 /* =========================
    GET SINGLE POST
 ========================= */
@@ -163,7 +162,6 @@ const getPostById = asyncHandler(async (req, res) => {
 
   res.json({ success: true, post: formattedPost });
 });
-
 /* =========================
    REACT TO POST
 ========================= */
@@ -181,49 +179,71 @@ const reactPost = async (req, res) => {
 
     const userId = req.user._id.toString();
 
-    /* ===== LIKE ===== */
+    /* ================= LIKE ================= */
     if (type === "like") {
       const index = post.likedBy.findIndex(
         (id) => id.toString() === userId
       );
 
       if (index > -1) {
+        // unlike
         post.likedBy.splice(index, 1);
         post.likeCount = Math.max(0, post.likeCount - 1);
       } else {
+        // like
         post.likedBy.push(req.user._id);
         post.likeCount += 1;
 
-        // 🔔 optional notification
+        // 🔔 SAFE notification
         if (post.user.toString() !== userId) {
-          notifyPostReaction(post.user, req.user._id, "like", post._id);
+          try {
+            await notifyPostReaction({
+              postOwnerId: post.user,
+              sender: req.user,
+              type: "like",
+              postId: post._id,
+            });
+          } catch (err) {
+            console.error("Notification error:", err.message);
+          }
         }
       }
     }
 
-    /* ===== LOVE ===== */
+    /* ================= LOVE ================= */
     if (type === "love") {
       const index = post.lovedBy.findIndex(
         (id) => id.toString() === userId
       );
 
       if (index > -1) {
+        // unlove
         post.lovedBy.splice(index, 1);
         post.loveCount = Math.max(0, post.loveCount - 1);
       } else {
+        // love
         post.lovedBy.push(req.user._id);
         post.loveCount += 1;
 
-        // 🔔 optional notification
+        // 🔔 SAFE notification
         if (post.user.toString() !== userId) {
-          notifyPostReaction(post.user, req.user._id, "love", post._id);
+          try {
+            await notifyPostReaction({
+              postOwnerId: post.user,
+              sender: req.user,
+              type: "love",
+              postId: post._id,
+            });
+          } catch (err) {
+            console.error("Notification error:", err.message);
+          }
         }
       }
     }
 
     await post.save();
 
-    res.json({
+    return res.json({
       success: true,
       likeCount: post.likeCount,
       loveCount: post.loveCount,
@@ -238,7 +258,6 @@ const reactPost = async (req, res) => {
     });
   }
 };
-
 /* =========================
    COMMENT POST
 ========================= */

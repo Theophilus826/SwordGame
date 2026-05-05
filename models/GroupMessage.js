@@ -4,7 +4,7 @@ const crypto = require("crypto");
 /* ================= HELPERS ================= */
 
 const generateInviteCode = () => {
-  return crypto.randomBytes(4).toString("hex").toUpperCase();
+  return crypto.randomBytes(5).toString("hex").toUpperCase();
 };
 
 /* ================= MEMBER SCHEMA ================= */
@@ -15,17 +15,26 @@ const memberSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
+      index: true,
     },
 
     role: {
       type: String,
       enum: ["admin", "moderator", "member"],
       default: "member",
+      index: true,
     },
 
     joinedAt: {
       type: Date,
       default: Date.now,
+    },
+
+    // 🔥 FUTURE: for read receipts per member
+    lastSeenMessage: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Message",
+      default: null,
     },
   },
   { _id: false }
@@ -39,9 +48,10 @@ const groupSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
+      maxlength: 100,
     },
 
-    // 👥 MEMBERS WITH ROLES
+    // 👥 MEMBERS
     members: [memberSchema],
 
     // 👤 CREATOR
@@ -49,9 +59,10 @@ const groupSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
+      index: true,
     },
 
-    // 🖼️ GROUP AVATAR
+    // 🖼️ AVATAR
     avatar: {
       type: String,
       default: null,
@@ -61,8 +72,8 @@ const groupSchema = new mongoose.Schema(
     inviteCode: {
       type: String,
       unique: true,
-      default: generateInviteCode,
       index: true,
+      default: generateInviteCode,
     },
 
     inviteLinkEnabled: {
@@ -70,13 +81,12 @@ const groupSchema = new mongoose.Schema(
       default: true,
     },
 
-    // ⚙️ SETTINGS (future-proof)
+    // ⚙️ SETTINGS
     settings: {
       onlyAdminsCanMessage: {
         type: Boolean,
         default: false,
       },
-
       onlyAdminsCanAddMembers: {
         type: Boolean,
         default: false,
@@ -86,14 +96,17 @@ const groupSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-/* ================= INDEXING ================= */
+/* ================= INDEXES ================= */
 
 groupSchema.index({ "members.user": 1 });
+groupSchema.index({ createdBy: 1 });
 groupSchema.index({ inviteCode: 1 });
 
-/* ================= HELPERS (MODEL METHODS) ================= */
+/* ================= METHODS ================= */
 
-// Get user role
+/**
+ * Get member role
+ */
 groupSchema.methods.getRole = function (userId) {
   const member = this.members.find(
     (m) => m.user.toString() === userId.toString()
@@ -101,21 +114,54 @@ groupSchema.methods.getRole = function (userId) {
   return member?.role || null;
 };
 
-// Check if user is admin
+/**
+ * Admin check
+ */
 groupSchema.methods.isAdmin = function (userId) {
   return this.getRole(userId) === "admin";
 };
 
-// Check if user is moderator or admin
+/**
+ * Moderator or admin
+ */
 groupSchema.methods.canModerate = function (userId) {
   const role = this.getRole(userId);
   return role === "admin" || role === "moderator";
 };
 
-// Check membership
+/**
+ * Check membership
+ */
 groupSchema.methods.isMember = function (userId) {
   return this.members.some(
     (m) => m.user.toString() === userId.toString()
+  );
+};
+
+/**
+ * Get member object quickly
+ */
+groupSchema.methods.getMember = function (userId) {
+  return this.members.find(
+    (m) => m.user.toString() === userId.toString()
+  );
+};
+
+/**
+ * Add member safely (no duplicates)
+ */
+groupSchema.methods.addMember = function (userId, role = "member") {
+  if (!this.isMember(userId)) {
+    this.members.push({ user: userId, role });
+  }
+};
+
+/**
+ * Remove member
+ */
+groupSchema.methods.removeMember = function (userId) {
+  this.members = this.members.filter(
+    (m) => m.user.toString() !== userId.toString()
   );
 };
 

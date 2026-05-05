@@ -12,36 +12,37 @@ const {
   deleteGroup,
 } = require("../controller/GroupController");
 
-const auth = require("../middleware/AuthMiddleware");
+// ✅ FIX: destructure protect from middleware
+const { protect } = require("../middleware/AuthMiddleware");
 
 /* ================= GROUP CORE ================= */
 
 // Create group
-router.post("/", auth, createGroup);
+router.post("/", protect, createGroup);
 
 // Get my groups
-router.get("/", auth, getMyGroups);
+router.get("/", protect, getMyGroups);
 
 // Get single group
-router.get("/:groupId", auth, getGroup);
+router.get("/:groupId", protect, getGroup);
 
 // Delete group
-router.delete("/:groupId", auth, deleteGroup);
+router.delete("/:groupId", protect, deleteGroup);
 
 /* ================= MEMBERS ================= */
 
 // Add member
-router.post("/:groupId/members", auth, addMember);
+router.post("/:groupId/members", protect, addMember);
 
 // Remove member
-router.delete("/:groupId/members/:memberId", auth, removeMember);
+router.delete("/:groupId/members/:memberId", protect, removeMember);
 
 // Leave group
-router.delete("/:groupId/members/me", auth, leaveGroup);
+router.delete("/:groupId/members/me", protect, leaveGroup);
 
 /* ================= ROLES ================= */
 
 // Change role
-router.patch("/:groupId/members/:memberId/role", auth, changeRole);
+router.patch("/:groupId/members/:memberId/role", protect, changeRole);
 
 module.exports = router;

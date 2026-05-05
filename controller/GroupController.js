@@ -1,11 +1,14 @@
 const mongoose = require("mongoose");
 const Group = require("../models/GroupMessage");
 
+const {
+  pushGroupMessage,
+  removeGroupClient
+} = require("../config/sse");
+
 /* ================= HELPERS ================= */
 
 const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
-
-/* ================= ROLE HELPER ================= */
 
 const getRole = (group, userId) => {
   const member = group.members.find(
@@ -21,6 +24,8 @@ const canModerate = (group, userId) => {
   const role = getRole(group, userId);
   return role === "admin" || role === "moderator";
 };
+
+const allowedRoles = ["admin", "moderator", "member"];
 
 /* ================= CREATE GROUP ================= */
 
@@ -38,16 +43,19 @@ const createGroup = async (req, res) => {
     const group = await Group.create({
       name: name.trim(),
       members: [
-        {
-          user: userId,
-          role: "admin",
-        },
+        { user: userId, role: "admin" },
         ...validMembers.map((id) => ({
           user: id,
           role: "member",
         })),
       ],
       createdBy: userId,
+    });
+
+    // 🔥 REAL-TIME EVENT
+    pushGroupMessage(group._id, {
+      event: "group_created",
+      group,
     });
 
     res.json({ group });
@@ -129,6 +137,13 @@ const addMember = async (req, res) => {
 
     await group.save();
 
+    // 🔥 REAL-TIME
+    pushGroupMessage(groupId, {
+      event: "member_added",
+      memberId,
+      addedBy: userId,
+    });
+
     res.json({ message: "Member added", group });
   } catch (err) {
     console.error("ADD MEMBER ERROR:", err);
@@ -150,11 +165,31 @@ const removeMember = async (req, res) => {
       return res.status(403).json({ error: "Not allowed" });
     }
 
+    // ❗ prevent removing last admin
+    const admins = group.members.filter((m) => m.role === "admin");
+    if (
+      admins.length === 1 &&
+      admins[0].user.toString() === memberId
+    ) {
+      return res.status(400).json({
+        error: "Cannot remove last admin",
+      });
+    }
+
     group.members = group.members.filter(
       (m) => m.user.toString() !== memberId
     );
 
     await group.save();
+
+    // 🔥 disconnect user from SSE
+    removeGroupClient(groupId, memberId);
+
+    // 🔥 REAL-TIME
+    pushGroupMessage(groupId, {
+      event: "member_removed",
+      memberId,
+    });
 
     res.json({ message: "Member removed", group });
   } catch (err) {
@@ -173,11 +208,31 @@ const leaveGroup = async (req, res) => {
     const group = await Group.findById(groupId);
     if (!group) return res.status(404).json({ error: "Group not found" });
 
+    // ❗ prevent last admin leaving
+    const admins = group.members.filter((m) => m.role === "admin");
+    if (
+      admins.length === 1 &&
+      admins[0].user.toString() === userId.toString()
+    ) {
+      return res.status(400).json({
+        error: "Transfer admin role before leaving",
+      });
+    }
+
     group.members = group.members.filter(
       (m) => m.user.toString() !== userId.toString()
     );
 
     await group.save();
+
+    // 🔥 remove own SSE connection
+    removeGroupClient(groupId, userId);
+
+    // 🔥 REAL-TIME
+    pushGroupMessage(groupId, {
+      event: "member_left",
+      userId,
+    });
 
     res.json({ message: "Left group" });
   } catch (err) {
@@ -186,12 +241,16 @@ const leaveGroup = async (req, res) => {
   }
 };
 
-/* ================= PROMOTE / DEMOTE ROLE ================= */
+/* ================= CHANGE ROLE ================= */
 
 const changeRole = async (req, res) => {
   try {
     const userId = req.user._id;
     const { groupId, memberId, role } = req.body;
+
+    if (!allowedRoles.includes(role)) {
+      return res.status(400).json({ error: "Invalid role" });
+    }
 
     const group = await Group.findById(groupId);
     if (!group) return res.status(404).json({ error: "Group not found" });
@@ -208,9 +267,16 @@ const changeRole = async (req, res) => {
       return res.status(404).json({ error: "User not in group" });
     }
 
-    member.role = role; // admin | moderator | member
+    member.role = role;
 
     await group.save();
+
+    // 🔥 REAL-TIME
+    pushGroupMessage(groupId, {
+      event: "role_changed",
+      memberId,
+      role,
+    });
 
     res.json({ message: "Role updated", group });
   } catch (err) {
@@ -234,6 +300,14 @@ const deleteGroup = async (req, res) => {
     }
 
     await Group.findByIdAndDelete(groupId);
+
+    // 🔥 notify all clients
+    pushGroupMessage(groupId, {
+      event: "group_deleted",
+    });
+
+    // 🔥 cleanup SSE memory
+    removeGroupClient(groupId);
 
     res.json({ message: "Group deleted" });
   } catch (err) {

@@ -12,39 +12,36 @@ const {
   deleteGroup,
 } = require("../controller/GroupController");
 
-// middleware (adjust to your auth file)
 const auth = require("../middleware/AuthMiddleware");
 
 /* ================= GROUP CORE ================= */
 
 // Create group
-router.post("/create", auth, createGroup);
+router.post("/", auth, createGroup);
 
 // Get my groups
-router.get("/my", auth, getMyGroups);
+router.get("/", auth, getMyGroups);
 
 // Get single group
 router.get("/:groupId", auth, getGroup);
 
-/* ================= MEMBERSHIP ================= */
+// Delete group
+router.delete("/:groupId", auth, deleteGroup);
 
-// Add member (admin/mod only)
-router.post("/add-member", auth, addMember);
+/* ================= MEMBERS ================= */
 
-// Remove member (admin/mod only)
-router.post("/remove-member", auth, removeMember);
+// Add member
+router.post("/:groupId/members", auth, addMember);
+
+// Remove member
+router.delete("/:groupId/members/:memberId", auth, removeMember);
 
 // Leave group
-router.post("/leave", auth, leaveGroup);
+router.delete("/:groupId/members/me", auth, leaveGroup);
 
 /* ================= ROLES ================= */
 
-// Change role (admin only)
-router.post("/change-role", auth, changeRole);
-
-/* ================= DELETE ================= */
-
-// Delete group (creator only)
-router.delete("/delete", auth, deleteGroup);
+// Change role
+router.patch("/:groupId/members/:memberId/role", auth, changeRole);
 
 module.exports = router;

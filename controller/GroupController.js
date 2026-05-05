@@ -1,5 +1,5 @@
 const mongoose = require("mongoose");
-const Group = require("../models/Group");
+const Group = require("../models/GroupMessage");
 
 const { pushGroupMessage } = require("../config/sse");
 

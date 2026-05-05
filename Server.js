@@ -18,7 +18,7 @@ const Message = require("./models/Message");
 const { getUsersFromDB } = require("./controller/UserHelpers");
 const ChatRoutes = require("./routes/ChatRoutes");
 const WithdrawalRoutes = require("./routes/WithdrawalRoutes");
-
+const GroupRoute = require("./routes/GroupRoute");
 
 // ==========================
 // LOAD ENV
@@ -143,7 +143,7 @@ app.use("/api/notifications", require("./routes/NotificationRoute"));
 app.use("/api/wallet", require("./routes/DepositRoutes"));
 app.use("/api/chat", ChatRoutes);
 app.use("/api/withdrawals", WithdrawalRoutes);
-
+app.use("/group", GroupRoute);
 // Route to get posts by a specific user
 
 

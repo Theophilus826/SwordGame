@@ -1,5 +1,7 @@
-const clients = {}; // chat clients
-const notificationClients = {}; // notification clients
+const clients = {}; // DM
+const notificationClients = {};
+const groupClients = {}; // groupId -> Set(res)
+
 const onlineUsers = new Set();
 
 /* ================= CHAT KEY ================= */
@@ -28,7 +30,9 @@ function safeWrite(res, data) {
   }
 }
 
-/* ================= CHAT CLIENT ================= */
+/* ================= =========================
+   🔵 DM CLIENTS
+========================= */
 function addClient(userId, otherUserId, res) {
   const key = getKey(userId, otherUserId);
 
@@ -46,12 +50,68 @@ function removeClient(userId, otherUserId, res) {
 
   clients[key].delete(res);
 
-  if (clients[key].size === 0) {
-    delete clients[key];
+  if (clients[key].size === 0) delete clients[key];
+}
+
+/* ================= =========================
+   🔥 GROUP CLIENTS (IMPROVED)
+========================= */
+function addGroupClient(groupId, userId, res) {
+  const g = String(groupId);
+  const u = String(userId);
+
+  if (!groupClients[g]) groupClients[g] = {};
+  if (!groupClients[g][u]) groupClients[g][u] = new Set();
+
+  groupClients[g][u].add(res);
+
+  safeWrite(res, {
+    type: "connected",
+    scope: "group",
+    groupId,
+  });
+}
+
+function removeGroupClient(groupId, userId, res) {
+  const g = String(groupId);
+  const u = String(userId);
+
+  if (!groupClients[g]?.[u]) return;
+
+  if (res) {
+    groupClients[g][u].delete(res);
+  } else {
+    delete groupClients[g][u]; // remove ALL connections of user
+  }
+
+  if (groupClients[g][u]?.size === 0) {
+    delete groupClients[g][u];
+  }
+
+  if (Object.keys(groupClients[g]).length === 0) {
+    delete groupClients[g];
   }
 }
 
-/* ================= NOTIFICATION CLIENT ================= */
+function pushGroupMessage(groupId, message) {
+  const g = String(groupId);
+  const users = groupClients[g];
+  if (!users) return;
+
+  Object.values(users).forEach((set) => {
+    set.forEach((res) => {
+      const ok = safeWrite(res, {
+        type: "group_event",
+        groupId: g,
+        ...message,
+      });
+
+      if (!ok) set.delete(res);
+    });
+  });
+}
+
+/* ================= NOTIFICATIONS ================= */
 function addNotificationClient(userId, res) {
   const id = String(userId);
 
@@ -76,56 +136,85 @@ function removeNotificationClient(userId, res) {
   }
 }
 
-/* ================= PUSH MESSAGE ================= */
+/* ================= =========================
+   🔵 DM PUSH
+========================= */
 function pushMessage(userId, otherUserId, message) {
-  const keys = [
-    getKey(userId, otherUserId),
-    getKey(otherUserId, userId),
-  ];
+  const keys = [getKey(userId, otherUserId), getKey(otherUserId, userId)];
 
   keys.forEach((key) => {
     clients[key]?.forEach((res) => {
       const ok = safeWrite(res, {
         type: "new_message",
+        scope: "dm",
         message,
       });
 
-      if (!ok) {
-        clients[key].delete(res);
-      }
+      if (!ok) clients[key].delete(res);
     });
   });
 }
 
-/* ================= PUSH NOTIFICATION ================= */
+/* ================= =========================
+   🔥 GROUP PUSH (ROLE-AWARE READY)
+========================= */
+function pushGroupMessage(group, message) {
+  const key = String(group._id || group);
+
+  const set = groupClients[key];
+  if (!set) return;
+
+  set.forEach((res) => {
+    const ok = safeWrite(res, {
+      type: "new_message",
+      scope: "group",
+      groupId: key,
+      message,
+    });
+
+    if (!ok) set.delete(res);
+  });
+}
+
+/* ================= NOTIFICATION ================= */
 function pushNotification(userId, notification) {
   const id = String(userId);
 
-  const userClients = notificationClients[id];
+  const set = notificationClients[id];
+  if (!set) return;
 
-  if (!userClients || userClients.size === 0) {
-    return;
-  }
-
-  userClients.forEach((res) => {
+  set.forEach((res) => {
     const ok = safeWrite(res, {
       type: "notification",
       notification,
     });
 
-    if (!ok) {
-      userClients.delete(res);
-    }
+    if (!ok) set.delete(res);
   });
 }
 
-/* ================= TYPING (FIX ADDED) ================= */
+/* ================= TYPING (DM) ================= */
 function sendTyping(fromUser, toUser, status) {
   const key = getKey(fromUser, toUser);
 
   clients[key]?.forEach((res) => {
     safeWrite(res, {
-      type: status, // "typing" | "stop_typing"
+      type: status,
+      scope: "dm",
+      fromUser,
+    });
+  });
+}
+
+/* ================= 🔥 GROUP TYPING ================= */
+function sendGroupTyping(groupId, fromUser, status) {
+  const key = String(groupId);
+
+  groupClients[key]?.forEach((res) => {
+    safeWrite(res, {
+      type: status,
+      scope: "group",
+      groupId,
       fromUser,
     });
   });
@@ -144,10 +233,8 @@ function isOnline(userId) {
   return onlineUsers.has(String(userId));
 }
 
-/* ================= BROADCAST STATUS (FIX ADDED) ================= */
+/* ================= STATUS BROADCAST ================= */
 function broadcastStatus(userId, status) {
-  clients[getKey(userId, "*")]?.forEach(() => {});
-
   Object.values(clients).forEach((set) => {
     set.forEach((res) => {
       safeWrite(res, {
@@ -162,15 +249,19 @@ function broadcastStatus(userId, status) {
 /* ================= HEARTBEAT ================= */
 setInterval(() => {
   Object.values(clients).forEach((set) => {
-    set.forEach((res) => {
-      safeWrite(res, { type: "ping", scope: "chat" });
+    set.forEach((res) => safeWrite(res, { type: "ping", scope: "chat" }));
+  });
+
+  Object.values(groupClients).forEach((users) => {
+    Object.values(users).forEach((set) => {
+      set.forEach((res) => safeWrite(res, { type: "ping", scope: "group" }));
     });
   });
 
   Object.values(notificationClients).forEach((set) => {
-    set.forEach((res) => {
-      safeWrite(res, { type: "ping", scope: "notification" });
-    });
+    set.forEach((res) =>
+      safeWrite(res, { type: "ping", scope: "notification" }),
+    );
   });
 }, 25000);
 
@@ -179,13 +270,19 @@ module.exports = {
   addClient,
   removeClient,
 
-  addNotificationClient,
-  removeNotificationClient,
+  addGroupClient,
+  removeGroupClient,
 
   pushMessage,
+  pushGroupMessage,
+
+  addNotificationClient,
+  removeNotificationClient,
   pushNotification,
 
   sendTyping,
+  sendGroupTyping,
+
   broadcastStatus,
 
   setOnline,

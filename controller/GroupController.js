@@ -1,19 +1,21 @@
 const mongoose = require("mongoose");
-const Group = require("../models/GroupMessage");
+const Group = require("../models/Group");
 
-const {
-  pushGroupMessage,
-  removeGroupClient
-} = require("../config/sse");
+const { pushGroupMessage } = require("../config/sse");
 
 /* ================= HELPERS ================= */
 
 const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
 
-const getRole = (group, userId) => {
-  const member = group.members.find(
+/* ================= ROLE HELPERS ================= */
+
+const getMember = (group, userId) =>
+  group.members.find(
     (m) => m.user.toString() === userId.toString()
   );
+
+const getRole = (group, userId) => {
+  const member = getMember(group, userId);
   return member?.role || null;
 };
 
@@ -52,8 +54,8 @@ const createGroup = async (req, res) => {
       createdBy: userId,
     });
 
-    // 🔥 REAL-TIME EVENT
     pushGroupMessage(group._id, {
+      type: "group_event",
       event: "group_created",
       group,
     });
@@ -113,10 +115,6 @@ const addMember = async (req, res) => {
     const userId = req.user._id;
     const { groupId, memberId } = req.body;
 
-    if (!isValidId(groupId) || !isValidId(memberId)) {
-      return res.status(400).json({ error: "Invalid IDs" });
-    }
-
     const group = await Group.findById(groupId);
     if (!group) return res.status(404).json({ error: "Group not found" });
 
@@ -125,20 +123,22 @@ const addMember = async (req, res) => {
     }
 
     const exists = group.members.some(
-      (m) => m.user.toString() === memberId
+      (m) => m.user.toString() === memberId.toString()
     );
 
-    if (!exists) {
-      group.members.push({
-        user: memberId,
-        role: "member",
-      });
+    if (exists) {
+      return res.status(400).json({ error: "Already in group" });
     }
+
+    group.members.push({
+      user: memberId,
+      role: "member",
+    });
 
     await group.save();
 
-    // 🔥 REAL-TIME
     pushGroupMessage(groupId, {
+      type: "group_event",
       event: "member_added",
       memberId,
       addedBy: userId,
@@ -165,28 +165,14 @@ const removeMember = async (req, res) => {
       return res.status(403).json({ error: "Not allowed" });
     }
 
-    // ❗ prevent removing last admin
-    const admins = group.members.filter((m) => m.role === "admin");
-    if (
-      admins.length === 1 &&
-      admins[0].user.toString() === memberId
-    ) {
-      return res.status(400).json({
-        error: "Cannot remove last admin",
-      });
-    }
-
     group.members = group.members.filter(
-      (m) => m.user.toString() !== memberId
+      (m) => m.user.toString() !== memberId.toString()
     );
 
     await group.save();
 
-    // 🔥 disconnect user from SSE
-    removeGroupClient(groupId, memberId);
-
-    // 🔥 REAL-TIME
     pushGroupMessage(groupId, {
+      type: "group_event",
       event: "member_removed",
       memberId,
     });
@@ -208,28 +194,14 @@ const leaveGroup = async (req, res) => {
     const group = await Group.findById(groupId);
     if (!group) return res.status(404).json({ error: "Group not found" });
 
-    // ❗ prevent last admin leaving
-    const admins = group.members.filter((m) => m.role === "admin");
-    if (
-      admins.length === 1 &&
-      admins[0].user.toString() === userId.toString()
-    ) {
-      return res.status(400).json({
-        error: "Transfer admin role before leaving",
-      });
-    }
-
     group.members = group.members.filter(
       (m) => m.user.toString() !== userId.toString()
     );
 
     await group.save();
 
-    // 🔥 remove own SSE connection
-    removeGroupClient(groupId, userId);
-
-    // 🔥 REAL-TIME
     pushGroupMessage(groupId, {
+      type: "group_event",
       event: "member_left",
       userId,
     });
@@ -260,7 +232,7 @@ const changeRole = async (req, res) => {
     }
 
     const member = group.members.find(
-      (m) => m.user.toString() === memberId
+      (m) => m.user.toString() === memberId.toString()
     );
 
     if (!member) {
@@ -271,8 +243,8 @@ const changeRole = async (req, res) => {
 
     await group.save();
 
-    // 🔥 REAL-TIME
     pushGroupMessage(groupId, {
+      type: "group_event",
       event: "role_changed",
       memberId,
       role,
@@ -301,13 +273,10 @@ const deleteGroup = async (req, res) => {
 
     await Group.findByIdAndDelete(groupId);
 
-    // 🔥 notify all clients
     pushGroupMessage(groupId, {
+      type: "group_event",
       event: "group_deleted",
     });
-
-    // 🔥 cleanup SSE memory
-    removeGroupClient(groupId);
 
     res.json({ message: "Group deleted" });
   } catch (err) {

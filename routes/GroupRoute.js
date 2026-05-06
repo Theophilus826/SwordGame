@@ -18,8 +18,8 @@ const { protect } = require("../middleware/AuthMiddleware");
 /* ================= GROUP CORE ================= */
 
 // Create group
-router.post("/", protect, createGroup);
 
+router.post("/create", protect, createGroup);
 // Get my groups
 router.get("/", protect, getMyGroups);
 

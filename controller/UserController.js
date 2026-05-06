@@ -360,6 +360,21 @@ const syncContacts = asyncHandler(async (req, res) => {
 
   res.status(200).json({ users: formattedUsers });
 });
+const searchUsers = asyncHandler(async (req, res) => {
+  const q = req.query.q;
+
+  if (!q) {
+    return res.status(400).json({ message: "Query required" });
+  }
+
+  const users = await User.find({
+    name: { $regex: q, $options: "i" },
+  })
+    .select("_id name avatar")
+    .limit(20);
+
+  res.json(users);
+});
 
 module.exports = {
   registerUser,
@@ -372,7 +387,8 @@ module.exports = {
   generateToken,
   updateAvatar,
   sendMessage, // ✅ new
-  getMessages, // ✅ new
+  getMessages,
+  searchUsers,
   getAllUsers,
   syncContacts,
 };

@@ -44,5 +44,19 @@ router.delete("/:groupId/members/me", protect, leaveGroup);
 
 // Change role
 router.patch("/:groupId/members/:memberId/role", protect, changeRole);
+router.get("/stream/:groupId/:userId", protect, async (req, res) => {
+  const { groupId } = req.params;
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+
+  req.on("close", () => {
+    res.end();
+  });
+
+  // optional: send initial ping
+  res.write(`data: ${JSON.stringify({ type: "connected" })}\n\n`);
+});
 
 module.exports = router;

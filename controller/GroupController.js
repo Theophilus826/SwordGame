@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
-const Group = require("../models/Group");
-const GroupMessage = require("../models/GroupMessage");
+const Group = require("../models/GroupMessage");
+const GroupMessage = require("../models/GroupMessages");
 const {
   pushGroupMessage,
 } = require("../config/sse");

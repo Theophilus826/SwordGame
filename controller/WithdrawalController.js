@@ -1,3 +1,11 @@
+const asyncHandler = require("express-async-handler");
+const Withdrawal = require("../models/Withdrawal");
+const User = require("../models/UserModels");
+const { updateCoins } = require("../controller/AccountController");
+
+/* =====================================================
+   USER: REQUEST WITHDRAWAL ONLY
+===================================================== */
 const requestWithdrawal = asyncHandler(async (req, res) => {
   const { amount, bankName, accountNumber } = req.body;
 
@@ -46,3 +54,6 @@ const requestWithdrawal = asyncHandler(async (req, res) => {
     withdrawal,
   });
 });
+module.exports = {
+  requestWithdrawal,
+};

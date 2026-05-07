@@ -1,4 +1,5 @@
 const express = require("express");
+
 const router = express.Router();
 
 const {
@@ -6,7 +7,6 @@ const {
   getMyGroups,
   getGroup,
 
-  /* ✅ CHAT */
   sendGroupMessage,
   getGroupMessages,
 
@@ -17,41 +17,57 @@ const {
   deleteGroup,
 } = require("../controller/GroupController");
 
-const { protect } = require("../middleware/AuthMiddleware");
+const {
+  protect,
+} = require("../middleware/AuthMiddleware");
 
-/* ✅ SSE HELPERS */
 const {
   addGroupClient,
   removeGroupClient,
 } = require("../config/sse");
 
+const sseProtect = require("../middleware/sseProtect");
+
 /* ================= GROUP CORE ================= */
 
-// Create group
-router.post("/", protect, createGroup);
+router.post(
+  "/",
+  protect,
+  createGroup
+);
 
-// Optional alias
-router.post("/create", protect, createGroup);
+router.post(
+  "/create",
+  protect,
+  createGroup
+);
 
-// Get my groups
-router.get("/", protect, getMyGroups);
+router.get(
+  "/",
+  protect,
+  getMyGroups
+);
 
-// Get single group
-router.get("/:groupId", protect, getGroup);
+router.get(
+  "/:groupId",
+  protect,
+  getGroup
+);
 
-// Delete group
-router.delete("/:groupId", protect, deleteGroup);
+router.delete(
+  "/:groupId",
+  protect,
+  deleteGroup
+);
 
 /* ================= GROUP CHAT ================= */
 
-/* ✅ SEND MESSAGE */
 router.post(
   "/send-message",
   protect,
   sendGroupMessage
 );
 
-/* ✅ GET GROUP MESSAGES */
 router.get(
   "/:groupId/messages",
   protect,
@@ -60,41 +76,35 @@ router.get(
 
 /* ================= MEMBERS ================= */
 
-// Add member
 router.post(
   "/:groupId/members",
   protect,
   addMember
 );
 
-// Remove member
 router.delete(
   "/:groupId/members/:memberId",
   protect,
   removeMember
 );
 
-// Leave group
 router.delete(
   "/:groupId/members/me",
   protect,
   leaveGroup
 );
 
-/* ================= ROLES ================= */
-
-// Change role
 router.patch(
   "/:groupId/members/:memberId/role",
   protect,
   changeRole
 );
 
-/* ================= SSE STREAM ================= */
+/* ================= SSE STREAM (FIXED) ================= */
 
 router.get(
   "/stream/:groupId/:userId",
-  protect,
+  sseProtect,
   async (req, res) => {
     try {
       const {
@@ -102,14 +112,8 @@ router.get(
         userId,
       } = req.params;
 
-      /* ✅ REGISTER CLIENT */
-      addGroupClient(
-        groupId,
-        userId,
-        res
-      );
+      /* ================= SSE HEADERS ================= */
 
-      /* ✅ SSE HEADERS */
       res.writeHead(200, {
         "Content-Type":
           "text/event-stream",
@@ -117,28 +121,47 @@ router.get(
         "Cache-Control":
           "no-cache",
 
-        Connection: "keep-alive",
+        Connection:
+          "keep-alive",
+
+        "X-Accel-Buffering":
+          "no",
       });
 
-      /* ✅ CONNECTED EVENT */
+      /* ================= REGISTER CLIENT ================= */
+
+      addGroupClient(
+        groupId,
+        userId,
+        res
+      );
+
+      /* ================= INITIAL CONNECT ================= */
+
       res.write(
         `data: ${JSON.stringify({
           type: "connected",
           groupId,
+          userId,
         })}\n\n`
       );
 
-      /* ✅ HEARTBEAT */
+      /* ================= HEARTBEAT ================= */
+
       const interval =
         setInterval(() => {
           res.write(
-            `data: ${JSON.stringify({
-              type: "ping",
-            })}\n\n`
+            `data: ${JSON.stringify(
+              {
+                type: "ping",
+                groupId,
+              }
+            )}\n\n`
           );
         }, 25000);
 
-      /* ✅ CLEANUP */
+      /* ================= CLEANUP ================= */
+
       req.on("close", () => {
         clearInterval(interval);
 
@@ -153,7 +176,7 @@ router.get(
 
     } catch (err) {
       console.error(
-        "GROUP STREAM ERROR:",
+        "❌ GROUP STREAM ERROR:",
         err
       );
 

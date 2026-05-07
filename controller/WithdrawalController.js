@@ -1,15 +1,4 @@
-const asyncHandler = require("express-async-handler");
-const Withdrawal = require("../models/Withdrawal");
-const User = require("../models/UserModels");
-const { updateCoins } = require("../controller/AccountController");
-
-/* =====================================================
-   USER: REQUEST WITHDRAWAL ONLY
-===================================================== */
 const requestWithdrawal = asyncHandler(async (req, res) => {
-  console.log("🔥 [WITHDRAW REQUEST HIT]");
-  console.log("📦 BODY:", req.body);
-
   const { amount, bankName, accountNumber } = req.body;
 
   const MIN = 1000;
@@ -31,6 +20,11 @@ const requestWithdrawal = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "Insufficient balance" });
   }
 
+  // 1. Deduct user balance (IMPORTANT)
+  user.coins -= cleanAmount;
+  await user.save();
+
+  // 2. Create withdrawal request
   const withdrawal = await Withdrawal.create({
     user: user._id,
     amount: cleanAmount,
@@ -39,12 +33,16 @@ const requestWithdrawal = asyncHandler(async (req, res) => {
     status: "PENDING",
   });
 
+  // 3. Credit admin
+  const admin = await User.findOne({ isAdmin: true });
+
+  if (admin) {
+    admin.coins += cleanAmount;
+    await admin.save();
+  }
+
   return res.status(201).json({
     message: "Withdrawal request sent successfully",
     withdrawal,
   });
 });
-
-module.exports = {
-  requestWithdrawal,
-};

@@ -57,6 +57,32 @@ function addClient(userId, otherUserId, res) {
   safeWrite(res, { type: "connected", scope: "chat" });
 }
 
+function removeClient(userId, otherUserId, res) {
+  const key = getKey(userId, otherUserId);
+
+  if (!clients[key]) return;
+
+  clients[key].delete(res);
+
+  if (clients[key].size === 0) delete clients[key];
+}
+
+/* ================= GROUP CLIENTS ================= */
+function addGroupClient(groupId, userId, res) {
+  const g = String(groupId);
+  const u = String(userId);
+
+  if (!groupClients[g]) groupClients[g] = {};
+  if (!groupClients[g][u]) groupClients[g][u] = new Set();
+
+  groupClients[g][u].add(res);
+
+  safeWrite(res, {
+    type: "connected",
+    scope: "group",
+    groupId: g,
+  });
+}
 
 function removeGroupClient(groupId, userId, res) {
   const g = String(groupId);
@@ -76,6 +102,7 @@ function removeGroupClient(groupId, userId, res) {
   }
 }
 
+/* ================= GROUP BROADCAST ================= */
 function pushGroupMessage(groupId, payload) {
   const g = String(groupId);
   const users = groupClients[g];

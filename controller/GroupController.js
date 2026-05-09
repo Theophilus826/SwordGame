@@ -178,92 +178,39 @@ const getGroup = async (req, res) => {
 const sendGroupMessage = async (req, res) => {
   try {
     const userId = req.user._id;
-
-    const {
-      groupId,
-      text = "",
-      image = null,
-      video = null,
-      audio = null,
-      file = null,
-    } = req.body;
-
-    /* ✅ VALIDATE GROUP ID */
-    if (!isValidId(groupId)) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid group ID",
-      });
-    }
-
-    /* ✅ REQUIRE CONTENT */
-    const hasContent = text?.trim() || image || video || audio || file;
-
-    if (!hasContent) {
-      return res.status(400).json({
-        success: false,
-        error: "Message content required",
-      });
-    }
+    const { groupId, text = "", image, video, audio, file } = req.body;
 
     const group = await Group.findById(groupId);
-
     if (!group) {
-      return res.status(404).json({
-        success: false,
-        error: "Group not found",
-      });
+      return res.status(404).json({ success: false, error: "Group not found" });
     }
 
-    /* ✅ MUST BE MEMBER */
-    const member = getMember(group, userId);
+    const member = group.members.find(
+      (m) => m.user.toString() === userId.toString()
+    );
 
     if (!member) {
-      return res.status(403).json({
-        success: false,
-        error: "Not in group",
-      });
+      return res.status(403).json({ success: false, error: "Not in group" });
     }
 
-    /* ✅ ONLY ADMINS CAN MESSAGE */
-    if (group.settings?.onlyAdminsCanMessage && member.role !== "admin") {
-      return res.status(403).json({
-        success: false,
-        error: "Only admins can send messages",
-      });
-    }
-
-    /* ✅ CREATE MESSAGE */
     const message = await GroupMessage.create({
       group: groupId,
-
       fromUser: userId,
-
       text: text?.trim() || "",
-
       image,
       video,
       audio,
       file,
-
-      readBy: [
-        {
-          user: userId,
-        },
-      ],
+      readBy: [{ user: userId }],
     });
 
-    /* ✅ POPULATE */
     const populated = await GroupMessage.findById(message._id)
-      .populate("fromUser", "name avatar")
-      .populate("readBy.user", "name avatar");
+      .populate("fromUser", "name avatar");
 
-    /* ✅ UPDATE GROUP ACTIVITY */
     group.updatedAt = new Date();
-
     await group.save();
 
-    /* ✅ SSE PUSH */
+    // 🔥 SAFE SSE BROADCAST
     pushGroupMessage(groupId, {
       type: "new_message",
       message: populated,
@@ -274,11 +221,9 @@ const sendGroupMessage = async (req, res) => {
       message: populated,
     });
   } catch (err) {
-    console.error("SEND GROUP MESSAGE ERROR:", err);
-
     return res.status(500).json({
       success: false,
-      error: err.message || "Failed to send message",
+      error: err.message,
     });
   }
 };

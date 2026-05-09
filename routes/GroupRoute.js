@@ -17,7 +17,7 @@ const {
 
 /* ================= MIDDLEWARE ================= */
 const { protect } = require("../middleware/AuthMiddleware");
-const sseProtect = require("../middleware/sseProtect");
+// const sseProtect = require("../middleware/sseProtect");
 
 const {
   addGroupClient,
@@ -45,7 +45,7 @@ router.post("/:groupId/leave", protect, leaveGroup);
 router.patch("/:groupId/members/:memberId/role", protect, changeRole);
 
 /* ================= SSE STREAM ================= */
-router.get("/stream/:groupId", sseProtect, (req, res) => {
+router.get("/stream/:groupId", protect, (req, res) => {
   const { groupId } = req.params;
   const userId = req.user?._id;
 

@@ -93,22 +93,31 @@ function removeGroupClient(groupId, userId, res) {
   }
 }
 
-function pushGroupMessage(groupId, message) {
+function pushGroupMessage(groupId, payload) {
   const g = String(groupId);
+
   const users = groupClients[g];
   if (!users) return;
 
-  Object.values(users).forEach((set) => {
-    set.forEach((res) => {
+  for (const userConnections of Object.values(users)) {
+    if (!userConnections) continue;
+
+    for (const res of [...userConnections]) {
       const ok = safeWrite(res, {
-        type: "group_event",
+        scope: "group",
         groupId: g,
-        ...message,
+        ...payload,
       });
 
-      if (!ok) set.delete(res);
-    });
-  });
+      if (!ok) {
+        userConnections.delete(res);
+      }
+
+      if (userConnections.size === 0) {
+        delete userConnections;
+      }
+    }
+  }
 }
 
 /* ================= NOTIFICATIONS ================= */
@@ -152,27 +161,6 @@ function pushMessage(userId, otherUserId, message) {
 
       if (!ok) clients[key].delete(res);
     });
-  });
-}
-
-/* ================= =========================
-   🔥 GROUP PUSH (ROLE-AWARE READY)
-========================= */
-function pushGroupMessage(group, message) {
-  const key = String(group._id || group);
-
-  const set = groupClients[key];
-  if (!set) return;
-
-  set.forEach((res) => {
-    const ok = safeWrite(res, {
-      type: "new_message",
-      scope: "group",
-      groupId: key,
-      message,
-    });
-
-    if (!ok) set.delete(res);
   });
 }
 

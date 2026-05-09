@@ -25,36 +25,12 @@ function safeWrite(res, data) {
     res.write(`data: ${JSON.stringify(data)}\n\n`);
     return true;
   } catch (err) {
-    console.error("❌ SSE WRITE ERROR:", err.message);
     return false;
   }
 }
 
 /* ================= =========================
    🔵 DM CLIENTS
-========================= */
-function addClient(userId, otherUserId, res) {
-  const key = getKey(userId, otherUserId);
-
-  if (!clients[key]) clients[key] = new Set();
-
-  clients[key].add(res);
-
-  safeWrite(res, { type: "connected", scope: "chat" });
-}
-
-function removeClient(userId, otherUserId, res) {
-  const key = getKey(userId, otherUserId);
-
-  if (!clients[key]) return;
-
-  clients[key].delete(res);
-
-  if (clients[key].size === 0) delete clients[key];
-}
-
-/* ================= =========================
-   🔥 GROUP CLIENTS (IMPROVED)
 ========================= */
 function addGroupClient(groupId, userId, res) {
   const g = String(groupId);
@@ -68,9 +44,19 @@ function addGroupClient(groupId, userId, res) {
   safeWrite(res, {
     type: "connected",
     scope: "group",
-    groupId,
+    groupId: g,
   });
 }
+function addClient(userId, otherUserId, res) {
+  const key = getKey(userId, otherUserId);
+
+  if (!clients[key]) clients[key] = new Set();
+
+  clients[key].add(res);
+
+  safeWrite(res, { type: "connected", scope: "chat" });
+}
+
 
 function removeGroupClient(groupId, userId, res) {
   const g = String(groupId);
@@ -78,46 +64,37 @@ function removeGroupClient(groupId, userId, res) {
 
   if (!groupClients[g]?.[u]) return;
 
-  if (res) {
-    groupClients[g][u].delete(res);
-  } else {
-    delete groupClients[g][u]; // remove ALL connections of user
-  }
+  if (res) groupClients[g][u].delete(res);
+  else delete groupClients[g][u];
 
-  if (groupClients[g][u]?.size === 0) {
+  if (groupClients[g]?.[u]?.size === 0) {
     delete groupClients[g][u];
   }
 
-  if (Object.keys(groupClients[g]).length === 0) {
+  if (groupClients[g] && Object.keys(groupClients[g]).length === 0) {
     delete groupClients[g];
   }
 }
 
 function pushGroupMessage(groupId, payload) {
   const g = String(groupId);
-
   const users = groupClients[g];
+
   if (!users) return;
 
-  for (const userConnections of Object.values(users)) {
-    if (!userConnections) continue;
+  Object.values(users).forEach((set) => {
+    if (!set) return;
 
-    for (const res of [...userConnections]) {
+    for (const res of [...set]) {
       const ok = safeWrite(res, {
         scope: "group",
         groupId: g,
         ...payload,
       });
 
-      if (!ok) {
-        userConnections.delete(res);
-      }
-
-      if (userConnections.size === 0) {
-        delete userConnections;
-      }
+      if (!ok) set.delete(res);
     }
-  }
+  });
 }
 
 /* ================= NOTIFICATIONS ================= */

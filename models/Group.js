@@ -114,7 +114,6 @@ groupSchema.index({ inviteCode: 1 });
  */
 groupSchema.pre("save", async function (next) {
   try {
-    /* ✅ ONLY FOR NEW GROUPS */
     if (!this.isNew) {
       return next();
     }
@@ -124,10 +123,9 @@ groupSchema.pre("save", async function (next) {
     while (exists) {
       const code = generateInviteCode();
 
-      const found =
-        await mongoose.models.Group.findOne({
-          inviteCode: code,
-        });
+      const found = await mongoose.models.Group.findOne({
+        inviteCode: code,
+      });
 
       if (!found) {
         this.inviteCode = code;
@@ -136,7 +134,6 @@ groupSchema.pre("save", async function (next) {
     }
 
     next();
-
   } catch (err) {
     next(err);
   }

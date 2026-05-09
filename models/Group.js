@@ -37,7 +37,7 @@ const memberSchema = new mongoose.Schema(
       default: null,
     },
   },
-  { _id: false }
+  { _id: false },
 );
 
 /* ================= GROUP SCHEMA ================= */
@@ -96,7 +96,7 @@ const groupSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-  }
+  },
 );
 
 /* ================= INDEXES ================= */
@@ -112,30 +112,23 @@ groupSchema.index({ inviteCode: 1 });
 /**
  * Generate unique invite code
  */
-groupSchema.pre("save", async function (next) {
-  try {
-    if (!this.isNew) {
-      return next();
+groupSchema.pre("save", async function () {
+  // only for new groups
+  if (!this.isNew) return;
+
+  let exists = true;
+
+  while (exists) {
+    const code = generateInviteCode();
+
+    const found = await mongoose.models.Group.findOne({
+      inviteCode: code,
+    });
+
+    if (!found) {
+      this.inviteCode = code;
+      exists = false;
     }
-
-    let exists = true;
-
-    while (exists) {
-      const code = generateInviteCode();
-
-      const found = await mongoose.models.Group.findOne({
-        inviteCode: code,
-      });
-
-      if (!found) {
-        this.inviteCode = code;
-        exists = false;
-      }
-    }
-
-    next();
-  } catch (err) {
-    next(err);
   }
 });
 
@@ -146,7 +139,7 @@ groupSchema.pre("save", async function (next) {
  */
 groupSchema.methods.getRole = function (userId) {
   const member = this.members.find(
-    (m) => m.user.toString() === userId.toString()
+    (m) => m.user.toString() === userId.toString(),
   );
 
   return member?.role || null;
@@ -165,37 +158,27 @@ groupSchema.methods.isAdmin = function (userId) {
 groupSchema.methods.canModerate = function (userId) {
   const role = this.getRole(userId);
 
-  return (
-    role === "admin" ||
-    role === "moderator"
-  );
+  return role === "admin" || role === "moderator";
 };
 
 /**
  * Check membership
  */
 groupSchema.methods.isMember = function (userId) {
-  return this.members.some(
-    (m) => m.user.toString() === userId.toString()
-  );
+  return this.members.some((m) => m.user.toString() === userId.toString());
 };
 
 /**
  * Get member object quickly
  */
 groupSchema.methods.getMember = function (userId) {
-  return this.members.find(
-    (m) => m.user.toString() === userId.toString()
-  );
+  return this.members.find((m) => m.user.toString() === userId.toString());
 };
 
 /**
  * Add member safely
  */
-groupSchema.methods.addMember = function (
-  userId,
-  role = "member"
-) {
+groupSchema.methods.addMember = function (userId, role = "member") {
   if (!this.isMember(userId)) {
     this.members.push({
       user: userId,
@@ -207,19 +190,12 @@ groupSchema.methods.addMember = function (
 /**
  * Remove member
  */
-groupSchema.methods.removeMember = function (
-  userId
-) {
+groupSchema.methods.removeMember = function (userId) {
   this.members = this.members.filter(
-    (m) =>
-      m.user.toString() !==
-      userId.toString()
+    (m) => m.user.toString() !== userId.toString(),
   );
 };
 
 /* ================= EXPORT ================= */
 
-module.exports = mongoose.model(
-  "Group",
-  groupSchema
-);
+module.exports = mongoose.model("Group", groupSchema);

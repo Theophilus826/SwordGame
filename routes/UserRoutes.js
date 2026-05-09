@@ -1,521 +1,13 @@
-const asyncHandler = require("express-async-handler");
-const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
-const crypto = require("crypto");
+const express = require("express");
+const router = express.Router();
 
-const { formatPhone, hashPhone } = require("../config/phone");
-
-const User = require("../models/UserModels");
-const Message = require("../models/Message");
-
+const multer = require("multer");
+const { CloudinaryStorage } = require("multer-storage-cloudinary");
 const cloudinary = require("../config/Cloudinary");
 
-/* ================= TOKEN ================= */
-const generateToken = (id, expiresIn = "7d") => {
-  return jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn,
-  });
-};
+const Post = require("../models/PostModel");
 
-/* ================= REGISTER ================= */
-const registerUser = asyncHandler(async (req, res) => {
-  let { name, email, phone, password, confirmPassword } = req.body;
-
-  if (!name || !password || !confirmPassword) {
-    res.status(400);
-    throw new Error("Required fields missing");
-  }
-
-  email = email?.toLowerCase().trim() || null;
-
-  const rawPhone = phone?.trim();
-
-  phone = rawPhone ? formatPhone(rawPhone) : null;
-
-  if (!email && !phone) {
-    res.status(400);
-    throw new Error("Provide email or phone");
-  }
-
-  if (rawPhone && !phone) {
-    res.status(400);
-    throw new Error("Invalid phone number");
-  }
-
-  if (password !== confirmPassword) {
-    res.status(400);
-    throw new Error("Passwords do not match");
-  }
-
-  const existingUser = await User.findOne({
-    $or: [
-      email ? { email } : null,
-      phone ? { phone } : null,
-    ].filter(Boolean),
-  });
-
-  if (existingUser) {
-    res.status(400);
-    throw new Error("User already exists");
-  }
-
-  const hashedPassword = await bcrypt.hash(password, 10);
-
-  const user = await User.create({
-    name,
-    email,
-    phone,
-    phoneHash: phone ? hashPhone(phone) : null,
-    password: hashedPassword,
-    isVerified: true,
-    online: true,
-  });
-
-  const token = generateToken(user._id);
-
-  res.cookie("token", token, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-  });
-
-  res.status(201).json({
-    _id: user._id,
-    name: user.name,
-    email: user.email || null,
-    phone: user.phone || null,
-    token,
-    avatar: user.avatar || null,
-    isAdmin: user.isAdmin,
-  });
-});
-
-/* ================= LOGIN ================= */
-const loginUser = asyncHandler(async (req, res) => {
-  let { identifier, password } = req.body;
-
-  if (!identifier || !password) {
-    res.status(400);
-    throw new Error("Identifier and password required");
-  }
-
-  identifier = identifier.trim();
-
-  const formattedPhone = formatPhone(identifier);
-
-  const email = identifier.includes("@")
-    ? identifier.toLowerCase()
-    : null;
-
-  const user = await User.findOne({
-    $or: [
-      ...(email ? [{ email }] : []),
-      ...(formattedPhone ? [{ phone: formattedPhone }] : []),
-    ],
-  });
-
-  if (!user) {
-    res.status(401);
-    throw new Error("Invalid credentials");
-  }
-
-  const matched = await bcrypt.compare(
-    password,
-    user.password
-  );
-
-  if (!matched) {
-    res.status(401);
-    throw new Error("Invalid credentials");
-  }
-
-  user.online = true;
-  user.lastActive = Date.now();
-
-  await user.save();
-
-  const token = generateToken(user._id);
-
-  res.cookie("token", token, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-  });
-
-  res.json({
-    _id: user._id,
-    name: user.name,
-    email: user.email || null,
-    phone: user.phone || null,
-    avatar: user.avatar || null,
-    isAdmin: user.isAdmin,
-    token,
-  });
-});
-
-/* ================= LOGOUT ================= */
-const logoutUser = asyncHandler(async (req, res) => {
-  res.cookie("token", "", {
-    httpOnly: true,
-    expires: new Date(0),
-  });
-
-  res.json({
-    message: "Logged out successfully",
-  });
-});
-
-/* ================= SEND MOOD ================= */
-const sendMood = asyncHandler(async (req, res) => {
-  const { mood } = req.body;
-
-  if (!mood) {
-    res.status(400);
-    throw new Error("Mood required");
-  }
-
-  const user = await User.findById(req.user._id);
-
-  if (!user) {
-    res.status(404);
-    throw new Error("User not found");
-  }
-
-  user.mood = mood;
-
-  await user.save();
-
-  if (req.io) {
-    req.io.emit("activity:event", {
-      type: "USER_MOOD",
-      user: user.name,
-      userId: user._id,
-      mood,
-      timestamp: Date.now(),
-    });
-  }
-
-  res.json({
-    message: "Mood updated",
-    mood,
-  });
-});
-
-/* ================= SEND MESSAGE ================= */
-const sendMessage = asyncHandler(async (req, res) => {
-  const { toUserId, text } = req.body;
-
-  if (!toUserId || !text?.trim()) {
-    res.status(400);
-    throw new Error("Recipient and text required");
-  }
-
-  const receiver = await User.findById(toUserId);
-
-  if (!receiver) {
-    res.status(404);
-    throw new Error("Receiver not found");
-  }
-
-  const newMessage = await Message.create({
-    fromUser: req.user._id,
-    toUser: toUserId,
-    text: text.trim(),
-  });
-
-  const populatedMessage = await Message.findById(newMessage._id)
-    .populate("fromUser", "_id name avatar")
-    .populate("toUser", "_id name avatar");
-
-  if (req.io) {
-    req.io.to(toUserId.toString()).emit(
-      "receiveMessage",
-      populatedMessage
-    );
-
-    req.io.to(req.user._id.toString()).emit(
-      "receiveMessage",
-      populatedMessage
-    );
-  }
-
-  res.status(201).json({
-    success: true,
-    message: populatedMessage,
-  });
-});
-
-/* ================= GET CHAT MESSAGES ================= */
-const getMessages = asyncHandler(async (req, res) => {
-  const { otherUserId } = req.params;
-
-  if (!otherUserId) {
-    res.status(400);
-    throw new Error("User ID required");
-  }
-
-  const messages = await Message.find({
-    $or: [
-      {
-        fromUser: req.user._id,
-        toUser: otherUserId,
-      },
-      {
-        fromUser: otherUserId,
-        toUser: req.user._id,
-      },
-    ],
-  })
-    .sort({ createdAt: 1 })
-    .populate("fromUser", "_id name avatar")
-    .populate("toUser", "_id name avatar");
-
-  res.json({
-    success: true,
-    messages,
-  });
-});
-
-/* ================= GET SINGLE USER ================= */
-const getUserById = asyncHandler(async (req, res) => {
-  const { userId } = req.params;
-
-  const user = await User.findById(userId)
-    .select("_id name avatar online");
-
-  if (!user) {
-    res.status(404);
-    throw new Error("User not found");
-  }
-
-  res.json({
-    success: true,
-    user: {
-      _id: user._id,
-      name: user.name,
-      avatar: user.avatar || null,
-      status: user.online ? "online" : "offline",
-    },
-  });
-});
-
-/* ================= FORGOT PASSWORD ================= */
-const forgotPassword = asyncHandler(async (req, res) => {
-  const { identifier } = req.body;
-
-  const formattedPhone = formatPhone(identifier);
-
-  const user = await User.findOne({
-    $or: [
-      { email: identifier?.toLowerCase() },
-      ...(formattedPhone
-        ? [{ phone: formattedPhone }]
-        : []),
-    ],
-  });
-
-  if (!user) {
-    res.status(404);
-    throw new Error("User not found");
-  }
-
-  const resetToken = crypto
-    .randomBytes(32)
-    .toString("hex");
-
-  const hashedToken = crypto
-    .createHash("sha256")
-    .update(resetToken)
-    .digest("hex");
-
-  user.resetPasswordToken = hashedToken;
-  user.resetPasswordExpire =
-    Date.now() + 10 * 60 * 1000;
-
-  await user.save();
-
-  res.json({
-    message: "Reset token generated",
-    resetToken,
-  });
-});
-
-/* ================= RESET PASSWORD ================= */
-const resetPassword = asyncHandler(async (req, res) => {
-  const { token } = req.params;
-
-  const { password } = req.body;
-
-  const hashedToken = crypto
-    .createHash("sha256")
-    .update(token)
-    .digest("hex");
-
-  const user = await User.findOne({
-    resetPasswordToken: hashedToken,
-    resetPasswordExpire: {
-      $gt: Date.now(),
-    },
-  });
-
-  if (!user) {
-    res.status(400);
-    throw new Error("Invalid or expired token");
-  }
-
-  user.password = await bcrypt.hash(password, 10);
-
-  user.resetPasswordToken = undefined;
-  user.resetPasswordExpire = undefined;
-
-  await user.save();
-
-  res.json({
-    message: "Password reset successful",
-  });
-});
-
-/* ================= WELCOME ================= */
-const welcome = asyncHandler(async (req, res) => {
-  res.json({
-    message: `Good ${getTimeOfDay()}, ${req.user.name}!`,
-  });
-});
-
-function getTimeOfDay() {
-  const hour = new Date().getHours();
-
-  if (hour < 12) return "Morning";
-
-  if (hour < 18) return "Afternoon";
-
-  return "Evening";
-}
-
-/* ================= UPDATE AVATAR ================= */
-const updateAvatar = asyncHandler(async (req, res) => {
-  const { userId } = req.params;
-
-  if (req.user._id.toString() !== userId) {
-    res.status(403);
-    throw new Error("Not authorized");
-  }
-
-  if (!req.file) {
-    res.status(400);
-    throw new Error("No file uploaded");
-  }
-
-  try {
-    const avatarUrl =
-      req.file.path ||
-      req.file.filename ||
-      req.file.url;
-
-    const user = await User.findById(userId);
-
-    if (!user) {
-      res.status(404);
-      throw new Error("User not found");
-    }
-
-    user.avatar = avatarUrl;
-
-    await user.save();
-
-    res.json({
-      success: true,
-      avatar: user.avatar,
-    });
-  } catch (err) {
-    console.error(err);
-
-    res.status(500).json({
-      success: false,
-      message: "Avatar update failed",
-    });
-  }
-});
-
-/* ================= GET ALL USERS ================= */
-const getAllUsers = asyncHandler(async (req, res) => {
-  const users = await User.find({
-    _id: { $ne: req.user._id },
-  })
-    .select("_id name avatar online")
-    .lean();
-
-  const formattedUsers = users.map((u) => ({
-    _id: u._id,
-    name: u.name,
-    avatar: u.avatar || null,
-    status: u.online ? "online" : "offline",
-  }));
-
-  res.json({
-    success: true,
-    users: formattedUsers,
-  });
-});
-
-/* ================= SYNC CONTACTS ================= */
-const syncContacts = asyncHandler(async (req, res) => {
-  const { contacts } = req.body;
-
-  if (!contacts || !contacts.length) {
-    res.status(400);
-    throw new Error("No contacts provided");
-  }
-
-  const users = await User.find({
-    phoneHash: { $in: contacts },
-    _id: { $ne: req.user._id },
-  })
-    .select("_id name avatar online phone")
-    .lean();
-
-  const formattedUsers = users.map((u) => ({
-    _id: u._id,
-    name: u.name,
-    avatar: u.avatar || null,
-    phone: u.phone,
-    status: u.online ? "online" : "offline",
-  }));
-
-  res.json({
-    success: true,
-    users: formattedUsers,
-  });
-});
-
-/* ================= SEARCH USERS ================= */
-const searchUsers = asyncHandler(async (req, res) => {
-  const q = req.query.q;
-
-  if (!q) {
-    return res.status(400).json({
-      message: "Query required",
-    });
-  }
-
-  const users = await User.find({
-    name: {
-      $regex: q,
-      $options: "i",
-    },
-  })
-    .select("_id name avatar online")
-    .limit(20);
-
-  res.json({
-    success: true,
-    users,
-  });
-});
-
-module.exports = {
+const {
   registerUser,
   loginUser,
   logoutUser,
@@ -523,7 +15,6 @@ module.exports = {
   resetPassword,
   welcome,
   sendMood,
-  generateToken,
   updateAvatar,
   sendMessage,
   getMessages,
@@ -531,4 +22,92 @@ module.exports = {
   syncContacts,
   searchUsers,
   getUserById,
-};
+} = require("../controller/UserController");
+
+const { protect } = require("../middleware/AuthMiddleware");
+
+/* =========================
+   MULTER / CLOUDINARY
+========================= */
+
+const storage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: "avatars",
+    resource_type: "image",
+    allowed_formats: ["jpg", "png", "jpeg", "webp"],
+  },
+});
+
+const upload = multer({ storage });
+
+/* =========================
+   PUBLIC AUTH
+========================= */
+
+router.post("/register", registerUser);
+router.post("/login", loginUser);
+router.post("/logout", logoutUser);
+router.post("/forgot-password", forgotPassword);
+router.put("/reset-password/:token", resetPassword);
+
+/* =========================
+   PROTECTED
+========================= */
+
+router.get("/welcome", protect, welcome);
+router.post("/mood", protect, sendMood);
+router.post("/sync-contacts", protect, syncContacts);
+
+/* =========================
+   USERS
+========================= */
+
+router.get("/", protect, getAllUsers);
+router.get("/search", protect, searchUsers);
+
+/* ⚠️ IMPORTANT: keep dynamic routes LAST */
+router.get("/:userId", protect, getUserById);
+
+router.put(
+  "/:userId/avatar",
+  protect,
+  upload.single("file"),
+  updateAvatar
+);
+
+/* =========================
+   POSTS
+========================= */
+
+router.get("/:userId/posts", protect, async (req, res) => {
+  try {
+    const posts = await Post.find({ user: req.params.userId })
+      .sort({ createdAt: -1 })
+      .populate("user", "name avatar")
+      .lean();
+
+    res.json({
+      success: true,
+      count: posts.length,
+      posts,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch user posts",
+    });
+  }
+});
+
+/* =========================
+   CHAT
+========================= */
+
+router.post("/chat/send", protect, sendMessage);
+
+// ⚠️ FIXED ROUTE NAME (CLEARER)
+router.get("/chat/messages/:otherUserId", protect, getMessages);
+
+module.exports = router;

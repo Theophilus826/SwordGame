@@ -308,7 +308,11 @@ const getGroupMessages = async (req, res) => {
     }
 
     /* ✅ MUST BE MEMBER */
-    if (!group.isMember(userId)) {
+    const isMember = group.members.some(
+      (m) => (m.user?._id || m.user)?.toString() === userId.toString(),
+    );
+
+    if (!isMember) {
       return res.status(403).json({
         success: false,
         error: "Not in group",
@@ -491,7 +495,7 @@ const leaveGroup = async (req, res) => {
       });
     }
 
-    if (!group.isMember(userId)) {
+    if (!isMember) {
       return res.status(400).json({
         success: false,
         error: "Not in group",

@@ -53,11 +53,10 @@ router.get("/stream/:groupId", sseProtect, (req, res) => {
     return res.status(401).end();
   }
 
-  // 🔥 Prevent Express timeout issues
+  // prevent timeouts
   req.setTimeout(0);
   res.setTimeout(0);
 
-  /* ================= SSE HEADERS ================= */
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache, no-transform",
@@ -67,10 +66,9 @@ router.get("/stream/:groupId", sseProtect, (req, res) => {
 
   res.flushHeaders?.();
 
-  /* ================= REGISTER CLIENT ================= */
-  addGroupClient(groupId, userId, res);
+  // ✅ FIX: only pass res
+  addGroupClient(groupId, res);
 
-  /* ================= INITIAL EVENT ================= */
   res.write(
     `data: ${JSON.stringify({
       type: "connected",
@@ -80,25 +78,29 @@ router.get("/stream/:groupId", sseProtect, (req, res) => {
     })}\n\n`
   );
 
-  /* ================= HEARTBEAT ================= */
   const interval = setInterval(() => {
-    safeSseWrite(res, {
-      type: "ping",
-      scope: "group",
-      groupId,
-    });
+    res.write(
+      `data: ${JSON.stringify({
+        type: "ping",
+        scope: "group",
+        groupId,
+      })}\n\n`
+    );
   }, 25000);
 
-  /* ================= CLEANUP ================= */
   const cleanup = () => {
     clearInterval(interval);
-    removeGroupClient(groupId, userId, res);
+
+    try {
+      removeGroupClient(groupId, res);
+    } catch (e) {
+      console.error("cleanup error:", e.message);
+    }
+
     res.end();
   };
 
   req.on("close", cleanup);
-  req.on("error", cleanup);
-  res.on("error", cleanup);
 });
 
 /* ================= SAFE SSE WRITE ================= */

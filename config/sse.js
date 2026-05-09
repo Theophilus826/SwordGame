@@ -32,21 +32,7 @@ function safeWrite(res, data) {
 /* ================= =========================
    🔵 DM CLIENTS
 ========================= */
-function addGroupClient(groupId, userId, res) {
-  const g = String(groupId);
-  const u = String(userId);
 
-  if (!groupClients[g]) groupClients[g] = {};
-  if (!groupClients[g][u]) groupClients[g][u] = new Set();
-
-  groupClients[g][u].add(res);
-
-  safeWrite(res, {
-    type: "connected",
-    scope: "group",
-    groupId: g,
-  });
-}
 function addClient(userId, otherUserId, res) {
   const key = getKey(userId, otherUserId);
 
@@ -68,6 +54,7 @@ function removeClient(userId, otherUserId, res) {
 }
 
 /* ================= GROUP CLIENTS ================= */
+
 function addGroupClient(groupId, userId, res) {
   const g = String(groupId);
   const u = String(userId);
@@ -83,7 +70,6 @@ function addGroupClient(groupId, userId, res) {
     groupId: g,
   });
 }
-
 function removeGroupClient(groupId, userId, res) {
   const g = String(groupId);
   const u = String(userId);
@@ -202,12 +188,19 @@ function sendTyping(fromUser, toUser, status) {
 function sendGroupTyping(groupId, fromUser, status) {
   const key = String(groupId);
 
-  groupClients[key]?.forEach((res) => {
-    safeWrite(res, {
-      type: status,
-      scope: "group",
-      groupId,
-      fromUser,
+  const users = groupClients[key];
+  if (!users) return;
+
+  Object.values(users).forEach((set) => {
+    if (!set) return;
+
+    set.forEach((res) => {
+      safeWrite(res, {
+        type: status,
+        scope: "group",
+        groupId,
+        fromUser,
+      });
     });
   });
 }

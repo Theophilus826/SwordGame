@@ -5,21 +5,16 @@ const mongoose = require("mongoose");
 const Group = require("../models/Group");
 const GroupMessage = require("../models/GroupMessages");
 
-const {
-  pushGroupMessage,
-} = require("../config/sse");
+const { pushGroupMessage } = require("../config/sse");
 
 /* ================= HELPERS ================= */
 
-const isValidId = (id) =>
-  mongoose.Types.ObjectId.isValid(id);
+const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
 
 /* ================= ROLE HELPERS ================= */
 
 const getMember = (group, userId) =>
-  group.members.find(
-    (m) => m.user.toString() === userId.toString()
-  );
+  group.members.find((m) => m.user.toString() === userId.toString());
 
 const getRole = (group, userId) => {
   const member = getMember(group, userId);
@@ -27,23 +22,15 @@ const getRole = (group, userId) => {
   return member?.role || null;
 };
 
-const isAdmin = (group, userId) =>
-  getRole(group, userId) === "admin";
+const isAdmin = (group, userId) => getRole(group, userId) === "admin";
 
 const canModerate = (group, userId) => {
   const role = getRole(group, userId);
 
-  return (
-    role === "admin" ||
-    role === "moderator"
-  );
+  return role === "admin" || role === "moderator";
 };
 
-const allowedRoles = [
-  "admin",
-  "moderator",
-  "member",
-];
+const allowedRoles = ["admin", "moderator", "member"];
 
 /* ================= CREATE GROUP ================= */
 
@@ -51,11 +38,7 @@ const createGroup = async (req, res) => {
   try {
     const userId = req.user._id;
 
-    const {
-      name,
-      members = [],
-      avatar = null,
-    } = req.body;
+    const { name, members = [], avatar = null } = req.body;
 
     /* ✅ VALIDATION */
     if (!name?.trim()) {
@@ -65,18 +48,10 @@ const createGroup = async (req, res) => {
     }
 
     /* ✅ FILTER VALID IDS */
-    const validMembers = members.filter(
-      isValidId
-    );
+    const validMembers = members.filter(isValidId);
 
     /* ✅ REMOVE DUPLICATES */
-    const uniqueMembers = [
-      ...new Set(
-        validMembers.map((id) =>
-          id.toString()
-        )
-      ),
-    ];
+    const uniqueMembers = [...new Set(validMembers.map((id) => id.toString()))];
 
     /* ✅ CREATE GROUP */
     const group = await Group.create({
@@ -91,10 +66,7 @@ const createGroup = async (req, res) => {
         },
 
         ...uniqueMembers
-          .filter(
-            (id) =>
-              id !== userId.toString()
-          )
+          .filter((id) => id !== userId.toString())
           .map((id) => ({
             user: id,
             role: "member",
@@ -105,16 +77,9 @@ const createGroup = async (req, res) => {
     });
 
     /* ✅ POPULATE */
-    const populated =
-      await Group.findById(group._id)
-        .populate(
-          "members.user",
-          "name avatar"
-        )
-        .populate(
-          "createdBy",
-          "name avatar"
-        );
+    const populated = await Group.findById(group._id)
+      .populate("members.user", "name avatar")
+      .populate("createdBy", "name avatar");
 
     /* ✅ SSE EVENT */
     pushGroupMessage(group._id, {
@@ -127,12 +92,8 @@ const createGroup = async (req, res) => {
       success: true,
       group: populated,
     });
-
   } catch (err) {
-    console.error(
-      "CREATE GROUP ERROR:",
-      err
-    );
+    console.error("CREATE GROUP ERROR:", err);
 
     return res.status(500).json({
       success: false,
@@ -150,26 +111,16 @@ const getMyGroups = async (req, res) => {
     const groups = await Group.find({
       "members.user": userId,
     })
-      .populate(
-        "members.user",
-        "name avatar"
-      )
-      .populate(
-        "createdBy",
-        "name avatar"
-      )
+      .populate("members.user", "name avatar")
+      .populate("createdBy", "name avatar")
       .sort({ updatedAt: -1 });
 
     return res.json({
       success: true,
       groups,
     });
-
   } catch (err) {
-    console.error(
-      "GET GROUPS ERROR:",
-      err
-    );
+    console.error("GET GROUPS ERROR:", err);
 
     return res.status(500).json({
       success: false,
@@ -183,27 +134,11 @@ const getMyGroups = async (req, res) => {
 const getGroup = async (req, res) => {
   try {
     const userId = req.user._id;
-
     const { groupId } = req.params;
 
-    if (!isValidId(groupId)) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid group ID",
-      });
-    }
-
-    const group = await Group.findById(
-      groupId
-    )
-      .populate(
-        "members.user",
-        "name avatar"
-      )
-      .populate(
-        "createdBy",
-        "name avatar"
-      );
+    const group = await Group.findById(groupId)
+      .populate("members.user", "name avatar")
+      .populate("createdBy", "name avatar");
 
     if (!group) {
       return res.status(404).json({
@@ -212,8 +147,12 @@ const getGroup = async (req, res) => {
       });
     }
 
-    /* ✅ MUST BE MEMBER */
-    if (!group.isMember(userId)) {
+    // 🔥 FIXED MEMBERSHIP CHECK
+    const isMember = group.members.some(
+      (m) => m.user._id.toString() === userId.toString(),
+    );
+
+    if (!isMember) {
       return res.status(403).json({
         success: false,
         error: "Not in group",
@@ -224,12 +163,8 @@ const getGroup = async (req, res) => {
       success: true,
       group,
     });
-
   } catch (err) {
-    console.error(
-      "GET GROUP ERROR:",
-      err
-    );
+    console.error("GET GROUP ERROR:", err);
 
     return res.status(500).json({
       success: false,
@@ -240,10 +175,7 @@ const getGroup = async (req, res) => {
 
 /* ================= SEND MESSAGE ================= */
 
-const sendGroupMessage = async (
-  req,
-  res
-) => {
+const sendGroupMessage = async (req, res) => {
   try {
     const userId = req.user._id;
 
@@ -265,24 +197,16 @@ const sendGroupMessage = async (
     }
 
     /* ✅ REQUIRE CONTENT */
-    const hasContent =
-      text?.trim() ||
-      image ||
-      video ||
-      audio ||
-      file;
+    const hasContent = text?.trim() || image || video || audio || file;
 
     if (!hasContent) {
       return res.status(400).json({
         success: false,
-        error:
-          "Message content required",
+        error: "Message content required",
       });
     }
 
-    const group = await Group.findById(
-      groupId
-    );
+    const group = await Group.findById(groupId);
 
     if (!group) {
       return res.status(404).json({
@@ -292,10 +216,7 @@ const sendGroupMessage = async (
     }
 
     /* ✅ MUST BE MEMBER */
-    const member = getMember(
-      group,
-      userId
-    );
+    const member = getMember(group, userId);
 
     if (!member) {
       return res.status(403).json({
@@ -305,52 +226,37 @@ const sendGroupMessage = async (
     }
 
     /* ✅ ONLY ADMINS CAN MESSAGE */
-    if (
-      group.settings
-        ?.onlyAdminsCanMessage &&
-      member.role !== "admin"
-    ) {
+    if (group.settings?.onlyAdminsCanMessage && member.role !== "admin") {
       return res.status(403).json({
         success: false,
-        error:
-          "Only admins can send messages",
+        error: "Only admins can send messages",
       });
     }
 
     /* ✅ CREATE MESSAGE */
-    const message =
-      await GroupMessage.create({
-        group: groupId,
+    const message = await GroupMessage.create({
+      group: groupId,
 
-        fromUser: userId,
+      fromUser: userId,
 
-        text: text?.trim() || "",
+      text: text?.trim() || "",
 
-        image,
-        video,
-        audio,
-        file,
+      image,
+      video,
+      audio,
+      file,
 
-        readBy: [
-          {
-            user: userId,
-          },
-        ],
-      });
+      readBy: [
+        {
+          user: userId,
+        },
+      ],
+    });
 
     /* ✅ POPULATE */
-    const populated =
-      await GroupMessage.findById(
-        message._id
-      )
-        .populate(
-          "fromUser",
-          "name avatar"
-        )
-        .populate(
-          "readBy.user",
-          "name avatar"
-        );
+    const populated = await GroupMessage.findById(message._id)
+      .populate("fromUser", "name avatar")
+      .populate("readBy.user", "name avatar");
 
     /* ✅ UPDATE GROUP ACTIVITY */
     group.updatedAt = new Date();
@@ -367,27 +273,19 @@ const sendGroupMessage = async (
       success: true,
       message: populated,
     });
-
   } catch (err) {
-    console.error(
-      "SEND GROUP MESSAGE ERROR:",
-      err
-    );
+    console.error("SEND GROUP MESSAGE ERROR:", err);
 
     return res.status(500).json({
       success: false,
-      error: err.message ||
-        "Failed to send message",
+      error: err.message || "Failed to send message",
     });
   }
 };
 
 /* ================= GET MESSAGES ================= */
 
-const getGroupMessages = async (
-  req,
-  res
-) => {
+const getGroupMessages = async (req, res) => {
   try {
     const userId = req.user._id;
 
@@ -400,9 +298,7 @@ const getGroupMessages = async (
       });
     }
 
-    const group = await Group.findById(
-      groupId
-    );
+    const group = await Group.findById(groupId);
 
     if (!group) {
       return res.status(404).json({
@@ -419,36 +315,24 @@ const getGroupMessages = async (
       });
     }
 
-    const messages =
-      await GroupMessage.find({
-        group: groupId,
-        deletedForEveryone: false,
-      })
-        .populate(
-          "fromUser",
-          "name avatar"
-        )
-        .populate(
-          "readBy.user",
-          "name avatar"
-        )
-        .sort({ createdAt: 1 });
+    const messages = await GroupMessage.find({
+      group: groupId,
+      deletedForEveryone: false,
+    })
+      .populate("fromUser", "name avatar")
+      .populate("readBy.user", "name avatar")
+      .sort({ createdAt: 1 });
 
     return res.json({
       success: true,
       messages,
     });
-
   } catch (err) {
-    console.error(
-      "GET GROUP MESSAGES ERROR:",
-      err
-    );
+    console.error("GET GROUP MESSAGES ERROR:", err);
 
     return res.status(500).json({
       success: false,
-      error:
-        "Failed to fetch messages",
+      error: "Failed to fetch messages",
     });
   }
 };
@@ -470,9 +354,7 @@ const addMember = async (req, res) => {
       });
     }
 
-    const group = await Group.findById(
-      groupId
-    );
+    const group = await Group.findById(groupId);
 
     if (!group) {
       return res.status(404).json({
@@ -482,21 +364,14 @@ const addMember = async (req, res) => {
     }
 
     /* ✅ SETTINGS CHECK */
-    if (
-      group.settings
-        ?.onlyAdminsCanAddMembers &&
-      !isAdmin(group, userId)
-    ) {
+    if (group.settings?.onlyAdminsCanAddMembers && !isAdmin(group, userId)) {
       return res.status(403).json({
         success: false,
-        error:
-          "Only admins can add members",
+        error: "Only admins can add members",
       });
     }
 
-    if (
-      !canModerate(group, userId)
-    ) {
+    if (!canModerate(group, userId)) {
       return res.status(403).json({
         success: false,
         error: "Not allowed",
@@ -515,12 +390,10 @@ const addMember = async (req, res) => {
 
     await group.save();
 
-    const populated =
-      await Group.findById(groupId)
-        .populate(
-          "members.user",
-          "name avatar"
-        );
+    const populated = await Group.findById(groupId).populate(
+      "members.user",
+      "name avatar",
+    );
 
     pushGroupMessage(groupId, {
       type: "group_event",
@@ -534,12 +407,8 @@ const addMember = async (req, res) => {
       message: "Member added",
       group: populated,
     });
-
   } catch (err) {
-    console.error(
-      "ADD MEMBER ERROR:",
-      err
-    );
+    console.error("ADD MEMBER ERROR:", err);
 
     return res.status(500).json({
       success: false,
@@ -550,21 +419,13 @@ const addMember = async (req, res) => {
 
 /* ================= REMOVE MEMBER ================= */
 
-const removeMember = async (
-  req,
-  res
-) => {
+const removeMember = async (req, res) => {
   try {
     const userId = req.user._id;
 
-    const {
-      groupId,
-      memberId,
-    } = req.params;
+    const { groupId, memberId } = req.params;
 
-    const group = await Group.findById(
-      groupId
-    );
+    const group = await Group.findById(groupId);
 
     if (!group) {
       return res.status(404).json({
@@ -573,9 +434,7 @@ const removeMember = async (
       });
     }
 
-    if (
-      !canModerate(group, userId)
-    ) {
+    if (!canModerate(group, userId)) {
       return res.status(403).json({
         success: false,
         error: "Not allowed",
@@ -605,35 +464,25 @@ const removeMember = async (
       message: "Member removed",
       group,
     });
-
   } catch (err) {
-    console.error(
-      "REMOVE MEMBER ERROR:",
-      err
-    );
+    console.error("REMOVE MEMBER ERROR:", err);
 
     return res.status(500).json({
       success: false,
-      error:
-        "Failed to remove member",
+      error: "Failed to remove member",
     });
   }
 };
 
 /* ================= LEAVE GROUP ================= */
 
-const leaveGroup = async (
-  req,
-  res
-) => {
+const leaveGroup = async (req, res) => {
   try {
     const userId = req.user._id;
 
     const { groupId } = req.params;
 
-    const group = await Group.findById(
-      groupId
-    );
+    const group = await Group.findById(groupId);
 
     if (!group) {
       return res.status(404).json({
@@ -653,9 +502,7 @@ const leaveGroup = async (
 
     /* ✅ AUTO DELETE IF EMPTY */
     if (group.members.length === 0) {
-      await Group.findByIdAndDelete(
-        groupId
-      );
+      await Group.findByIdAndDelete(groupId);
 
       await GroupMessage.deleteMany({
         group: groupId,
@@ -663,8 +510,7 @@ const leaveGroup = async (
 
       return res.json({
         success: true,
-        message:
-          "Group deleted automatically",
+        message: "Group deleted automatically",
       });
     }
 
@@ -680,12 +526,8 @@ const leaveGroup = async (
       success: true,
       message: "Left group",
     });
-
   } catch (err) {
-    console.error(
-      "LEAVE GROUP ERROR:",
-      err
-    );
+    console.error("LEAVE GROUP ERROR:", err);
 
     return res.status(500).json({
       success: false,
@@ -696,32 +538,22 @@ const leaveGroup = async (
 
 /* ================= CHANGE ROLE ================= */
 
-const changeRole = async (
-  req,
-  res
-) => {
+const changeRole = async (req, res) => {
   try {
     const userId = req.user._id;
 
-    const {
-      groupId,
-      memberId,
-    } = req.params;
+    const { groupId, memberId } = req.params;
 
     const { role } = req.body;
 
-    if (
-      !allowedRoles.includes(role)
-    ) {
+    if (!allowedRoles.includes(role)) {
       return res.status(400).json({
         success: false,
         error: "Invalid role",
       });
     }
 
-    const group = await Group.findById(
-      groupId
-    );
+    const group = await Group.findById(groupId);
 
     if (!group) {
       return res.status(404).json({
@@ -734,13 +566,11 @@ const changeRole = async (
     if (!isAdmin(group, userId)) {
       return res.status(403).json({
         success: false,
-        error:
-          "Only admins allowed",
+        error: "Only admins allowed",
       });
     }
 
-    const member =
-      group.getMember(memberId);
+    const member = group.getMember(memberId);
 
     if (!member) {
       return res.status(404).json({
@@ -766,12 +596,8 @@ const changeRole = async (
       message: "Role updated",
       group,
     });
-
   } catch (err) {
-    console.error(
-      "CHANGE ROLE ERROR:",
-      err
-    );
+    console.error("CHANGE ROLE ERROR:", err);
 
     return res.status(500).json({
       success: false,
@@ -782,18 +608,13 @@ const changeRole = async (
 
 /* ================= DELETE GROUP ================= */
 
-const deleteGroup = async (
-  req,
-  res
-) => {
+const deleteGroup = async (req, res) => {
   try {
     const userId = req.user._id;
 
     const { groupId } = req.params;
 
-    const group = await Group.findById(
-      groupId
-    );
+    const group = await Group.findById(groupId);
 
     if (!group) {
       return res.status(404).json({
@@ -803,20 +624,14 @@ const deleteGroup = async (
     }
 
     /* ✅ ONLY CREATOR */
-    if (
-      group.createdBy.toString() !==
-      userId.toString()
-    ) {
+    if (group.createdBy.toString() !== userId.toString()) {
       return res.status(403).json({
         success: false,
-        error:
-          "Only creator can delete",
+        error: "Only creator can delete",
       });
     }
 
-    await Group.findByIdAndDelete(
-      groupId
-    );
+    await Group.findByIdAndDelete(groupId);
 
     await GroupMessage.deleteMany({
       group: groupId,
@@ -831,12 +646,8 @@ const deleteGroup = async (
       success: true,
       message: "Group deleted",
     });
-
   } catch (err) {
-    console.error(
-      "DELETE GROUP ERROR:",
-      err
-    );
+    console.error("DELETE GROUP ERROR:", err);
 
     return res.status(500).json({
       success: false,

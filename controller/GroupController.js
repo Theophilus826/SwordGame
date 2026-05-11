@@ -186,7 +186,7 @@ const sendGroupMessage = async (req, res) => {
     }
 
     const member = group.members.find(
-      (m) => m.user.toString() === userId.toString()
+      (m) => m.user.toString() === userId.toString(),
     );
 
     if (!member) {
@@ -204,8 +204,10 @@ const sendGroupMessage = async (req, res) => {
       readBy: [{ user: userId }],
     });
 
-    const populated = await GroupMessage.findById(message._id)
-      .populate("fromUser", "name avatar");
+    const populated = await GroupMessage.findById(message._id).populate(
+      "fromUser",
+      "name avatar",
+    );
 
     group.updatedAt = new Date();
     await group.save();
@@ -428,7 +430,6 @@ const removeMember = async (req, res) => {
 const leaveGroup = async (req, res) => {
   try {
     const userId = req.user._id;
-
     const { groupId } = req.params;
 
     const group = await Group.findById(groupId);
@@ -440,7 +441,12 @@ const leaveGroup = async (req, res) => {
       });
     }
 
-    if (!isMember) {
+    // ✅ FIX
+    const memberExists = group.members.some(
+      (m) => m.user.toString() === userId.toString(),
+    );
+
+    if (!memberExists) {
       return res.status(400).json({
         success: false,
         error: "Not in group",
@@ -449,7 +455,6 @@ const leaveGroup = async (req, res) => {
 
     group.removeMember(userId);
 
-    /* ✅ AUTO DELETE IF EMPTY */
     if (group.members.length === 0) {
       await Group.findByIdAndDelete(groupId);
 
@@ -519,7 +524,9 @@ const changeRole = async (req, res) => {
       });
     }
 
-    const member = group.getMember(memberId);
+    const member = group.members.find(
+      (m) => m.user.toString() === memberId.toString(),
+    );
 
     if (!member) {
       return res.status(404).json({

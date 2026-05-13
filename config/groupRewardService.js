@@ -1,5 +1,5 @@
 const CoinTransaction = require("../models/CoinTransaction");
-const { updateCoins } = require("../controllers/coinController");
+const { updateCoins } = require("../controller/AccountController");
 
 const GROUP_REWARDS = {
   CREATE_GROUP: 50,

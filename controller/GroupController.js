@@ -6,6 +6,7 @@ const Group = require("../models/Group");
 const GroupMessage = require("../models/GroupMessages");
 
 const { pushGroupMessage } = require("../config/sse");
+const { rewardGroupAction } = require("../config/groupRewardService");
 
 /* ================= HELPERS ================= */
 
@@ -51,12 +52,13 @@ const createGroup = async (req, res) => {
     const validMembers = members.filter(isValidId);
 
     /* ✅ REMOVE DUPLICATES */
-    const uniqueMembers = [...new Set(validMembers.map((id) => id.toString()))];
+    const uniqueMembers = [
+      ...new Set(validMembers.map((id) => id.toString())),
+    ];
 
     /* ✅ CREATE GROUP */
     const group = await Group.create({
       name: name.trim(),
-
       avatar,
 
       members: [
@@ -74,14 +76,33 @@ const createGroup = async (req, res) => {
       ],
 
       createdBy: userId,
+
+      /* 🔥 INIT STATS (optional but recommended) */
+      stats: {
+        totalMessages: 0,
+        totalCoinsDistributed: 0,
+        totalMembersJoined: uniqueMembers.length + 1,
+      },
     });
 
-    /* ✅ POPULATE */
+    /* ================= REWARD (COINS) ================= */
+    try {
+      await rewardGroupAction({
+        userId,
+        groupId: group._id,
+        action: "CREATE_GROUP",
+        description: "Created a new group",
+      });
+    } catch (rewardErr) {
+      console.error("CREATE_GROUP reward error:", rewardErr);
+    }
+
+    /* ================= POPULATE ================= */
     const populated = await Group.findById(group._id)
       .populate("members.user", "name avatar")
       .populate("createdBy", "name avatar");
 
-    /* ✅ SSE EVENT */
+    /* ================= SSE EVENT ================= */
     pushGroupMessage(group._id, {
       type: "group_event",
       event: "group_created",
@@ -182,7 +203,10 @@ const sendGroupMessage = async (req, res) => {
 
     const group = await Group.findById(groupId);
     if (!group) {
-      return res.status(404).json({ success: false, error: "Group not found" });
+      return res.status(404).json({
+        success: false,
+        error: "Group not found",
+      });
     }
 
     const member = group.members.find(
@@ -190,9 +214,13 @@ const sendGroupMessage = async (req, res) => {
     );
 
     if (!member) {
-      return res.status(403).json({ success: false, error: "Not in group" });
+      return res.status(403).json({
+        success: false,
+        error: "Not in group",
+      });
     }
 
+    /* ================= CREATE MESSAGE ================= */
     const message = await GroupMessage.create({
       group: groupId,
       fromUser: userId,
@@ -204,15 +232,73 @@ const sendGroupMessage = async (req, res) => {
       readBy: [{ user: userId }],
     });
 
-    const populated = await GroupMessage.findById(message._id).populate(
-      "fromUser",
-      "name avatar",
-    );
+    const populated = await GroupMessage.findById(
+      message._id,
+    ).populate("fromUser", "name avatar");
+
+    /* ================= UPDATE GROUP STATS ================= */
+    group.stats.totalMessages =
+      (group.stats.totalMessages || 0) + 1;
+
+    if (image || video || audio || file) {
+      group.stats.totalMediaMessages =
+        (group.stats.totalMediaMessages || 0) + 1;
+    }
 
     group.updatedAt = new Date();
+
     await group.save();
 
-    // 🔥 SAFE SSE BROADCAST
+    /* ================= COIN REWARDS ================= */
+    try {
+      await rewardGroupAction({
+        userId,
+        groupId,
+        action: "SEND_MESSAGE",
+        description: "Sent a group message",
+      });
+
+      /* 🔥 MEDIA BONUS */
+      if (image || video || audio || file) {
+        await rewardGroupAction({
+          userId,
+          groupId,
+          action: "MEDIA_MESSAGE",
+          description: "Sent media in group",
+        });
+      }
+    } catch (rewardErr) {
+      console.error("MESSAGE reward error:", rewardErr);
+    }
+
+    /* ================= MILESTONE CHECK ================= */
+    try {
+      if (group.stats.totalMessages === 100) {
+        for (const m of group.members) {
+          await rewardGroupAction({
+            userId: m.user,
+            groupId,
+            action: "GROUP_MILESTONE_100",
+            description: "Group reached 100 messages",
+          });
+        }
+      }
+
+      if (group.stats.totalMessages === 1000) {
+        for (const m of group.members) {
+          await rewardGroupAction({
+            userId: m.user,
+            groupId,
+            action: "GROUP_MILESTONE_1000",
+            description: "Group reached 1000 messages",
+          });
+        }
+      }
+    } catch (err) {
+      console.error("Milestone reward error:", err);
+    }
+
+    /* ================= SSE BROADCAST ================= */
     pushGroupMessage(groupId, {
       type: "new_message",
       message: populated,
@@ -293,9 +379,7 @@ const getGroupMessages = async (req, res) => {
 const addMember = async (req, res) => {
   try {
     const userId = req.user._id;
-
     const { groupId } = req.params;
-
     const { memberId } = req.body;
 
     if (!isValidId(memberId)) {
@@ -314,8 +398,11 @@ const addMember = async (req, res) => {
       });
     }
 
-    /* ✅ SETTINGS CHECK */
-    if (group.settings?.onlyAdminsCanAddMembers && !isAdmin(group, userId)) {
+    /* ================= PERMISSION CHECK ================= */
+    if (
+      group.settings?.onlyAdminsCanAddMembers &&
+      !isAdmin(group, userId)
+    ) {
       return res.status(403).json({
         success: false,
         error: "Only admins can add members",
@@ -329,7 +416,7 @@ const addMember = async (req, res) => {
       });
     }
 
-    /* ✅ ALREADY MEMBER */
+    /* ================= ALREADY MEMBER ================= */
     if (group.isMember(memberId)) {
       return res.status(400).json({
         success: false,
@@ -337,15 +424,48 @@ const addMember = async (req, res) => {
       });
     }
 
+    /* ================= ADD MEMBER ================= */
     group.addMember(memberId);
-
     await group.save();
 
+    /* ================= POPULATE ================= */
     const populated = await Group.findById(groupId).populate(
       "members.user",
-      "name avatar",
+      "name avatar"
     );
 
+    /* ================= COIN REWARDS ================= */
+    try {
+      // reward inviter
+      await rewardGroupAction({
+        userId,
+        groupId,
+        action: "ADD_MEMBER",
+        description: "Invited a member to group",
+      });
+
+      // reward invited user
+      await rewardGroupAction({
+        userId: memberId,
+        groupId,
+        action: "JOINED_GROUP",
+        description: "Joined group via invite",
+      });
+
+      // optional group growth bonus
+      if (group.members.length % 10 === 0) {
+        await rewardGroupAction({
+          userId,
+          groupId,
+          action: "GROUP_GROWTH_MILESTONE",
+          description: "Group reached growth milestone",
+        });
+      }
+    } catch (rewardErr) {
+      console.error("ADD MEMBER reward error:", rewardErr);
+    }
+
+    /* ================= SSE EVENT ================= */
     pushGroupMessage(groupId, {
       type: "group_event",
       event: "member_added",
@@ -373,7 +493,6 @@ const addMember = async (req, res) => {
 const removeMember = async (req, res) => {
   try {
     const userId = req.user._id;
-
     const { groupId, memberId } = req.params;
 
     const group = await Group.findById(groupId);
@@ -385,6 +504,7 @@ const removeMember = async (req, res) => {
       });
     }
 
+    /* ================= PERMISSION CHECK ================= */
     if (!canModerate(group, userId)) {
       return res.status(403).json({
         success: false,
@@ -392,6 +512,7 @@ const removeMember = async (req, res) => {
       });
     }
 
+    /* ================= MEMBER CHECK ================= */
     if (!group.isMember(memberId)) {
       return res.status(404).json({
         success: false,
@@ -399,10 +520,40 @@ const removeMember = async (req, res) => {
       });
     }
 
-    group.removeMember(memberId);
+    /* ================= PREVENT SELF-REMOVAL EDGE CASE ================= */
+    if (memberId === userId.toString()) {
+      return res.status(400).json({
+        success: false,
+        error: "You cannot remove yourself. Use leave group instead.",
+      });
+    }
 
+    /* ================= REMOVE MEMBER ================= */
+    group.removeMember(memberId);
     await group.save();
 
+    /* ================= COIN REWARDS ================= */
+    try {
+      // moderator reward
+      await rewardGroupAction({
+        userId,
+        groupId,
+        action: "REMOVE_MEMBER",
+        description: "Removed a member from group",
+      });
+
+      // optional penalty or neutral adjustment for removed user
+      await rewardGroupAction({
+        userId: memberId,
+        groupId,
+        action: "REMOVED_FROM_GROUP",
+        description: "Removed from group by moderator",
+      });
+    } catch (rewardErr) {
+      console.error("REMOVE MEMBER reward error:", rewardErr);
+    }
+
+    /* ================= SSE EVENT ================= */
     pushGroupMessage(groupId, {
       type: "group_event",
       event: "member_removed",
@@ -495,9 +646,7 @@ const leaveGroup = async (req, res) => {
 const changeRole = async (req, res) => {
   try {
     const userId = req.user._id;
-
     const { groupId, memberId } = req.params;
-
     const { role } = req.body;
 
     if (!allowedRoles.includes(role)) {
@@ -516,7 +665,7 @@ const changeRole = async (req, res) => {
       });
     }
 
-    /* ✅ ONLY ADMINS */
+    /* ================= ONLY ADMINS ================= */
     if (!isAdmin(group, userId)) {
       return res.status(403).json({
         success: false,
@@ -525,7 +674,7 @@ const changeRole = async (req, res) => {
     }
 
     const member = group.members.find(
-      (m) => m.user.toString() === memberId.toString(),
+      (m) => m.user.toString() === memberId.toString()
     );
 
     if (!member) {
@@ -535,15 +684,67 @@ const changeRole = async (req, res) => {
       });
     }
 
+    /* ================= NO CHANGE ================= */
+    if (member.role === role) {
+      return res.status(400).json({
+        success: false,
+        error: "User already has this role",
+      });
+    }
+
+    const oldRole = member.role;
     member.role = role;
 
     await group.save();
 
+    /* ================= COIN REWARDS ================= */
+    try {
+      // admin reward for moderation action
+      await rewardGroupAction({
+        userId,
+        groupId,
+        action: "ROLE_CHANGE",
+        description: `Changed role from ${oldRole} to ${role}`,
+      });
+
+      // role-based bonuses
+      if (role === "moderator") {
+        await rewardGroupAction({
+          userId: memberId,
+          groupId,
+          action: "PROMOTED_MODERATOR",
+          description: "Promoted to moderator",
+        });
+      }
+
+      if (role === "admin") {
+        await rewardGroupAction({
+          userId: memberId,
+          groupId,
+          action: "PROMOTED_ADMIN",
+          description: "Promoted to admin",
+        });
+      }
+
+      if (role === "member" && oldRole !== "member") {
+        await rewardGroupAction({
+          userId: memberId,
+          groupId,
+          action: "DEMOTED",
+          description: "Role downgraded",
+        });
+      }
+    } catch (rewardErr) {
+      console.error("CHANGE ROLE reward error:", rewardErr);
+    }
+
+    /* ================= SSE EVENT ================= */
     pushGroupMessage(groupId, {
       type: "group_event",
       event: "role_changed",
       memberId,
       role,
+      oldRole,
       changedBy: userId,
     });
 

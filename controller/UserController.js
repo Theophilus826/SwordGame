@@ -439,23 +439,32 @@ const updateAvatar = asyncHandler(async (req, res) => {
   }
 });
 
-/* ================= GET ALL USERS ================= */
+/* ================= GET ALL USERS (ADMIN ONLY) ================= */
 const getAllUsers = asyncHandler(async (req, res) => {
-  const users = await User.find({
-    _id: { $ne: req.user._id },
-  })
-    .select("_id name avatar online")
+  // check admin
+  if (!req.user.isAdmin) {
+    res.status(403);
+    throw new Error("Admin access only");
+  }
+
+  const users = await User.find({})
+    .select("_id name email phone avatar online isAdmin createdAt")
     .lean();
 
   const formattedUsers = users.map((u) => ({
     _id: u._id,
     name: u.name,
+    email: u.email || null,
+    phone: u.phone || null,
     avatar: u.avatar || null,
     status: u.online ? "online" : "offline",
+    isAdmin: u.isAdmin,
+    createdAt: u.createdAt,
   }));
 
   res.json({
     success: true,
+    count: formattedUsers.length,
     users: formattedUsers,
   });
 });
@@ -515,6 +524,65 @@ const searchUsers = asyncHandler(async (req, res) => {
   });
 });
 
+/* ================= ADD CONTACT ================= */
+const addContact = asyncHandler(async (req, res) => {
+  const { userId } = req.body;
+
+  if (!userId) {
+    res.status(400);
+    throw new Error("User ID required");
+  }
+
+  if (req.user._id.toString() === userId) {
+    res.status(400);
+    throw new Error("Cannot add yourself");
+  }
+
+  const user = await User.findById(req.user._id);
+
+  const targetUser = await User.findById(userId);
+
+  if (!targetUser) {
+    res.status(404);
+    throw new Error("User not found");
+  }
+
+  // prevent duplicates
+  if (user.contacts.includes(userId)) {
+    return res.json({
+      success: true,
+      message: "Already in contacts",
+    });
+  }
+
+  user.contacts.push(userId);
+
+  await user.save();
+
+  res.json({
+    success: true,
+    message: "Contact added",
+  });
+});
+
+/* ================= GET CONTACTS ================= */
+const getContacts = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.user._id)
+    .populate("contacts", "_id name avatar online");
+
+  const formattedUsers = user.contacts.map((u) => ({
+    _id: u._id,
+    name: u.name,
+    avatar: u.avatar || null,
+    status: u.online ? "online" : "offline",
+  }));
+
+  res.json({
+    success: true,
+    users: formattedUsers,
+  });
+});
+
 module.exports = {
   registerUser,
   loginUser,
@@ -531,4 +599,6 @@ module.exports = {
   syncContacts,
   searchUsers,
   getUserById,
+  addContact,
+  getContacts,
 };

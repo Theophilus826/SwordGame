@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const Message = require("../models/Message");
+const User = require("../models/UserModels");
 
 const {
   addClient,
@@ -108,34 +109,131 @@ const sendMessage = async (req, res) => {
     const userId = req.user?._id;
     const { toUserId, text } = req.body;
 
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
-    if (!toUserId || !text?.trim())
-      return res.status(400).json({ error: "Missing fields" });
-    if (!isValidId(toUserId))
-      return res.status(400).json({ error: "Invalid user ID" });
+    if (!req.user || !userId) {
+      return res.status(401).json({
+        error: "Unauthorized",
+      });
+    }
 
-    const message = await Message.create({
-      fromUser: userId,
-      toUser: toUserId,
-      text: text.trim(),
-      type: "text",
-      status: "sent",
-    });
+    if (!toUserId || !text?.trim()) {
+      return res.status(400).json({
+        error: "Missing fields",
+      });
+    }
 
-    // 🔥 realtime chat
-    pushMessage(userId, toUserId, message);
+    if (!isValidId(toUserId)) {
+      return res.status(400).json({
+        error: "Invalid user ID",
+      });
+    }
 
-    // 🔔 centralized notification
+    // prevent self messaging
+    if (userId.toString() === toUserId) {
+      return res.status(400).json({
+        error: "Cannot message yourself",
+      });
+    }
+
+    const sender = await User.findById(userId);
+
+    const receiver = await User.findById(
+      toUserId
+    );
+
+    if (!sender || !receiver) {
+      return res.status(404).json({
+        error: "User not found",
+      });
+    }
+
+    // helper
+    const hasContact = (contacts, id) => {
+      return contacts.some(
+        (c) => c.toString() === id.toString()
+      );
+    };
+
+    // allow admin OR existing contacts
+    const isAllowed =
+      sender.isAdmin ||
+      hasContact(sender.contacts, toUserId);
+
+    if (!isAllowed) {
+      return res.status(403).json({
+        error:
+          "User not in your contacts",
+      });
+    }
+
+    // auto-add both users
+    if (
+      !hasContact(sender.contacts, toUserId)
+    ) {
+      sender.contacts.push(toUserId);
+      await sender.save();
+    }
+
+    if (
+      !hasContact(
+        receiver.contacts,
+        userId
+      )
+    ) {
+      receiver.contacts.push(userId);
+      await receiver.save();
+    }
+
+    // create message
+    const newMessage =
+      await Message.create({
+        fromUser: userId,
+        toUser: toUserId,
+        text: text.trim(),
+        type: "text",
+        status: "sent",
+      });
+
+    // populate sender/receiver
+    const populatedMessage =
+      await Message.findById(
+        newMessage._id
+      )
+        .populate(
+          "fromUser",
+          "_id name avatar"
+        )
+        .populate(
+          "toUser",
+          "_id name avatar"
+        );
+
+    // realtime chat
+    pushMessage(
+      userId,
+      toUserId,
+      populatedMessage
+    );
+
+    // notification
     await notifyChatMessage({
       receiverId: toUserId,
       sender: req.user,
       messageType: "text",
     });
 
-    res.json({ message });
+    res.json({
+      success: true,
+      message: populatedMessage,
+    });
   } catch (err) {
-    console.error("SEND MESSAGE ERROR:", err);
-    res.status(500).json({ error: "Failed to send message" });
+    console.error(
+      "SEND MESSAGE ERROR:",
+      err
+    );
+
+    res.status(500).json({
+      error: "Failed to send message",
+    });
   }
 };
 
@@ -176,35 +274,147 @@ const stopTyping = (req, res) => {
 const sendVoice = async (req, res) => {
   try {
     const userId = req.user?._id;
-    const { toUserId, duration } = req.body;
 
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
-    if (!req.file)
-      return res.status(400).json({ error: "No audio uploaded" });
-    if (!toUserId || !isValidId(toUserId))
-      return res.status(400).json({ error: "Invalid receiver" });
+    const { toUserId, duration } =
+      req.body;
 
-    const message = await Message.create({
-      fromUser: userId,
-      toUser: toUserId,
-      audio: buildFileUrl(req.file),
-      duration: Number(duration) || 0,
-      type: "voice",
-      status: "sent",
-    });
+    if (!req.user || !userId) {
+      return res.status(401).json({
+        error: "Unauthorized",
+      });
+    }
 
-    pushMessage(userId, toUserId, message);
+    if (!req.file) {
+      return res.status(400).json({
+        error: "No audio uploaded",
+      });
+    }
 
+    if (
+      !toUserId ||
+      !isValidId(toUserId)
+    ) {
+      return res.status(400).json({
+        error: "Invalid receiver",
+      });
+    }
+
+    // prevent self messaging
+    if (userId.toString() === toUserId) {
+      return res.status(400).json({
+        error: "Cannot message yourself",
+      });
+    }
+
+    const sender = await User.findById(
+      userId
+    );
+
+    const receiver =
+      await User.findById(toUserId);
+
+    if (!sender || !receiver) {
+      return res.status(404).json({
+        error: "User not found",
+      });
+    }
+
+    // helper
+    const hasContact = (contacts, id) => {
+      return contacts.some(
+        (c) => c.toString() === id.toString()
+      );
+    };
+
+    // allow admin OR contacts
+    const isAllowed =
+      sender.isAdmin ||
+      hasContact(
+        sender.contacts,
+        toUserId
+      );
+
+    if (!isAllowed) {
+      return res.status(403).json({
+        error:
+          "User not in your contacts",
+      });
+    }
+
+    // auto-add both users
+    if (
+      !hasContact(
+        sender.contacts,
+        toUserId
+      )
+    ) {
+      sender.contacts.push(toUserId);
+      await sender.save();
+    }
+
+    if (
+      !hasContact(
+        receiver.contacts,
+        userId
+      )
+    ) {
+      receiver.contacts.push(userId);
+      await receiver.save();
+    }
+
+    // create voice message
+    const newMessage =
+      await Message.create({
+        fromUser: userId,
+        toUser: toUserId,
+        audio: buildFileUrl(req.file),
+        duration:
+          Number(duration) || 0,
+        type: "voice",
+        status: "sent",
+      });
+
+    // populate users
+    const populatedMessage =
+      await Message.findById(
+        newMessage._id
+      )
+        .populate(
+          "fromUser",
+          "_id name avatar"
+        )
+        .populate(
+          "toUser",
+          "_id name avatar"
+        );
+
+    // realtime push
+    pushMessage(
+      userId,
+      toUserId,
+      populatedMessage
+    );
+
+    // notification
     await notifyChatMessage({
       receiverId: toUserId,
       sender: req.user,
       messageType: "voice",
     });
 
-    res.json({ message });
+    res.json({
+      success: true,
+      message: populatedMessage,
+    });
   } catch (err) {
-    console.error("VOICE ERROR:", err);
-    res.status(500).json({ error: "Voice upload failed" });
+    console.error(
+      "VOICE ERROR:",
+      err
+    );
+
+    res.status(500).json({
+      error: "Voice upload failed",
+    });
   }
 };
 
@@ -213,34 +423,146 @@ const sendVoice = async (req, res) => {
 const sendMedia = async (req, res) => {
   try {
     const userId = req.user?._id;
+
     const { toUserId } = req.body;
 
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
-    if (!req.file)
-      return res.status(400).json({ error: "No file uploaded" });
-    if (!toUserId || !isValidId(toUserId))
-      return res.status(400).json({ error: "Invalid receiver" });
+    if (!req.user || !userId) {
+      return res.status(401).json({
+        error: "Unauthorized",
+      });
+    }
 
-    const message = await Message.create({
-      fromUser: userId,
-      toUser: toUserId,
-      image: buildFileUrl(req.file),
-      type: "image",
-      status: "sent",
-    });
+    if (!req.file) {
+      return res.status(400).json({
+        error: "No file uploaded",
+      });
+    }
 
-    pushMessage(userId, toUserId, message);
+    if (
+      !toUserId ||
+      !isValidId(toUserId)
+    ) {
+      return res.status(400).json({
+        error: "Invalid receiver",
+      });
+    }
 
+    // prevent self messaging
+    if (userId.toString() === toUserId) {
+      return res.status(400).json({
+        error: "Cannot message yourself",
+      });
+    }
+
+    const sender = await User.findById(
+      userId
+    );
+
+    const receiver =
+      await User.findById(toUserId);
+
+    if (!sender || !receiver) {
+      return res.status(404).json({
+        error: "User not found",
+      });
+    }
+
+    // helper
+    const hasContact = (contacts, id) => {
+      return contacts.some(
+        (c) => c.toString() === id.toString()
+      );
+    };
+
+    // allow admin OR contacts
+    const isAllowed =
+      sender.isAdmin ||
+      hasContact(
+        sender.contacts,
+        toUserId
+      );
+
+    if (!isAllowed) {
+      return res.status(403).json({
+        error:
+          "User not in your contacts",
+      });
+    }
+
+    // auto-add both users
+    if (
+      !hasContact(
+        sender.contacts,
+        toUserId
+      )
+    ) {
+      sender.contacts.push(toUserId);
+
+      await sender.save();
+    }
+
+    if (
+      !hasContact(
+        receiver.contacts,
+        userId
+      )
+    ) {
+      receiver.contacts.push(userId);
+
+      await receiver.save();
+    }
+
+    // create image message
+    const newMessage =
+      await Message.create({
+        fromUser: userId,
+        toUser: toUserId,
+        image: buildFileUrl(req.file),
+        type: "image",
+        status: "sent",
+      });
+
+    // populate users
+    const populatedMessage =
+      await Message.findById(
+        newMessage._id
+      )
+        .populate(
+          "fromUser",
+          "_id name avatar"
+        )
+        .populate(
+          "toUser",
+          "_id name avatar"
+        );
+
+    // realtime push
+    pushMessage(
+      userId,
+      toUserId,
+      populatedMessage
+    );
+
+    // notification
     await notifyChatMessage({
       receiverId: toUserId,
       sender: req.user,
       messageType: "image",
     });
 
-    res.json({ message });
+    res.json({
+      success: true,
+      message: populatedMessage,
+    });
   } catch (err) {
-    console.error("IMAGE ERROR:", err);
-    res.status(500).json({ error: "Image upload failed" });
+    console.error(
+      "IMAGE ERROR:",
+      err
+    );
+
+    res.status(500).json({
+      error: "Image upload failed",
+    });
   }
 };
 

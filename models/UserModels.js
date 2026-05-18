@@ -33,6 +33,14 @@ const userSchema = new mongoose.Schema(
 
     lastActive: { type: Date, default: Date.now },
 
+    // NEW
+    contacts: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+
     resetPasswordToken: String,
     resetPasswordExpire: Date,
   },

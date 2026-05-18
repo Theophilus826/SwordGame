@@ -35,90 +35,175 @@ const allowedRoles = ["admin", "moderator", "member"];
 
 /* ================= CREATE GROUP ================= */
 
-const createGroup = async (req, res) => {
+const createGroup = async (
+  req,
+  res
+) => {
   try {
     const userId = req.user._id;
 
-    const { name, members = [], avatar = null } = req.body;
+    const {
+      name,
+      members = [],
+      avatar = null,
+      rewardsEnabled = true,
+    } = req.body;
 
-    /* ✅ VALIDATION */
+    /* ================= VALIDATION ================= */
+
     if (!name?.trim()) {
       return res.status(400).json({
+        success: false,
         error: "Group name required",
       });
     }
 
-    /* ✅ FILTER VALID IDS */
-    const validMembers = members.filter(isValidId);
+    /* ================= VALID IDS ================= */
 
-    /* ✅ REMOVE DUPLICATES */
+    const validMembers =
+      members.filter(isValidId);
+
+    /* ================= REMOVE DUPLICATES ================= */
+
     const uniqueMembers = [
-      ...new Set(validMembers.map((id) => id.toString())),
+      ...new Set(
+        validMembers.map((id) =>
+          id.toString()
+        )
+      ),
     ];
 
-    /* ✅ CREATE GROUP */
-    const group = await Group.create({
-      name: name.trim(),
-      avatar,
+    /* ================= CREATE GROUP ================= */
 
-      members: [
-        {
-          user: userId,
-          role: "admin",
+    const group =
+      await Group.create({
+        name: name.trim(),
+
+        avatar,
+
+        createdBy: userId,
+
+        members: [
+          {
+            user: userId,
+            role: "admin",
+          },
+
+          ...uniqueMembers
+            .filter(
+              (id) =>
+                id !==
+                userId.toString()
+            )
+            .map((id) => ({
+              user: id,
+              role: "member",
+            })),
+        ],
+
+        /* ================= REWARD SETTINGS ================= */
+
+        rewards: {
+          enabled:
+            rewardsEnabled,
+
+          groupCreatedReward: 50,
+
+          messageMilestone: 10,
+
+          messageRewardCoins: 20,
         },
 
-        ...uniqueMembers
-          .filter((id) => id !== userId.toString())
-          .map((id) => ({
-            user: id,
-            role: "member",
-          })),
-      ],
+        /* ================= GROUP STATS ================= */
 
-      createdBy: userId,
+        stats: {
+          totalMessages: 0,
 
-      /* 🔥 INIT STATS (optional but recommended) */
-      stats: {
-        totalMessages: 0,
-        totalCoinsDistributed: 0,
-        totalMembersJoined: uniqueMembers.length + 1,
-      },
-    });
+          totalCoinsDistributed: 0,
 
-    /* ================= REWARD (COINS) ================= */
-    try {
-      await rewardGroupAction({
-        userId,
-        groupId: group._id,
-        action: "CREATE_GROUP",
-        description: "Created a new group",
+          totalXpDistributed: 0,
+
+          totalMembersJoined:
+            uniqueMembers.length +
+            1,
+
+          totalMediaMessages: 0,
+
+          activeToday: 0,
+        },
       });
-    } catch (rewardErr) {
-      console.error("CREATE_GROUP reward error:", rewardErr);
+
+    /* ================= REWARD SYSTEM ================= */
+
+    if (group.rewards?.enabled) {
+      try {
+        await rewardGroupAction({
+          userId,
+
+          groupId: group._id,
+
+          action:
+            "CREATE_GROUP",
+
+          description:
+            "Created a new group",
+        });
+      } catch (rewardErr) {
+        console.error(
+          "CREATE_GROUP reward error:",
+          rewardErr
+        );
+      }
     }
 
     /* ================= POPULATE ================= */
-    const populated = await Group.findById(group._id)
-      .populate("members.user", "name avatar")
-      .populate("createdBy", "name avatar");
+
+    const populated =
+      await Group.findById(group._id)
+        .populate(
+          "members.user",
+          "name avatar"
+        )
+        .populate(
+          "createdBy",
+          "name avatar"
+        );
 
     /* ================= SSE EVENT ================= */
+
     pushGroupMessage(group._id, {
       type: "group_event",
+
       event: "group_created",
+
+      rewardsEnabled:
+        group.rewards?.enabled,
+
       group: populated,
     });
+
+    /* ================= RESPONSE ================= */
 
     return res.status(201).json({
       success: true,
+
+      rewardsEnabled:
+        group.rewards?.enabled,
+
       group: populated,
     });
   } catch (err) {
-    console.error("CREATE GROUP ERROR:", err);
+    console.error(
+      "CREATE GROUP ERROR:",
+      err
+    );
 
     return res.status(500).json({
       success: false,
-      error: "Failed to create group",
+
+      error:
+        err.message ||
+        "Failed to create group",
     });
   }
 };
@@ -196,12 +281,25 @@ const getGroup = async (req, res) => {
 
 /* ================= SEND MESSAGE ================= */
 
-const sendGroupMessage = async (req, res) => {
+const sendGroupMessage = async (
+  req,
+  res
+) => {
   try {
     const userId = req.user._id;
-    const { groupId, text = "", image, video, audio, file } = req.body;
 
-    const group = await Group.findById(groupId);
+    const {
+      groupId,
+      text = "",
+      image,
+      video,
+      audio,
+      file,
+    } = req.body;
+
+    const group =
+      await Group.findById(groupId);
+
     if (!group) {
       return res.status(404).json({
         success: false,
@@ -209,9 +307,14 @@ const sendGroupMessage = async (req, res) => {
       });
     }
 
-    const member = group.members.find(
-      (m) => m.user.toString() === userId.toString(),
-    );
+    /* ================= MEMBER CHECK ================= */
+
+    const member =
+      group.members.find(
+        (m) =>
+          m.user.toString() ===
+          userId.toString()
+      );
 
     if (!member) {
       return res.status(403).json({
@@ -220,98 +323,193 @@ const sendGroupMessage = async (req, res) => {
       });
     }
 
+    /* ================= ADMIN ONLY CHAT ================= */
+
+    if (
+      group.settings
+        ?.onlyAdminsCanMessage &&
+      !canModerate(group, userId)
+    ) {
+      return res.status(403).json({
+        success: false,
+        error:
+          "Only admins can send messages",
+      });
+    }
+
+    /* ================= EMPTY MESSAGE CHECK ================= */
+
+    const hasContent =
+      text?.trim() ||
+      image ||
+      video ||
+      audio ||
+      file;
+
+    if (!hasContent) {
+      return res.status(400).json({
+        success: false,
+        error:
+          "Message content required",
+      });
+    }
+
     /* ================= CREATE MESSAGE ================= */
-    const message = await GroupMessage.create({
-      group: groupId,
-      fromUser: userId,
-      text: text?.trim() || "",
-      image,
-      video,
-      audio,
-      file,
-      readBy: [{ user: userId }],
-    });
 
-    const populated = await GroupMessage.findById(
-      message._id,
-    ).populate("fromUser", "name avatar");
+    const message =
+      await GroupMessage.create({
+        group: groupId,
 
-    /* ================= UPDATE GROUP STATS ================= */
+        fromUser: userId,
+
+        text: text?.trim() || "",
+
+        image,
+        video,
+        audio,
+        file,
+
+        readBy: [
+          {
+            user: userId,
+          },
+        ],
+      });
+
+    const populated =
+      await GroupMessage.findById(
+        message._id
+      ).populate(
+        "fromUser",
+        "name avatar"
+      );
+
+    /* ================= UPDATE STATS ================= */
+
     group.stats.totalMessages =
-      (group.stats.totalMessages || 0) + 1;
+      (group.stats.totalMessages ||
+        0) + 1;
 
-    if (image || video || audio || file) {
+    if (
+      image ||
+      video ||
+      audio ||
+      file
+    ) {
       group.stats.totalMediaMessages =
-        (group.stats.totalMediaMessages || 0) + 1;
+        (group.stats
+          .totalMediaMessages || 0) +
+        1;
     }
 
     group.updatedAt = new Date();
 
     await group.save();
 
-    /* ================= COIN REWARDS ================= */
-    try {
-      await rewardGroupAction({
-        userId,
-        groupId,
-        action: "SEND_MESSAGE",
-        description: "Sent a group message",
-      });
+    /* ================= REWARD SYSTEM ================= */
 
-      /* 🔥 MEDIA BONUS */
-      if (image || video || audio || file) {
+    if (group.rewards?.enabled) {
+      try {
+        /* message reward */
         await rewardGroupAction({
           userId,
           groupId,
-          action: "MEDIA_MESSAGE",
-          description: "Sent media in group",
+          action: "SEND_MESSAGE",
+          description:
+            "Sent a group message",
         });
-      }
-    } catch (rewardErr) {
-      console.error("MESSAGE reward error:", rewardErr);
-    }
 
-    /* ================= MILESTONE CHECK ================= */
-    try {
-      if (group.stats.totalMessages === 100) {
-        for (const m of group.members) {
+        /* media reward */
+        if (
+          image ||
+          video ||
+          audio ||
+          file
+        ) {
           await rewardGroupAction({
-            userId: m.user,
+            userId,
             groupId,
-            action: "GROUP_MILESTONE_100",
-            description: "Group reached 100 messages",
+            action: "MEDIA_MESSAGE",
+            description:
+              "Sent media in group",
           });
         }
+      } catch (rewardErr) {
+        console.error(
+          "MESSAGE reward error:",
+          rewardErr
+        );
       }
 
-      if (group.stats.totalMessages === 1000) {
-        for (const m of group.members) {
-          await rewardGroupAction({
-            userId: m.user,
-            groupId,
-            action: "GROUP_MILESTONE_1000",
-            description: "Group reached 1000 messages",
-          });
+      /* ================= GROUP MILESTONES ================= */
+
+      try {
+        if (
+          group.stats
+            .totalMessages === 100
+        ) {
+          for (const m of group.members) {
+            await rewardGroupAction({
+              userId: m.user,
+              groupId,
+              action:
+                "GROUP_MILESTONE_100",
+              description:
+                "Group reached 100 messages",
+            });
+          }
         }
+
+        if (
+          group.stats
+            .totalMessages === 1000
+        ) {
+          for (const m of group.members) {
+            await rewardGroupAction({
+              userId: m.user,
+              groupId,
+              action:
+                "GROUP_MILESTONE_1000",
+              description:
+                "Group reached 1000 messages",
+            });
+          }
+        }
+      } catch (err) {
+        console.error(
+          "Milestone reward error:",
+          err
+        );
       }
-    } catch (err) {
-      console.error("Milestone reward error:", err);
     }
 
-    /* ================= SSE BROADCAST ================= */
+    /* ================= SSE ================= */
+
     pushGroupMessage(groupId, {
       type: "new_message",
       message: populated,
     });
 
+    /* ================= RESPONSE ================= */
+
     return res.status(201).json({
       success: true,
+      rewardsEnabled:
+        group.rewards?.enabled ||
+        false,
       message: populated,
     });
   } catch (err) {
+    console.error(
+      "SEND MESSAGE ERROR:",
+      err
+    );
+
     return res.status(500).json({
       success: false,
-      error: err.message,
+      error:
+        err.message ||
+        "Failed to send message",
     });
   }
 };
@@ -376,11 +574,18 @@ const getGroupMessages = async (req, res) => {
 
 /* ================= ADD MEMBER ================= */
 
-const addMember = async (req, res) => {
+const addMember = async (
+  req,
+  res
+) => {
   try {
     const userId = req.user._id;
+
     const { groupId } = req.params;
+
     const { memberId } = req.body;
+
+    /* ================= VALIDATION ================= */
 
     if (!isValidId(memberId)) {
       return res.status(400).json({
@@ -389,7 +594,8 @@ const addMember = async (req, res) => {
       });
     }
 
-    const group = await Group.findById(groupId);
+    const group =
+      await Group.findById(groupId);
 
     if (!group) {
       return res.status(404).json({
@@ -399,17 +605,22 @@ const addMember = async (req, res) => {
     }
 
     /* ================= PERMISSION CHECK ================= */
+
     if (
-      group.settings?.onlyAdminsCanAddMembers &&
+      group.settings
+        ?.onlyAdminsCanAddMembers &&
       !isAdmin(group, userId)
     ) {
       return res.status(403).json({
         success: false,
-        error: "Only admins can add members",
+        error:
+          "Only admins can add members",
       });
     }
 
-    if (!canModerate(group, userId)) {
+    if (
+      !canModerate(group, userId)
+    ) {
       return res.status(403).json({
         success: false,
         error: "Not allowed",
@@ -417,7 +628,10 @@ const addMember = async (req, res) => {
     }
 
     /* ================= ALREADY MEMBER ================= */
-    if (group.isMember(memberId)) {
+
+    if (
+      group.isMember(memberId)
+    ) {
       return res.status(400).json({
         success: false,
         error: "Already in group",
@@ -425,65 +639,120 @@ const addMember = async (req, res) => {
     }
 
     /* ================= ADD MEMBER ================= */
+
     group.addMember(memberId);
+
+    group.updatedAt = new Date();
+
     await group.save();
 
     /* ================= POPULATE ================= */
-    const populated = await Group.findById(groupId).populate(
-      "members.user",
-      "name avatar"
-    );
 
-    /* ================= COIN REWARDS ================= */
-    try {
-      // reward inviter
-      await rewardGroupAction({
-        userId,
-        groupId,
-        action: "ADD_MEMBER",
-        description: "Invited a member to group",
-      });
+    const populated =
+      await Group.findById(groupId)
+        .populate(
+          "members.user",
+          "name avatar"
+        )
+        .populate(
+          "createdBy",
+          "name avatar"
+        );
 
-      // reward invited user
-      await rewardGroupAction({
-        userId: memberId,
-        groupId,
-        action: "JOINED_GROUP",
-        description: "Joined group via invite",
-      });
+    /* ================= REWARD SYSTEM ================= */
 
-      // optional group growth bonus
-      if (group.members.length % 10 === 0) {
+    if (group.rewards?.enabled) {
+      try {
+        /* inviter reward */
         await rewardGroupAction({
           userId,
+
           groupId,
-          action: "GROUP_GROWTH_MILESTONE",
-          description: "Group reached growth milestone",
+
+          action: "ADD_MEMBER",
+
+          description:
+            "Invited a member to group",
         });
+
+        /* joined reward */
+        await rewardGroupAction({
+          userId: memberId,
+
+          groupId,
+
+          action:
+            "JOINED_GROUP",
+
+          description:
+            "Joined group via invite",
+        });
+
+        /* growth milestone */
+        if (
+          group.members.length %
+            10 ===
+          0
+        ) {
+          await rewardGroupAction({
+            userId,
+
+            groupId,
+
+            action:
+              "GROUP_GROWTH_MILESTONE",
+
+            description:
+              "Group reached growth milestone",
+          });
+        }
+      } catch (rewardErr) {
+        console.error(
+          "ADD MEMBER reward error:",
+          rewardErr
+        );
       }
-    } catch (rewardErr) {
-      console.error("ADD MEMBER reward error:", rewardErr);
     }
 
     /* ================= SSE EVENT ================= */
+
     pushGroupMessage(groupId, {
       type: "group_event",
+
       event: "member_added",
+
       memberId,
+
       addedBy: userId,
+
+      rewardsEnabled:
+        group.rewards?.enabled,
     });
+
+    /* ================= RESPONSE ================= */
 
     return res.json({
       success: true,
+
+      rewardsEnabled:
+        group.rewards?.enabled,
+
       message: "Member added",
+
       group: populated,
     });
   } catch (err) {
-    console.error("ADD MEMBER ERROR:", err);
+    console.error(
+      "ADD MEMBER ERROR:",
+      err
+    );
 
     return res.status(500).json({
       success: false,
-      error: "Failed to add member",
+
+      error:
+        err.message ||
+        "Failed to add member",
     });
   }
 };
@@ -643,20 +912,33 @@ const leaveGroup = async (req, res) => {
 
 /* ================= CHANGE ROLE ================= */
 
-const changeRole = async (req, res) => {
+const changeRole = async (
+  req,
+  res
+) => {
   try {
     const userId = req.user._id;
-    const { groupId, memberId } = req.params;
+
+    const {
+      groupId,
+      memberId,
+    } = req.params;
+
     const { role } = req.body;
 
-    if (!allowedRoles.includes(role)) {
+    /* ================= VALID ROLE ================= */
+
+    if (
+      !allowedRoles.includes(role)
+    ) {
       return res.status(400).json({
         success: false,
         error: "Invalid role",
       });
     }
 
-    const group = await Group.findById(groupId);
+    const group =
+      await Group.findById(groupId);
 
     if (!group) {
       return res.status(404).json({
@@ -666,16 +948,25 @@ const changeRole = async (req, res) => {
     }
 
     /* ================= ONLY ADMINS ================= */
-    if (!isAdmin(group, userId)) {
+
+    if (
+      !isAdmin(group, userId)
+    ) {
       return res.status(403).json({
         success: false,
-        error: "Only admins allowed",
+        error:
+          "Only admins allowed",
       });
     }
 
-    const member = group.members.find(
-      (m) => m.user.toString() === memberId.toString()
-    );
+    /* ================= MEMBER CHECK ================= */
+
+    const member =
+      group.members.find(
+        (m) =>
+          m.user.toString() ===
+          memberId.toString()
+      );
 
     if (!member) {
       return res.status(404).json({
@@ -684,81 +975,240 @@ const changeRole = async (req, res) => {
       });
     }
 
+    /* ================= PREVENT SELF DEMOTION ================= */
+
+    if (
+      memberId.toString() ===
+        userId.toString() &&
+      role !== "admin"
+    ) {
+      return res.status(400).json({
+        success: false,
+        error:
+          "Admins cannot demote themselves",
+      });
+    }
+
     /* ================= NO CHANGE ================= */
+
     if (member.role === role) {
       return res.status(400).json({
         success: false,
-        error: "User already has this role",
+        error:
+          "User already has this role",
       });
     }
 
     const oldRole = member.role;
+
     member.role = role;
+
+    group.updatedAt = new Date();
 
     await group.save();
 
-    /* ================= COIN REWARDS ================= */
-    try {
-      // admin reward for moderation action
-      await rewardGroupAction({
-        userId,
-        groupId,
-        action: "ROLE_CHANGE",
-        description: `Changed role from ${oldRole} to ${role}`,
-      });
+    /* ================= POPULATE ================= */
 
-      // role-based bonuses
-      if (role === "moderator") {
-        await rewardGroupAction({
-          userId: memberId,
-          groupId,
-          action: "PROMOTED_MODERATOR",
-          description: "Promoted to moderator",
-        });
-      }
+    const populated =
+      await Group.findById(groupId)
+        .populate(
+          "members.user",
+          "name avatar"
+        )
+        .populate(
+          "createdBy",
+          "name avatar"
+        );
 
-      if (role === "admin") {
-        await rewardGroupAction({
-          userId: memberId,
-          groupId,
-          action: "PROMOTED_ADMIN",
-          description: "Promoted to admin",
-        });
-      }
+    /* ================= REWARD SYSTEM ================= */
 
-      if (role === "member" && oldRole !== "member") {
+    if (group.rewards?.enabled) {
+      try {
+        /* moderation reward */
         await rewardGroupAction({
-          userId: memberId,
+          userId,
+
           groupId,
-          action: "DEMOTED",
-          description: "Role downgraded",
+
+          action:
+            "ROLE_CHANGE",
+
+          description: `Changed role from ${oldRole} to ${role}`,
         });
+
+        /* promoted moderator */
+        if (
+          role === "moderator"
+        ) {
+          await rewardGroupAction({
+            userId: memberId,
+
+            groupId,
+
+            action:
+              "PROMOTED_MODERATOR",
+
+            description:
+              "Promoted to moderator",
+          });
+        }
+
+        /* promoted admin */
+        if (role === "admin") {
+          await rewardGroupAction({
+            userId: memberId,
+
+            groupId,
+
+            action:
+              "PROMOTED_ADMIN",
+
+            description:
+              "Promoted to admin",
+          });
+        }
+
+        /* demotion */
+        if (
+          role === "member" &&
+          oldRole !== "member"
+        ) {
+          await rewardGroupAction({
+            userId: memberId,
+
+            groupId,
+
+            action: "DEMOTED",
+
+            description:
+              "Role downgraded",
+          });
+        }
+      } catch (rewardErr) {
+        console.error(
+          "CHANGE ROLE reward error:",
+          rewardErr
+        );
       }
-    } catch (rewardErr) {
-      console.error("CHANGE ROLE reward error:", rewardErr);
     }
 
     /* ================= SSE EVENT ================= */
+
     pushGroupMessage(groupId, {
       type: "group_event",
+
       event: "role_changed",
+
       memberId,
+
       role,
+
       oldRole,
+
+      changedBy: userId,
+
+      rewardsEnabled:
+        group.rewards?.enabled,
+    });
+
+    /* ================= RESPONSE ================= */
+
+    return res.json({
+      success: true,
+
+      rewardsEnabled:
+        group.rewards?.enabled,
+
+      message: "Role updated",
+
+      group: populated,
+    });
+  } catch (err) {
+    console.error(
+      "CHANGE ROLE ERROR:",
+      err
+    );
+
+    return res.status(500).json({
+      success: false,
+
+      error:
+        err.message ||
+        "Failed to update role",
+    });
+  }
+};
+
+/* ================= TOGGLE GROUP REWARDS ================= */
+
+const toggleGroupRewards = async (
+  req,
+  res
+) => {
+  try {
+    const userId = req.user._id;
+
+    const { groupId } = req.params;
+
+    const { enabled } = req.body;
+
+    const group = await Group.findById(
+      groupId
+    );
+
+    if (!group) {
+      return res.status(404).json({
+        success: false,
+        error: "Group not found",
+      });
+    }
+
+    /* ================= ONLY ADMINS ================= */
+
+    if (!isAdmin(group, userId)) {
+      return res.status(403).json({
+        success: false,
+        error: "Only admins allowed",
+      });
+    }
+
+    /* ================= UPDATE ================= */
+
+    group.rewards.enabled =
+      Boolean(enabled);
+
+    await group.save();
+
+    /* ================= SSE EVENT ================= */
+
+    pushGroupMessage(groupId, {
+      type: "group_event",
+      event: "reward_toggled",
+      enabled:
+        group.rewards.enabled,
       changedBy: userId,
     });
 
     return res.json({
       success: true,
-      message: "Role updated",
+      message:
+        group.rewards.enabled
+          ? "Group rewards enabled"
+          : "Group rewards disabled",
+      rewardsEnabled:
+        group.rewards.enabled,
       group,
     });
   } catch (err) {
-    console.error("CHANGE ROLE ERROR:", err);
+    console.error(
+      "TOGGLE REWARDS ERROR:",
+      err
+    );
 
     return res.status(500).json({
       success: false,
-      error: "Failed to update role",
+      error:
+        "Failed to toggle rewards",
     });
   }
 };
@@ -829,4 +1279,5 @@ module.exports = {
 
   changeRole,
   deleteGroup,
+  toggleGroupRewards
 };

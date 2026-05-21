@@ -3,28 +3,38 @@ const User = require("../models/UserModels");
 
 const sseProtect = async (req, res, next) => {
   try {
-    const token =
-      req.query.token ||
-      req.headers.authorization?.split(" ")[1];
+    let token;
+
+    // normal auth header
+    if (
+      req.headers.authorization &&
+      req.headers.authorization.startsWith("Bearer")
+    ) {
+      token = req.headers.authorization.split(" ")[1];
+    }
+
+    // SSE auth
+    if (!token && req.query.token) {
+      token = req.query.token;
+    }
 
     if (!token) {
-      return res.status(401).end();
+      return res.status(401).json({
+        error: "No token",
+      });
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    const user = await User.findById(decoded.id).select("_id name");
+    req.user = await User.findById(decoded.id).select("-password");
 
-    if (!user) {
-      return res.status(401).end();
-    }
-
-    req.user = user;
-
-    return next();
+    next();
   } catch (err) {
-    console.error("SSE AUTH ERROR:", err.message);
-    return res.status(401).end();
+    console.error("SSE AUTH ERROR:", err);
+
+    return res.status(401).json({
+      error: "Unauthorized",
+    });
   }
 };
 

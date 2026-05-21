@@ -1,29 +1,24 @@
-const clients = {}; // DM
+const clients = {};
 const notificationClients = {};
-const groupClients = {}; // groupId -> { userId: Set(res) }
-
+const groupClients = {};
 const onlineUsers = new Set();
 
-/* ================= CHAT KEY ================= */
+/* =========================================================
+   🔵 CHAT KEY
+========================================================= */
 
 function getKey(userId, otherUserId) {
   return `${String(userId)}-${String(otherUserId)}`;
 }
 
-/* ================= SAFE WRITE ================= */
+/* =========================================================
+   🔵 SAFE SSE WRITE
+========================================================= */
 
 function safeWrite(res, data) {
   try {
     if (!res || res.writableEnded || res.destroyed) {
       return false;
-    }
-
-    if (!res.headersSent) {
-      res.writeHead(200, {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-      });
     }
 
     res.write(`data: ${JSON.stringify(data)}\n\n`);
@@ -85,11 +80,9 @@ function addGroupClient(groupId, userId, res) {
 
   groupClients[g][u].add(res);
 
-  /* ================= SET ONLINE ================= */
-
   setOnline(u);
 
-  /* ================= CONNECT EVENT ================= */
+  console.log(`✅ GROUP CONNECTED: ${u} -> ${g}`);
 
   safeWrite(res, {
     type: "connected",
@@ -98,8 +91,6 @@ function addGroupClient(groupId, userId, res) {
     userId: u,
   });
 
-  /* ================= SEND ONLINE MEMBERS ================= */
-
   broadcastGroupOnlineMembers(g);
 }
 
@@ -107,15 +98,11 @@ function removeGroupClient(groupId, userId, res) {
   const g = String(groupId);
   const u = String(userId);
 
-  if (!groupClients[g]?.[u]) return;
+  if (!groupClients[g]) return;
 
-  /* ================= REMOVE CONNECTION ================= */
+  if (!groupClients[g][u]) return;
 
-  if (res) {
-    groupClients[g][u].delete(res);
-  }
-
-  /* ================= REMOVE EMPTY USER ================= */
+  groupClients[g][u].delete(res);
 
   if (groupClients[g][u].size === 0) {
     delete groupClients[g][u];
@@ -123,19 +110,17 @@ function removeGroupClient(groupId, userId, res) {
     setOffline(u);
   }
 
-  /* ================= REMOVE EMPTY GROUP ================= */
-
   if (Object.keys(groupClients[g]).length === 0) {
     delete groupClients[g];
   }
 
-  /* ================= UPDATE ONLINE MEMBERS ================= */
+  console.log(`❌ GROUP DISCONNECTED: ${u} -> ${g}`);
 
   broadcastGroupOnlineMembers(g);
 }
 
 /* =========================================================
-   🔵 GROUP ONLINE MEMBERS
+   🔵 GROUP ONLINE USERS
 ========================================================= */
 
 function getOnlineGroupMembers(groupId) {
@@ -151,21 +136,17 @@ function getOnlineGroupMembers(groupId) {
 function broadcastGroupOnlineMembers(groupId) {
   const g = String(groupId);
 
-  const users = groupClients[g];
+  if (!groupClients[g]) return;
 
-  if (!users) return;
+  const members = getOnlineGroupMembers(g);
 
-  const onlineMembers = getOnlineGroupMembers(g);
-
-  Object.values(users).forEach((set) => {
-    if (!set) return;
-
+  Object.values(groupClients[g]).forEach((set) => {
     for (const res of [...set]) {
       const ok = safeWrite(res, {
         type: "online_members",
         scope: "group",
         groupId: g,
-        members: onlineMembers,
+        members,
       });
 
       if (!ok) {
@@ -176,19 +157,18 @@ function broadcastGroupOnlineMembers(groupId) {
 }
 
 /* =========================================================
-   🔵 GROUP BROADCAST
+   🔵 GROUP MESSAGES
 ========================================================= */
 
 function pushGroupMessage(groupId, payload) {
   const g = String(groupId);
 
-  const users = groupClients[g];
+  if (!groupClients[g]) {
+    console.log("⚠️ No connected group clients:", g);
+    return;
+  }
 
-  if (!users) return;
-
-  Object.values(users).forEach((set) => {
-    if (!set) return;
-
+  Object.values(groupClients[g]).forEach((set) => {
     for (const res of [...set]) {
       const ok = safeWrite(res, {
         scope: "group",
@@ -234,8 +214,25 @@ function removeNotificationClient(userId, res) {
   }
 }
 
+function pushNotification(userId, notification) {
+  const id = String(userId);
+
+  if (!notificationClients[id]) return;
+
+  notificationClients[id].forEach((res) => {
+    const ok = safeWrite(res, {
+      type: "notification",
+      notification,
+    });
+
+    if (!ok) {
+      notificationClients[id].delete(res);
+    }
+  });
+}
+
 /* =========================================================
-   🔵 DM PUSH
+   🔵 DM MESSAGES
 ========================================================= */
 
 function pushMessage(userId, otherUserId, message) {
@@ -260,30 +257,7 @@ function pushMessage(userId, otherUserId, message) {
 }
 
 /* =========================================================
-   🔵 NOTIFICATION PUSH
-========================================================= */
-
-function pushNotification(userId, notification) {
-  const id = String(userId);
-
-  const set = notificationClients[id];
-
-  if (!set) return;
-
-  set.forEach((res) => {
-    const ok = safeWrite(res, {
-      type: "notification",
-      notification,
-    });
-
-    if (!ok) {
-      set.delete(res);
-    }
-  });
-}
-
-/* =========================================================
-   🔵 DM TYPING
+   🔵 TYPING
 ========================================================= */
 
 function sendTyping(fromUser, toUser, status) {
@@ -298,20 +272,12 @@ function sendTyping(fromUser, toUser, status) {
   });
 }
 
-/* =========================================================
-   🔵 GROUP TYPING
-========================================================= */
-
 function sendGroupTyping(groupId, fromUser, status) {
   const g = String(groupId);
 
-  const users = groupClients[g];
+  if (!groupClients[g]) return;
 
-  if (!users) return;
-
-  Object.values(users).forEach((set) => {
-    if (!set) return;
-
+  Object.values(groupClients[g]).forEach((set) => {
     set.forEach((res) => {
       safeWrite(res, {
         type: status,
@@ -339,10 +305,6 @@ function isOnline(userId) {
   return onlineUsers.has(String(userId));
 }
 
-/* =========================================================
-   🔵 STATUS BROADCAST
-========================================================= */
-
 function broadcastStatus(userId, status) {
   Object.values(clients).forEach((set) => {
     set.forEach((res) => {
@@ -360,8 +322,6 @@ function broadcastStatus(userId, status) {
 ========================================================= */
 
 setInterval(() => {
-  /* DM */
-
   Object.values(clients).forEach((set) => {
     set.forEach((res) => {
       safeWrite(res, {
@@ -370,8 +330,6 @@ setInterval(() => {
       });
     });
   });
-
-  /* GROUP */
 
   Object.values(groupClients).forEach((users) => {
     Object.values(users).forEach((set) => {
@@ -384,8 +342,6 @@ setInterval(() => {
     });
   });
 
-  /* NOTIFICATION */
-
   Object.values(notificationClients).forEach((set) => {
     set.forEach((res) => {
       safeWrite(res, {
@@ -397,7 +353,7 @@ setInterval(() => {
 }, 25000);
 
 /* =========================================================
-   🔵 EXPORT
+   🔵 EXPORTS
 ========================================================= */
 
 module.exports = {

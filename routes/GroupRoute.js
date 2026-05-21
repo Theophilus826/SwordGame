@@ -118,7 +118,7 @@ router.get(
 
     res.flushHeaders?.();
 
-    addGroupClient(groupId, res);
+    addGroupClient(groupId, userId, res);
 
     res.write(
       `data: ${JSON.stringify({
@@ -143,7 +143,7 @@ router.get(
       clearInterval(interval);
 
       try {
-        removeGroupClient(groupId, res);
+        removeGroupClient(groupId, userId, res);
       } catch (e) {
         console.error(
           "cleanup error:",

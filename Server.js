@@ -40,22 +40,24 @@ app.use(cookieParser());
 // ==========================
 // CORS
 // ==========================
-const FRONTEND_URL =
-  process.env.FRONTEND_URL || "https://face-rite.onrender.com";
+const allowedOrigins = [
+  "https://face-rite.onrender.com",
+  "capacitor://localhost",
+  "http://localhost",
+];
 
 app.use(
   cors({
-    origin: FRONTEND_URL,
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    origin: function (origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
     credentials: true,
-    allowedHeaders: [
-      "Content-Type",
-      "Authorization",
-      "Cache-Control",
-      "Accept",
-      "Last-Event-ID"
-    ],
-  })
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  }),
 );
 
 // ==========================

@@ -76,7 +76,13 @@ const server = http.createServer(app);
 const io = new Server(server, {
   path: "/socket.io",
   cors: {
-    origin: FRONTEND_URL,
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by Socket.IO CORS"));
+      }
+    },
     credentials: true,
   },
   transports: ["websocket", "polling"],
@@ -148,7 +154,6 @@ app.use("/api/withdrawals", WithdrawalRoutes);
 app.use("/api/group", GroupRoute);
 // Route to get posts by a specific user
 
-
 // ==========================
 // ERROR HANDLER
 // ==========================
@@ -187,7 +192,6 @@ io.on("connection", async (socket) => {
     // ==========================
     // USER CHAT
     // ==========================
-   
   } catch (err) {
     console.error("Socket connection setup error:", err);
   }

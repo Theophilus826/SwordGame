@@ -44,6 +44,7 @@ const allowedOrigins = [
   "https://face-rite.onrender.com",
   "capacitor://localhost",
   "http://localhost",
+  "https://localhost",
 ];
 
 app.use(
@@ -52,12 +53,17 @@ app.use(
       if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
-        callback(new Error("Not allowed by CORS"));
+        callback(new Error(`Origin ${origin} not allowed by CORS`));
       }
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  }),
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Requested-With",
+    ],
+  })
 );
 
 // ==========================

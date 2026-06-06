@@ -9,6 +9,7 @@ const {
   markAsRead,
   deleteNotification,
   streamNotifications, // ✅ NEW
+   saveFcmToken, // ✅ NEW
 } = require("../controller/NotificationController");
 
 /* ==========================
@@ -36,5 +37,8 @@ router.put("/:id/read", protect, markAsRead);
 
 // Delete notification
 router.delete("/:id", protect, deleteNotification);
+
+// Save FCM token
+router.post("/fcm-token", protect, saveFcmToken);
 
 module.exports = router;

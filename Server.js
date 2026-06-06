@@ -19,7 +19,7 @@ const { getUsersFromDB } = require("./controller/UserHelpers");
 const ChatRoutes = require("./routes/ChatRoutes");
 const WithdrawalRoutes = require("./routes/WithdrawalRoutes");
 const GroupRoute = require("./routes/GroupRoute");
-
+const admin = require("./config/firebase");
 // ==========================
 // LOAD ENV
 // ==========================
@@ -58,12 +58,8 @@ app.use(
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allowedHeaders: [
-      "Content-Type",
-      "Authorization",
-      "X-Requested-With",
-    ],
-  })
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  }),
 );
 
 // ==========================
@@ -201,6 +197,25 @@ io.on("connection", async (socket) => {
   } catch (err) {
     console.error("Socket connection setup error:", err);
   }
+
+  const testFirebase = async () => {
+    try {
+      const res = await admin.messaging().send({
+        token: "test-token",
+        notification: {
+          title: "Test",
+          body: "Firebase Admin works",
+        },
+      });
+
+      console.log("🔥 Firebase message sent:", res);
+    } catch (err) {
+      console.error("❌ Firebase error:", err);
+    }
+  };
+
+  // call manually (ONLY when needed)
+  testFirebase();
   // ==========================
   // DISCONNECT
   // ==========================

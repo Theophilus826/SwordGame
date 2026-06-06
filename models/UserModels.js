@@ -41,11 +41,15 @@ const userSchema = new mongoose.Schema(
       },
     ],
 
+    fcmToken: {
+      type: String,
+      default: null,
+    },
+
     resetPasswordToken: String,
     resetPasswordExpire: Date,
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
-module.exports =
-  mongoose.models.User || mongoose.model("User", userSchema);
+module.exports = mongoose.models.User || mongoose.model("User", userSchema);

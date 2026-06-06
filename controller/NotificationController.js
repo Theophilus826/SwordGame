@@ -1,7 +1,7 @@
 const Notification = require("../models/Notification");
 const User = require("../models/UserModels");
 const mongoose = require("mongoose");
-
+const admin = require("../config/firebase");
 const {
   pushNotification,
   addNotificationClient,
@@ -50,8 +50,7 @@ const notify = async ({
 
     const senderName = sender?.name || "Someone";
 
-    const finalMessage =
-      message || buildMessage({ type, senderName });
+    const finalMessage = message || buildMessage({ type, senderName });
 
     const notification = await Notification.create({
       user,
@@ -63,8 +62,41 @@ const notify = async ({
       read: false,
     });
 
-    // 🔥 realtime push
+    // =========================
+    // 🔥 REALTIME SSE PUSH
+    // =========================
     pushNotification(String(user), notification);
+
+    // =========================
+    // 🔥 FIREBASE PUSH (NEW)
+    // =========================
+    const targetUser = await User.findById(user);
+
+    if (targetUser?.fcmToken) {
+      try {
+        await admin.messaging().send({
+          token: targetUser.fcmToken,
+
+          notification: {
+            title: "TinkReward",
+            body: finalMessage,
+          },
+
+          android: {
+            notification: {
+              channelId: "default",
+            },
+          },
+
+          data: {
+            notificationId: String(notification._id),
+            type,
+          },
+        });
+      } catch (firebaseErr) {
+        console.error("FCM ERROR:", firebaseErr.message);
+      }
+    }
 
     return notification;
   } catch (err) {
@@ -96,7 +128,7 @@ const streamNotifications = async (req, res) => {
       `data: ${JSON.stringify({
         type: "init",
         notifications,
-      })}\n\n`
+      })}\n\n`,
     );
 
     const keepAlive = setInterval(() => {
@@ -170,8 +202,8 @@ const sendNotificationToAll = async (req, res) => {
           sender: req.user,
           type,
           message,
-        })
-      )
+        }),
+      ),
     );
 
     res.json({
@@ -219,7 +251,7 @@ const markAsRead = async (req, res) => {
     const notification = await Notification.findOneAndUpdate(
       { _id: id, user: req.user._id },
       { read: true },
-      { new: true }
+      { new: true },
     );
 
     if (!notification) {
@@ -232,6 +264,29 @@ const markAsRead = async (req, res) => {
     });
   } catch (err) {
     console.error("MARK READ ERROR:", err);
+    res.status(500).json({ message: err.message });
+  }
+};
+//  
+const saveFcmToken = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { token } = req.body;
+
+    if (!token) {
+      return res.status(400).json({ message: "FCM token required" });
+    }
+
+    await User.findByIdAndUpdate(userId, {
+      fcmToken: token,
+    });
+
+    res.json({
+      success: true,
+      message: "FCM token saved successfully",
+    });
+  } catch (err) {
+    console.error("FCM SAVE ERROR:", err);
     res.status(500).json({ message: err.message });
   }
 };
@@ -279,4 +334,5 @@ module.exports = {
   deleteNotification,
   notify,
   streamNotifications, // ✅ IMPORTANT
+  saveFcmToken, // ✅ NEW
 };

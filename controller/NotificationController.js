@@ -61,7 +61,8 @@ const notify = async ({
       chatUserId: chatUserId || sender?._id || null,
       read: false,
     });
-
+    console.log("NOTIFICATION CREATED:", notification._id);
+    
     // =========================
     // 🔥 REALTIME SSE PUSH
     // =========================
@@ -72,37 +73,46 @@ const notify = async ({
     // =========================
     const targetUser = await User.findById(user);
 
-    if (targetUser?.fcmToken) {
-      try {
-        await admin.messaging().send({
-          token: targetUser.fcmToken,
+console.log("TARGET USER:", targetUser?._id);
+console.log("FCM TOKEN:", targetUser?.fcmToken);
 
-          notification: {
-            title: "TinkReward",
-            body: finalMessage,
-          },
+if (targetUser?.fcmToken) {
+  try {
+    const response = await admin.messaging().send({
+      token: targetUser.fcmToken,
 
-          android: {
-            notification: {
-              channelId: "default",
-            },
-          },
+      notification: {
+        title: "TinkReward",
+        body: finalMessage,
+      },
 
-          data: {
-            notificationId: String(notification._id),
-            type,
-          },
-        });
-      } catch (firebaseErr) {
-        console.error("FCM ERROR:", firebaseErr.message);
-      }
+      android: {
+        notification: {
+          channelId: "default",
+        },
+      },
+
+      data: {
+        notificationId: String(notification._id),
+        type: String(type),
+      },
+    });
+
+    console.log("✅ FCM SENT:", response);
+  } catch (firebaseErr) {
+    console.error("❌ FCM ERROR FULL:", firebaseErr);
+
+    if (firebaseErr.code) {
+      console.error("FCM CODE:", firebaseErr.code);
     }
 
-    return notification;
-  } catch (err) {
-    console.error("NOTIFY ERROR:", err);
+    if (firebaseErr.message) {
+      console.error("FCM MESSAGE:", firebaseErr.message);
+    }
   }
-};
+} else {
+  console.log("⚠️ NO FCM TOKEN FOUND FOR USER:", user);
+}
 
 /* =========================
    SSE STREAM
@@ -267,19 +277,26 @@ const markAsRead = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
-//  
+//  saveFcmToken
 const saveFcmToken = async (req, res) => {
   try {
     const userId = req.user._id;
     const { token } = req.body;
 
+    console.log("USER:", userId);
+    console.log("TOKEN:", token);
+
     if (!token) {
-      return res.status(400).json({ message: "FCM token required" });
+      return res.status(400).json({
+        message: "FCM token required",
+      });
     }
 
     await User.findByIdAndUpdate(userId, {
       fcmToken: token,
     });
+
+    console.log("FCM TOKEN SAVED");
 
     res.json({
       success: true,
@@ -287,7 +304,10 @@ const saveFcmToken = async (req, res) => {
     });
   } catch (err) {
     console.error("FCM SAVE ERROR:", err);
-    res.status(500).json({ message: err.message });
+
+    res.status(500).json({
+      message: err.message,
+    });
   }
 };
 

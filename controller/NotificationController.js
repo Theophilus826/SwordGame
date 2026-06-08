@@ -61,8 +61,7 @@ const notify = async ({
       chatUserId: chatUserId || sender?._id || null,
       read: false,
     });
-    console.log("NOTIFICATION CREATED:", notification._id);
-    
+
     // =========================
     // 🔥 REALTIME SSE PUSH
     // =========================
@@ -71,6 +70,8 @@ const notify = async ({
     // =========================
     // 🔥 FIREBASE PUSH (NEW)
     // =========================
+    const targetUser = await User.findById(user);
+
     const targetUser = await User.findById(user);
 
 console.log("TARGET USER:", targetUser?._id);
@@ -120,17 +121,21 @@ if (targetUser?.fcmToken) {
 
 const streamNotifications = async (req, res) => {
   try {
-    const userId = req.user._id;
+    const userId = String(req.user._id);
 
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
-    res.flushHeaders?.();
+
+    if (res.flushHeaders) {
+      res.flushHeaders();
+    }
 
     addNotificationClient(userId, res);
 
-    // ✅ send latest notifications on connect
-    const notifications = await Notification.find({ user: userId })
+    const notifications = await Notification.find({
+      user: userId,
+    })
       .sort({ createdAt: -1 })
       .limit(20);
 
@@ -138,21 +143,95 @@ const streamNotifications = async (req, res) => {
       `data: ${JSON.stringify({
         type: "init",
         notifications,
-      })}\n\n`,
+      })}\n\n`
     );
 
     const keepAlive = setInterval(() => {
-      res.write(`data: ${JSON.stringify({ type: "ping" })}\n\n`);
+      if (!res.writableEnded) {
+        res.write(
+          `data: ${JSON.stringify({
+            type: "ping",
+          })}\n\n`
+        );
+      }
     }, 25000);
 
     req.on("close", () => {
+      console.log("SSE DISCONNECTED:", userId);
+
       clearInterval(keepAlive);
       removeNotificationClient(userId, res);
-      res.end();
+
+      if (!res.writableEnded) {
+        res.end();
+      }
     });
   } catch (err) {
     console.error("SSE ERROR:", err);
-    res.end();
+
+    if (!res.writableEnded) {
+      res.end();
+    }
+  }
+};
+
+/* =========================
+   SSE STREAM
+========================= */
+
+const streamNotifications = async (req, res) => {
+  try {
+    const userId = String(req.user._id);
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+
+    if (res.flushHeaders) {
+      res.flushHeaders();
+    }
+
+    addNotificationClient(userId, res);
+
+    const notifications = await Notification.find({
+      user: userId,
+    })
+      .sort({ createdAt: -1 })
+      .limit(20);
+
+    res.write(
+      `data: ${JSON.stringify({
+        type: "init",
+        notifications,
+      })}\n\n`
+    );
+
+    const keepAlive = setInterval(() => {
+      if (!res.writableEnded) {
+        res.write(
+          `data: ${JSON.stringify({
+            type: "ping",
+          })}\n\n`
+        );
+      }
+    }, 25000);
+
+    req.on("close", () => {
+      console.log("SSE DISCONNECTED:", userId);
+
+      clearInterval(keepAlive);
+      removeNotificationClient(userId, res);
+
+      if (!res.writableEnded) {
+        res.end();
+      }
+    });
+  } catch (err) {
+    console.error("SSE ERROR:", err);
+
+    if (!res.writableEnded) {
+      res.end();
+    }
   }
 };
 
@@ -277,26 +356,19 @@ const markAsRead = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
-//  saveFcmToken
+//  
 const saveFcmToken = async (req, res) => {
   try {
     const userId = req.user._id;
     const { token } = req.body;
 
-    console.log("USER:", userId);
-    console.log("TOKEN:", token);
-
     if (!token) {
-      return res.status(400).json({
-        message: "FCM token required",
-      });
+      return res.status(400).json({ message: "FCM token required" });
     }
 
     await User.findByIdAndUpdate(userId, {
       fcmToken: token,
     });
-
-    console.log("FCM TOKEN SAVED");
 
     res.json({
       success: true,
@@ -304,10 +376,7 @@ const saveFcmToken = async (req, res) => {
     });
   } catch (err) {
     console.error("FCM SAVE ERROR:", err);
-
-    res.status(500).json({
-      message: err.message,
-    });
+    res.status(500).json({ message: err.message });
   }
 };
 

@@ -50,12 +50,7 @@ const notify = async ({
 
     const senderName = sender?.name || "Someone";
 
-    const finalMessage =
-      message ||
-      buildMessage({
-        type,
-        senderName,
-      });
+    const finalMessage = message || buildMessage({ type, senderName });
 
     const notification = await Notification.create({
       user,
@@ -77,117 +72,55 @@ const notify = async ({
     // =========================
     const targetUser = await User.findById(user);
 
-    console.log("TARGET USER:", targetUser?._id);
-    console.log("FCM TOKEN:", targetUser?.fcmToken);
-
     if (targetUser?.fcmToken) {
-      try {
-        const response = await admin.messaging().send({
-          token: targetUser.fcmToken,
-
-          notification: {
-            title: "TinkReward",
-            body: finalMessage,
-          },
-
-          android: {
-            notification: {
-              channelId: "default",
-            },
-          },
-
-          data: {
-            notificationId: String(notification._id),
-            type: String(type),
-          },
-        });
-
-        console.log("✅ FCM SENT:", response);
-      } catch (firebaseErr) {
-        console.error("❌ FCM ERROR FULL:", firebaseErr);
-
-        if (firebaseErr.code) {
-          console.error("FCM CODE:", firebaseErr.code);
-        }
-
-        if (firebaseErr.message) {
-          console.error("FCM MESSAGE:", firebaseErr.message);
-        }
-      }
-    } else {
-      console.log("⚠️ NO FCM TOKEN FOUND FOR USER:", user);
-    }
-    
-    return notification;
-  } catch (err) {
-    console.error("NOTIFY ERROR:", err);
-  }
-};
-/* =========================
-           SSE STREAM
-        ========================= */
-
-const streamNotifications = async (req, res) => {
   try {
-    const userId = String(req.user._id);
+    const response = await admin.messaging().send({
+      token: targetUser.fcmToken,
 
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
+      notification: {
+        title: "TinkReward",
+        body: finalMessage,
+      },
 
-    if (res.flushHeaders) {
-      res.flushHeaders();
+      android: {
+        notification: {
+          channelId: "default",
+        },
+      },
+
+      data: {
+        notificationId: String(notification._id),
+        type: String(type),
+      },
+    });
+
+    console.log("✅ FCM SENT:", response);
+  } catch (firebaseErr) {
+    console.error("❌ FCM ERROR FULL:", firebaseErr);
+
+    if (firebaseErr.code) {
+      console.error("FCM CODE:", firebaseErr.code);
     }
 
-    addNotificationClient(userId, res);
-
-    const notifications = await Notification.find({
-      user: userId,
-    })
-      .sort({
-        createdAt: -1,
-      })
-      .limit(20);
-
-    res.write(
-      `data: ${JSON.stringify({
-        type: "init",
-        notifications,
-      })}\n\n`,
-    );
-
-    const keepAlive = setInterval(() => {
-      if (!res.writableEnded) {
-        res.write(
-          `data: ${JSON.stringify({
-            type: "ping",
-          })}\n\n`,
-        );
-      }
-    }, 25000);
-
-    req.on("close", () => {
-      console.log("SSE DISCONNECTED:", userId);
-
-      clearInterval(keepAlive);
-      removeNotificationClient(userId, res);
-
-      if (!res.writableEnded) {
-        res.end();
-      }
-    });
-  } catch (err) {
-    console.error("SSE ERROR:", err);
-
-    if (!res.writableEnded) {
-      res.end();
+    if (firebaseErr.message) {
+      console.error("FCM MESSAGE:", firebaseErr.message);
     }
   }
+} else {
+  console.log("⚠️ NO FCM TOKEN FOUND FOR USER:", user);
+}
+
+return notification;
+
+} catch (err) {
+  console.error("NOTIFY ERROR:", err);
+}
+
 };
 
 /* =========================
-           SSE STREAM
-        ========================= */
+   SSE STREAM
+========================= */
 
 const streamNotifications = async (req, res) => {
   try {
@@ -201,12 +134,8 @@ const streamNotifications = async (req, res) => {
     addNotificationClient(userId, res);
 
     // ✅ send latest notifications on connect
-    const notifications = await Notification.find({
-      user: userId,
-    })
-      .sort({
-        createdAt: -1,
-      })
+    const notifications = await Notification.find({ user: userId })
+      .sort({ createdAt: -1 })
       .limit(20);
 
     res.write(
@@ -232,24 +161,20 @@ const streamNotifications = async (req, res) => {
 };
 
 /* =========================
-           SEND TO ONE USER
-        ========================= */
+   SEND TO ONE USER
+========================= */
 
 const sendNotification = async (req, res) => {
   try {
     const { userId, message, type = "system", postId } = req.body;
 
     if (!userId || !isValidId(userId)) {
-      return res.status(400).json({
-        message: "Valid userId required",
-      });
+      return res.status(400).json({ message: "Valid userId required" });
     }
 
     const user = await User.findById(userId);
     if (!user) {
-      return res.status(404).json({
-        message: "User not found",
-      });
+      return res.status(404).json({ message: "User not found" });
     }
 
     const notification = await notify({
@@ -266,24 +191,20 @@ const sendNotification = async (req, res) => {
     });
   } catch (err) {
     console.error("SEND ERROR:", err);
-    res.status(500).json({
-      message: err.message,
-    });
+    res.status(500).json({ message: err.message });
   }
 };
 
 /* =========================
-           SEND TO ALL USERS
-        ========================= */
+   SEND TO ALL USERS
+========================= */
 
 const sendNotificationToAll = async (req, res) => {
   try {
     const { message, type = "system" } = req.body;
 
     if (!message) {
-      return res.status(400).json({
-        message: "Message required",
-      });
+      return res.status(400).json({ message: "Message required" });
     }
 
     const users = await User.find({}, "_id");
@@ -305,23 +226,19 @@ const sendNotificationToAll = async (req, res) => {
     });
   } catch (err) {
     console.error("SEND ALL ERROR:", err);
-    res.status(500).json({
-      message: err.message,
-    });
+    res.status(500).json({ message: err.message });
   }
 };
 
 /* =========================
-           GET USER NOTIFICATIONS
-        ========================= */
+   GET USER NOTIFICATIONS
+========================= */
 
 const getUserNotifications = async (req, res) => {
   try {
     const notifications = await Notification.find({
       user: req.user._id,
-    }).sort({
-      createdAt: -1,
-    });
+    }).sort({ createdAt: -1 });
 
     res.json({
       success: true,
@@ -329,43 +246,30 @@ const getUserNotifications = async (req, res) => {
     });
   } catch (err) {
     console.error("FETCH ERROR:", err);
-    res.status(500).json({
-      message: err.message,
-    });
+    res.status(500).json({ message: err.message });
   }
 };
 
 /* =========================
-           MARK AS READ
-        ========================= */
+   MARK AS READ
+========================= */
 
 const markAsRead = async (req, res) => {
   try {
     const { id } = req.params;
 
     if (!isValidId(id)) {
-      return res.status(400).json({
-        message: "Invalid ID",
-      });
+      return res.status(400).json({ message: "Invalid ID" });
     }
 
     const notification = await Notification.findOneAndUpdate(
-      {
-        _id: id,
-        user: req.user._id,
-      },
-      {
-        read: true,
-      },
-      {
-        new: true,
-      },
+      { _id: id, user: req.user._id },
+      { read: true },
+      { new: true },
     );
 
     if (!notification) {
-      return res.status(404).json({
-        message: "Notification not found",
-      });
+      return res.status(404).json({ message: "Notification not found" });
     }
 
     res.json({
@@ -374,21 +278,17 @@ const markAsRead = async (req, res) => {
     });
   } catch (err) {
     console.error("MARK READ ERROR:", err);
-    res.status(500).json({
-      message: err.message,
-    });
+    res.status(500).json({ message: err.message });
   }
 };
-//
+//  
 const saveFcmToken = async (req, res) => {
   try {
     const userId = req.user._id;
     const { token } = req.body;
 
     if (!token) {
-      return res.status(400).json({
-        message: "FCM token required",
-      });
+      return res.status(400).json({ message: "FCM token required" });
     }
 
     await User.findByIdAndUpdate(userId, {
@@ -401,24 +301,20 @@ const saveFcmToken = async (req, res) => {
     });
   } catch (err) {
     console.error("FCM SAVE ERROR:", err);
-    res.status(500).json({
-      message: err.message,
-    });
+    res.status(500).json({ message: err.message });
   }
 };
 
 /* =========================
-           DELETE NOTIFICATION
-        ========================= */
+   DELETE NOTIFICATION
+========================= */
 
 const deleteNotification = async (req, res) => {
   try {
     const { id } = req.params;
 
     if (!isValidId(id)) {
-      return res.status(400).json({
-        message: "Invalid ID",
-      });
+      return res.status(400).json({ message: "Invalid ID" });
     }
 
     const notification = await Notification.findOneAndDelete({
@@ -427,9 +323,7 @@ const deleteNotification = async (req, res) => {
     });
 
     if (!notification) {
-      return res.status(404).json({
-        message: "Notification not found",
-      });
+      return res.status(404).json({ message: "Notification not found" });
     }
 
     res.json({
@@ -438,15 +332,13 @@ const deleteNotification = async (req, res) => {
     });
   } catch (err) {
     console.error("DELETE ERROR:", err);
-    res.status(500).json({
-      message: err.message,
-    });
+    res.status(500).json({ message: err.message });
   }
 };
 
 /* =========================
-           EXPORTS
-        ========================= */
+   EXPORTS
+========================= */
 
 module.exports = {
   sendNotification,

@@ -73,49 +73,61 @@ const notify = async ({
     const targetUser = await User.findById(user);
 
     if (targetUser?.fcmToken) {
-  try {
-    const response = await admin.messaging().send({
-      token: targetUser.fcmToken,
+      try {
+        const response = await admin.messaging().send({
+          token: targetUser.fcmToken,
 
-      notification: {
-        title: "TinkReward",
-        body: finalMessage,
-      },
+          notification: {
+            title: "TinkReward",
+            body: finalMessage,
+          },
 
-      android: {
-        notification: {
-          channelId: "default",
-        },
-      },
+          android: {
+            priority: "high",
+            notification: {
+              channelId: "default",
+              sound: "default",
+              defaultSound: true,
+            },
+          },
 
-      data: {
-        notificationId: String(notification._id),
-        type: String(type),
-      },
-    });
+          apns: {
+            payload: {
+              aps: {
+                sound: "default",
+              },
+            },
+          },
 
-    console.log("✅ FCM SENT:", response);
-  } catch (firebaseErr) {
-    console.error("❌ FCM ERROR FULL:", firebaseErr);
+          data: {
+            notificationId: String(notification._id),
+            type: String(type),
+            postId: String(postId || ""),
+            chatUserId: String(chatUserId || ""),
+            click_action: "FLUTTER_NOTIFICATION_CLICK",
+          },
+        });
 
-    if (firebaseErr.code) {
-      console.error("FCM CODE:", firebaseErr.code);
+        console.log("✅ FCM SENT:", response);
+      } catch (firebaseErr) {
+        console.error("❌ FCM ERROR FULL:", firebaseErr);
+
+        if (firebaseErr.code) {
+          console.error("FCM CODE:", firebaseErr.code);
+        }
+
+        if (firebaseErr.message) {
+          console.error("FCM MESSAGE:", firebaseErr.message);
+        }
+      }
+    } else {
+      console.log("⚠️ NO FCM TOKEN FOUND FOR USER:", user);
     }
 
-    if (firebaseErr.message) {
-      console.error("FCM MESSAGE:", firebaseErr.message);
-    }
+    return notification;
+  } catch (err) {
+    console.error("NOTIFY ERROR:", err);
   }
-} else {
-  console.log("⚠️ NO FCM TOKEN FOUND FOR USER:", user);
-}
-
-return notification;
-
-} catch (err) {
-  console.error("NOTIFY ERROR:", err);
-}
-
 };
 
 /* =========================
@@ -281,7 +293,7 @@ const markAsRead = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
-//  
+//
 const saveFcmToken = async (req, res) => {
   try {
     const userId = req.user._id;

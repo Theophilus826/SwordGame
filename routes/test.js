@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const admin = require("../config/firebase"); // your admin file
+const admin = require("../config/firebase");
 
 router.get("/test-push", async (req, res) => {
   try {
@@ -25,13 +25,11 @@ router.get("/test-push", async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json(err);
-  }
-});
+
     res.status(500).json({
       success: false,
       error: err.message,
-      code: err.code
+      code: err.code,
     });
   }
 });

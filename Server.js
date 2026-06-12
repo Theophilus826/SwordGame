@@ -154,6 +154,7 @@ app.use("/api/wallet", require("./routes/DepositRoutes"));
 app.use("/api/chat", ChatRoutes);
 app.use("/api/withdrawals", WithdrawalRoutes);
 app.use("/api/group", GroupRoute);
+app.use("/api/test", require("./routes/test"));
 // Route to get posts by a specific user
 
 // ==========================

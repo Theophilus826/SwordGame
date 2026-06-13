@@ -296,16 +296,33 @@ const markAsRead = async (req, res) => {
 //
 const saveFcmToken = async (req, res) => {
   try {
-    const userId = req.user._id;
+    console.log("🔥 SAVE FCM HIT");
+    console.log("USER:", req.user);
+    console.log("BODY:", req.body);
+
+    const userId = req.user?._id;
     const { token } = req.body;
 
-    if (!token) {
-      return res.status(400).json({ message: "FCM token required" });
+    if (!userId) {
+      return res.status(401).json({
+        message: "No authenticated user",
+      });
     }
 
-    await User.findByIdAndUpdate(userId, {
-      fcmToken: token,
-    });
+    if (!token) {
+      return res.status(400).json({
+        message: "FCM token required",
+      });
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { fcmToken: token },
+      { new: true }
+    );
+
+    console.log("UPDATED USER:", updatedUser?._id);
+    console.log("SAVED TOKEN:", updatedUser?.fcmToken);
 
     res.json({
       success: true,

@@ -347,7 +347,7 @@ module.exports = {
   getUserNotifications,
   markAsRead,
   deleteNotification,
-   streamNotifications
+  streamNotifications,
   notify,
   saveFcmToken,
 };

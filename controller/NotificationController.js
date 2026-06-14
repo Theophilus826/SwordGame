@@ -2,11 +2,6 @@ const Notification = require("../models/Notification");
 const User = require("../models/UserModels");
 const mongoose = require("mongoose");
 const admin = require("../config/firebase");
-const {
-  pushNotification,
-  addNotificationClient,
-  removeNotificationClient,
-} = require("../config/sse");
 
 /* =========================
    HELPERS
@@ -34,7 +29,7 @@ const buildMessage = ({ type, senderName }) => {
 };
 
 /* =========================
-   CORE NOTIFY FUNCTION
+   CORE NOTIFY (FIREBASE ONLY)
 ========================= */
 
 const notify = async ({
@@ -49,9 +44,9 @@ const notify = async ({
     if (!user) return;
 
     const senderName = sender?.name || "Someone";
-
     const finalMessage = message || buildMessage({ type, senderName });
 
+    // Save notification in DB (history)
     const notification = await Notification.create({
       user,
       sender: sender?._id || null,
@@ -63,112 +58,57 @@ const notify = async ({
     });
 
     // =========================
-    // 🔥 REALTIME SSE PUSH
+    // 🔥 FIREBASE PUSH ONLY
     // =========================
-    pushNotification(String(user), notification);
+    const targetUser = await User.findById(user).select("fcmToken");
 
-    // =========================
-    // 🔥 FIREBASE PUSH (NEW)
-    // =========================
-    const targetUser = await User.findById(user);
+    if (!targetUser?.fcmToken) {
+      console.log("⚠️ No FCM token for user:", user);
+      return notification;
+    }
 
-    if (targetUser?.fcmToken) {
-      try {
-        const response = await admin.messaging().send({
-          token: targetUser.fcmToken,
+    try {
+      const response = await admin.messaging().send({
+        token: targetUser.fcmToken,
 
+        notification: {
+          title: "TinkReward",
+          body: finalMessage,
+        },
+
+        android: {
+          priority: "high",
           notification: {
-            title: "TinkReward",
-            body: finalMessage,
+            channelId: "default",
+            sound: "default",
+            defaultSound: true,
           },
+        },
 
-          android: {
-            priority: "high",
-            notification: {
-              channelId: "default",
+        apns: {
+          payload: {
+            aps: {
               sound: "default",
-              defaultSound: true,
             },
           },
+        },
 
-          apns: {
-            payload: {
-              aps: {
-                sound: "default",
-              },
-            },
-          },
+        data: {
+          notificationId: String(notification._id),
+          type: String(type),
+          postId: String(postId || ""),
+          chatUserId: String(chatUserId || ""),
+        },
+      });
 
-          data: {
-            notificationId: String(notification._id),
-            type: String(type),
-            postId: String(postId || ""),
-            chatUserId: String(chatUserId || ""),
-            click_action: "FLUTTER_NOTIFICATION_CLICK",
-          },
-        });
-
-        console.log("✅ FCM SENT:", response);
-      } catch (firebaseErr) {
-        console.error("❌ FCM ERROR FULL:", firebaseErr);
-
-        if (firebaseErr.code) {
-          console.error("FCM CODE:", firebaseErr.code);
-        }
-
-        if (firebaseErr.message) {
-          console.error("FCM MESSAGE:", firebaseErr.message);
-        }
-      }
-    } else {
-      console.log("⚠️ NO FCM TOKEN FOUND FOR USER:", user);
+      console.log("✅ FCM SENT:", response);
+    } catch (firebaseErr) {
+      console.error("❌ FCM ERROR:", firebaseErr.code || firebaseErr.message);
     }
 
     return notification;
   } catch (err) {
     console.error("NOTIFY ERROR:", err);
-  }
-};
-
-/* =========================
-   SSE STREAM
-========================= */
-
-const streamNotifications = async (req, res) => {
-  try {
-    const userId = req.user._id;
-
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-    res.flushHeaders?.();
-
-    addNotificationClient(userId, res);
-
-    // ✅ send latest notifications on connect
-    const notifications = await Notification.find({ user: userId })
-      .sort({ createdAt: -1 })
-      .limit(20);
-
-    res.write(
-      `data: ${JSON.stringify({
-        type: "init",
-        notifications,
-      })}\n\n`,
-    );
-
-    const keepAlive = setInterval(() => {
-      res.write(`data: ${JSON.stringify({ type: "ping" })}\n\n`);
-    }, 25000);
-
-    req.on("close", () => {
-      clearInterval(keepAlive);
-      removeNotificationClient(userId, res);
-      res.end();
-    });
-  } catch (err) {
-    console.error("SSE ERROR:", err);
-    res.end();
   }
 };
 
@@ -228,8 +168,8 @@ const sendNotificationToAll = async (req, res) => {
           sender: req.user,
           type,
           message,
-        }),
-      ),
+        })
+      )
     );
 
     res.json({
@@ -277,7 +217,7 @@ const markAsRead = async (req, res) => {
     const notification = await Notification.findOneAndUpdate(
       { _id: id, user: req.user._id },
       { read: true },
-      { new: true },
+      { new: true }
     );
 
     if (!notification) {
@@ -293,36 +233,25 @@ const markAsRead = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
-//
+
+/* =========================
+   SAVE FCM TOKEN
+========================= */
+
 const saveFcmToken = async (req, res) => {
   try {
-    console.log("🔥 SAVE FCM HIT");
-    console.log("USER:", req.user);
-    console.log("BODY:", req.body);
-
     const userId = req.user?._id;
     const { token } = req.body;
 
     if (!userId) {
-      return res.status(401).json({
-        message: "No authenticated user",
-      });
+      return res.status(401).json({ message: "No authenticated user" });
     }
 
     if (!token) {
-      return res.status(400).json({
-        message: "FCM token required",
-      });
+      return res.status(400).json({ message: "FCM token required" });
     }
 
-    const updatedUser = await User.findByIdAndUpdate(
-      userId,
-      { fcmToken: token },
-      { new: true }
-    );
-
-    console.log("UPDATED USER:", updatedUser?._id);
-    console.log("SAVED TOKEN:", updatedUser?.fcmToken);
+    await User.findByIdAndUpdate(userId, { fcmToken: token });
 
     res.json({
       success: true,
@@ -376,6 +305,5 @@ module.exports = {
   markAsRead,
   deleteNotification,
   notify,
-  streamNotifications, // ✅ IMPORTANT
-  saveFcmToken, // ✅ NEW
+  saveFcmToken,
 };

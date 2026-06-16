@@ -9,7 +9,8 @@ const Deposit = require("../models/DepositModel");
 const CoinTransaction = require("../models/CoinTransaction");
 const Slide = require("../models/Slide");
 const Withdrawal = require("../models/Withdrawal");
-// UTILS
+const {AppVersion} = require("../models/AppVersion");
+  // UTILS
 const cloudinary = require("../config/Cloudinary");
 const { playersByUser } = require("../games/gameState");
 // ===============================
@@ -438,6 +439,72 @@ const deleteSlide = asyncHandler(async (req, res) => {
   res.json({ message: "Slide deleted" });
 });
 
+const uploadAppVersion = asyncHandler(async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({
+      message: "APK file required",
+    });
+  }
+
+  const { version, description, changelog, forceUpdate } = req.body;
+
+  const appVersion = await AppVersion.create({
+    version,
+    description: description || changelog || "",
+    changelog: changelog || description || "",
+    apkUrl: req.file.path,
+    forceUpdate: forceUpdate === "true",
+  });
+
+  res.status(201).json({
+    success: true,
+    appVersion,
+  });
+});
+
+const getApks = asyncHandler(async (req, res) => {
+  const apks = await AppVersion.find()
+    .sort({ createdAt: -1 });
+
+  res.json({
+    success: true,
+    apks,
+  });
+});
+
+const getLatestAppVersion = asyncHandler(async (req, res) => {
+  const version = await AppVersion.findOne()
+    .sort({ createdAt: -1 });
+
+  if (!version) {
+    return res.status(404).json({
+      message: "No APK found",
+    });
+  }
+
+  res.json({
+    success: true,
+    version,
+  });
+});
+
+const deleteApk = asyncHandler(async (req, res) => {
+  const apk = await AppVersion.findById(req.params.id);
+
+  if (!apk) {
+    return res.status(404).json({
+      message: "APK not found",
+    });
+  }
+
+  await AppVersion.findByIdAndDelete(req.params.id);
+
+  res.json({
+    success: true,
+    message: "APK deleted",
+  });
+});
+
 module.exports = {
   getPendingDeposits,
   approveDeposit,
@@ -453,4 +520,8 @@ module.exports = {
   getWithdrawalFeed,
   approveWithdrawal,
   rejectWithdrawal,
+  uploadAppVersion,
+  getLatestAppVersion,
+  getApks,
+  deleteApk,
 };

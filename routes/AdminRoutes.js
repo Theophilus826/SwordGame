@@ -18,7 +18,11 @@ const {
   uploadReceipt,
   approveWithdrawal,
   rejectWithdrawal,
-  getWithdrawalFeed, // ✅ ADD THIS
+  getWithdrawalFeed,
+  uploadAppVersion,
+  getLatestAppVersion,
+  getApks,
+  deleteApk,
 } = require("../controller/AdminController");
 
 // ================= COINS =================
@@ -76,5 +80,38 @@ router.post(
 
 router.get("/carousel/slides", getSlides);
 router.delete("/carousel/delete/:id", protect, admin, deleteSlide);
+
+// ================= APK MANAGER =================
+
+// list all APKs
+router.get(
+  "/apk",
+  protect,
+  admin,
+  getApks
+);
+
+// upload APK
+router.post(
+  "/apk/upload",
+  protect,
+  admin,
+  upload.single("apk"),
+  uploadAppVersion
+);
+
+// delete APK
+router.delete(
+  "/apk/:id",
+  protect,
+  admin,
+  deleteApk
+);
+
+// public latest APK
+router.get(
+  "/app/latest",
+  getLatestAppVersion
+);
 
 module.exports = router;

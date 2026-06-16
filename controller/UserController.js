@@ -26,11 +26,14 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new Error("Required fields missing");
   }
 
-  email = email?.toLowerCase().trim() || null;
+  if (password !== confirmPassword) {
+    res.status(400);
+    throw new Error("Passwords do not match");
+  }
 
+  email = email?.toLowerCase().trim();
   const rawPhone = phone?.trim();
-
-  phone = rawPhone ? formatPhone(rawPhone) : null;
+  phone = rawPhone ? formatPhone(rawPhone) : undefined;
 
   if (!email && !phone) {
     res.status(400);
@@ -42,17 +45,11 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new Error("Invalid phone number");
   }
 
-  if (password !== confirmPassword) {
-    res.status(400);
-    throw new Error("Passwords do not match");
-  }
+  const orQuery = [];
+  if (email) orQuery.push({ email });
+  if (phone) orQuery.push({ phone });
 
-  const existingUser = await User.findOne({
-    $or: [
-      email ? { email } : null,
-      phone ? { phone } : null,
-    ].filter(Boolean),
-  });
+  const existingUser = await User.findOne({ $or: orQuery });
 
   if (existingUser) {
     res.status(400);
@@ -61,15 +58,17 @@ const registerUser = asyncHandler(async (req, res) => {
 
   const hashedPassword = await bcrypt.hash(password, 10);
 
-  const user = await User.create({
+  const userData = {
     name,
-    email,
-    phone,
-    phoneHash: phone ? hashPhone(phone) : null,
     password: hashedPassword,
     isVerified: true,
     online: true,
-  });
+  };
+
+  if (email) userData.email = email;
+  if (phone) userData.phone = phone;
+
+  const user = await User.create(userData);
 
   const token = generateToken(user._id);
 
@@ -90,7 +89,6 @@ const registerUser = asyncHandler(async (req, res) => {
     isAdmin: user.isAdmin,
   });
 });
-
 /* ================= LOGIN ================= */
 const loginUser = asyncHandler(async (req, res) => {
   let { identifier, password } = req.body;

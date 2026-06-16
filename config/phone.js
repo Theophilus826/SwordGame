@@ -1,6 +1,6 @@
 const { parsePhoneNumberFromString } = require("libphonenumber-js");
+const crypto = require("crypto");
 
-// 🇳🇬 Normalize Nigerian numbers
 const formatPhone = (phone) => {
   if (!phone) return null;
 
@@ -11,10 +11,20 @@ const formatPhone = (phone) => {
       return null;
     }
 
-    return phoneNumber.number; // returns +234 format
-  } catch (err) {
+    return phoneNumber.number;
+  } catch {
     return null;
   }
 };
 
-module.exports = { formatPhone };
+const hashPhone = (phone) => {
+  return crypto
+    .createHash("sha256")
+    .update(phone)
+    .digest("hex");
+};
+
+module.exports = {
+  formatPhone,
+  hashPhone,
+};

@@ -94,12 +94,14 @@ router.get(
 // upload APK
 router.post(
   "/apk/upload",
+  protect,
+  admin,
   (req, res, next) => {
     console.log("UPLOAD REQUEST RECEIVED");
     next();
   },
   upload.single("apk"),
-  controller
+  uploadAppVersion
 );
 
 // delete APK

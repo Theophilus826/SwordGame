@@ -97,10 +97,19 @@ router.post(
   protect,
   admin,
   (req, res, next) => {
-    console.log("UPLOAD REQUEST RECEIVED");
-    next();
+    upload.single("apk")(req, res, (err) => {
+      if (err) {
+        console.error("UPLOAD ERROR:", err);
+        return res.status(500).json({
+          error: err.message,
+          name: err.name,
+        });
+      }
+
+      console.log("FILE UPLOADED TO CLOUDINARY");
+      next();
+    });
   },
-  upload.single("apk"),
   uploadAppVersion
 );
 

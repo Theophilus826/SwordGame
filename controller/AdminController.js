@@ -463,13 +463,25 @@ const uploadAppVersion = asyncHandler(async (req, res) => {
 });
 
 const getApks = asyncHandler(async (req, res) => {
-  const apks = await AppVersion.find()
-    .sort({ createdAt: -1 });
+  try {
+    console.log("GET APKS HIT");
 
-  res.json({
-    success: true,
-    apks,
-  });
+    const apks = await AppVersion.find();
+
+    console.log("APKS:", apks.length);
+
+    res.json({
+      success: true,
+      apks,
+    });
+  } catch (err) {
+    console.error("GET APKS ERROR:", err);
+
+    res.status(500).json({
+      message: err.message,
+      stack: err.stack,
+    });
+  }
 });
 
 const getLatestAppVersion = asyncHandler(async (req, res) => {

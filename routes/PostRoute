@@ -2,6 +2,7 @@ const express = require("express");
 const multer = require("multer");
 const asyncHandler = require("express-async-handler");
 const { CloudinaryStorage } = require("multer-storage-cloudinary");
+
 const { protect } = require("../middleware/AuthMiddleware");
 const cloudinary = require("../config/Cloudinary");
 const Post = require("../models/PostModel");
@@ -17,7 +18,7 @@ const {
 
 const router = express.Router();
 
-// ===== File Filter =====
+/* ================= FILE FILTER ================= */
 const fileFilter = (req, file, cb) => {
   const allowedTypes = [
     "image/jpeg",
@@ -28,15 +29,20 @@ const fileFilter = (req, file, cb) => {
     "video/webm",
     "video/quicktime",
   ];
-  if (allowedTypes.includes(file.mimetype)) cb(null, true);
-  else cb(new Error("Only images and videos are allowed"), false);
+
+  if (allowedTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error("Only images and videos are allowed"), false);
+  }
 };
 
-// ===== Cloudinary Storage =====
+/* ================= CLOUDINARY STORAGE ================= */
 const storage = new CloudinaryStorage({
   cloudinary,
   params: async (req, file) => {
     const isVideo = file.mimetype.startsWith("video");
+
     return {
       folder: "posts",
       resource_type: isVideo ? "video" : "image",
@@ -45,29 +51,68 @@ const storage = new CloudinaryStorage({
   },
 });
 
-const upload = multer({ storage, fileFilter });
+/* ================= MULTER CONFIG (FIXED) ================= */
+const upload = multer({
+  storage,
+  fileFilter,
+  limits: {
+    fileSize: 200 * 1024 * 1024, // 200MB (fixes your 10MB issue)
+  },
+});
 
-// ===== Routes =====
+/* ================= ROUTE ERROR WRAPPER ================= */
+const handleUpload = (fieldName) => (req, res, next) => {
+  upload.single(fieldName)(req, res, (err) => {
+    if (err instanceof multer.MulterError) {
+      return res.status(400).json({
+        success: false,
+        message: err.message,
+        code: err.code,
+      });
+    }
 
-// Create post with multiple files
-router.post("/", protect, upload.array("files"), createPost);
+    if (err) {
+      return res.status(400).json({
+        success: false,
+        message: err.message,
+      });
+    }
 
-// Upload multiple media to existing post
-router.post("/:postId/media", protect, upload.array("files"), uploadMedia);
+    next();
+  });
+};
 
-// Get all posts
+/* ================= ROUTES ================= */
+
+// Create post (uses "files")
+router.post(
+  "/",
+  protect,
+  handleUpload("files"),
+  createPost
+);
+
+// Upload media to post (uses "file")
+router.post(
+  "/:postId/media",
+  protect,
+  handleUpload("file"),
+  uploadMedia
+);
+
+// Get posts
 router.get("/", getPosts);
 
 // Get single post
 router.get("/:postId", getPostById);
 
-// React (like/love)
+// Reactions
 router.post("/:postId/react", protect, reactPost);
 
-// Comment on post
+// Comments
 router.post("/:postId/comment", protect, commentPost);
 
-// Get posts of a specific user
+// User posts
 router.get(
   "/user/:userId/posts",
   asyncHandler(async (req, res) => {

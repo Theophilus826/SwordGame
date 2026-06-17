@@ -8,19 +8,23 @@ const storage = new CloudinaryStorage({
   params: (req, file) => {
     let folder = "uploads";
 
-    // auto-route by file type
     if (file.mimetype.startsWith("image/")) {
       folder = "carousel-images";
     } else if (file.mimetype.startsWith("audio/")) {
       folder = "chat-voice-notes";
     } else if (file.mimetype.startsWith("video/")) {
       folder = "videos";
+    } else if (
+      file.mimetype === "application/vnd.android.package-archive" ||
+      file.originalname?.endsWith(".apk")
+    ) {
+      folder = "apk-files";
     }
 
     return {
       folder,
 
-      // IMPORTANT: let Cloudinary decide type correctly
+      // IMPORTANT for APK + non-media files
       resource_type: "auto",
 
       public_id: `${folder}-${Date.now()}`,
@@ -28,7 +32,7 @@ const storage = new CloudinaryStorage({
   },
 });
 
-/* ================= FILTER ================= */
+/* ================= FILE FILTER ================= */
 const fileFilter = (req, file, cb) => {
   const allowedMimeTypes = [
     // images
@@ -46,24 +50,27 @@ const fileFilter = (req, file, cb) => {
     "video/mp4",
     "video/webm",
 
-    // APK
+    // apk (varies by browser/device)
     "application/vnd.android.package-archive",
     "application/octet-stream",
+    "application/x-zip-compressed",
   ];
 
-  if (allowedMimeTypes.includes(file.mimetype)) {
+  const isApk = file.originalname?.toLowerCase().endsWith(".apk");
+
+  if (allowedMimeTypes.includes(file.mimetype) || isApk) {
     cb(null, true);
   } else {
     cb(new Error("Unsupported file type"), false);
   }
 };
 
-/* ================= UPLOAD ================= */
+/* ================= UPLOAD CONFIG ================= */
 const upload = multer({
   storage,
   fileFilter,
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB
+    fileSize: 200 * 1024 * 1024, // 200MB (APK-safe)
   },
 });
 

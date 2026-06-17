@@ -31,7 +31,7 @@ const storage = new CloudinaryStorage({
 /* ================= FILTER ================= */
 const fileFilter = (req, file, cb) => {
   const allowedMimeTypes = [
-    // images (carousel)
+    // images
     "image/jpeg",
     "image/png",
     "image/webp",
@@ -42,9 +42,13 @@ const fileFilter = (req, file, cb) => {
     "audio/wav",
     "audio/ogg",
 
-    // optional video
+    // video
     "video/mp4",
     "video/webm",
+
+    // APK
+    "application/vnd.android.package-archive",
+    "application/octet-stream",
   ];
 
   if (allowedMimeTypes.includes(file.mimetype)) {

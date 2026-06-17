@@ -66,6 +66,17 @@ app.use(
   })
 );
 
+app.use((req, res, next) => {
+  const contentLength = req.headers["content-length"];
+
+  if (contentLength && Number(contentLength) > 300 * 1024 * 1024) {
+    return res.status(413).json({
+      message: "File too large. Max 300MB allowed."
+    });
+  }
+
+  next();
+});
 // ==========================
 // CONNECT DB
 // ==========================

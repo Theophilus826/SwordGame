@@ -440,26 +440,31 @@ const deleteSlide = asyncHandler(async (req, res) => {
 });
 
 const uploadAppVersion = asyncHandler(async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({
-      message: "APK file required",
+  try {
+    console.log("APK UPLOAD HIT");
+    console.log("BODY:", req.body);
+    console.log("FILE:", req.file);
+
+    const appVersion = await AppVersion.create({
+      version: req.body.version,
+      description: req.body.description || "",
+      changelog: req.body.changelog || "",
+      apkUrl: req.file.path,
+      forceUpdate: req.body.forceUpdate === "true",
+    });
+
+    res.status(201).json({
+      success: true,
+      appVersion,
+    });
+  } catch (err) {
+    console.error("APK UPLOAD ERROR:", err);
+
+    res.status(500).json({
+      message: err.message,
+      stack: err.stack,
     });
   }
-
-  const { version, description, changelog, forceUpdate } = req.body;
-
-  const appVersion = await AppVersion.create({
-    version,
-    description: description || changelog || "",
-    changelog: changelog || description || "",
-    apkUrl: req.file.path,
-    forceUpdate: forceUpdate === "true",
-  });
-
-  res.status(201).json({
-    success: true,
-    appVersion,
-  });
 });
 
 const getApks = asyncHandler(async (req, res) => {

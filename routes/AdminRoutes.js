@@ -97,16 +97,24 @@ router.post(
   protect,
   admin,
   (req, res, next) => {
+    console.log("UPLOAD REQUEST RECEIVED");
+
     upload.single("apk")(req, res, (err) => {
       if (err) {
-        console.error("UPLOAD ERROR:", err);
+        console.error("MULTER/CLOUDINARY ERROR:", err);
+
         return res.status(500).json({
-          error: err.message,
-          name: err.name,
+          success: false,
+          message: err.message,
+          stack: process.env.NODE_ENV !== "production"
+            ? err.stack
+            : undefined,
         });
       }
 
-      console.log("FILE UPLOADED TO CLOUDINARY");
+      console.log("UPLOAD MIDDLEWARE PASSED");
+      console.log("FILE:", req.file);
+
       next();
     });
   },

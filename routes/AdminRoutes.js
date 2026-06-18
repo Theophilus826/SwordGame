@@ -83,7 +83,7 @@ router.delete("/carousel/delete/:id", protect, admin, deleteSlide);
 
 // ================= APK MANAGER =================
 
-// list all APKs
+// list all app versions
 router.get(
   "/apk",
   protect,
@@ -91,37 +91,15 @@ router.get(
   getApks
 );
 
-// upload APK
+// create app version
 router.post(
   "/apk/upload",
   protect,
   admin,
-  (req, res, next) => {
-    console.log("UPLOAD REQUEST RECEIVED");
-
-    upload.single("apk")(req, res, (err) => {
-      if (err) {
-        console.error("MULTER/CLOUDINARY ERROR:", err);
-
-        return res.status(500).json({
-          success: false,
-          message: err.message,
-          stack: process.env.NODE_ENV !== "production"
-            ? err.stack
-            : undefined,
-        });
-      }
-
-      console.log("UPLOAD MIDDLEWARE PASSED");
-      console.log("FILE:", req.file);
-
-      next();
-    });
-  },
   uploadAppVersion
 );
 
-// delete APK
+// delete app version
 router.delete(
   "/apk/:id",
   protect,
@@ -129,7 +107,7 @@ router.delete(
   deleteApk
 );
 
-// public latest APK
+// public latest version
 router.get(
   "/app/latest",
   getLatestAppVersion

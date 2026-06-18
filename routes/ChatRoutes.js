@@ -19,7 +19,7 @@ router.get(
 
 // 🔔 Notification stream (user-based)
 router.get(
-  "/notifications/stream",
+  "/notification/stream",
   protect,
   notificationController.streamNotifications
 );

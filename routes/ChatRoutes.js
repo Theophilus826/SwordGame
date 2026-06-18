@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 
 const chatController = require("../controller/ChatController");
-const notificationController = require("../controller/NotificationController");
+
 
 const { protect } = require("../middleware/AuthMiddleware");
 const upload = require("../middleware/Upload");
@@ -18,11 +18,7 @@ router.get(
 );
 
 // 🔔 Notification stream (user-based)
-router.get(
-  "/notification/stream",
-  protect,
-  notificationController.streamNotifications
-);
+
 
 /* ==========================
    MESSAGES

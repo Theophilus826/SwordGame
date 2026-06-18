@@ -18,11 +18,7 @@ router.get(
 );
 
 // 🔔 Notification stream (user-based)
-router.get(
-  "/notifications/stream",
-  protect,
-  notificationController.streamNotifications
-);
+
 
 /* ==========================
    MESSAGES

@@ -2,6 +2,11 @@ const Notification = require("../models/Notification");
 const User = require("../models/UserModels");
 const mongoose = require("mongoose");
 const admin = require("../config/firebase");
+const {
+  pushNotification,
+  addNotificationClient,
+  removeNotificationClient,
+} = require("../config/sse");
 
 /* =========================
    HELPERS
@@ -60,7 +65,7 @@ const notify = async ({
     // =========================
     // 🔥 FIREBASE PUSH ONLY
     // =========================
-    const targetUser = await User.findById(user).select("fcmToken");
+   const targetUser = await User.findById(user).select("fcmToken");
 
     if (!targetUser?.fcmToken) {
       console.log("⚠️ No FCM token for user:", user);
@@ -162,8 +167,8 @@ const sendNotificationToAll = async (req, res) => {
           sender: req.user,
           type,
           message,
-        }),
-      ),
+        })
+      )
     );
 
     res.json({
@@ -211,7 +216,7 @@ const markAsRead = async (req, res) => {
     const notification = await Notification.findOneAndUpdate(
       { _id: id, user: req.user._id },
       { read: true },
-      { new: true },
+      { new: true }
     );
 
     if (!notification) {

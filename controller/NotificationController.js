@@ -293,6 +293,44 @@ const deleteNotification = async (req, res) => {
   }
 };
 
+const streamNotifications = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders?.();
+
+    addNotificationClient(userId, res);
+
+    // ✅ send latest notifications on connect
+    const notifications = await Notification.find({ user: userId })
+      .sort({ createdAt: -1 })
+      .limit(20);
+
+    res.write(
+      `data: ${JSON.stringify({
+        type: "init",
+        notifications,
+      })}\n\n`,
+    );
+
+    const keepAlive = setInterval(() => {
+      res.write(`data: ${JSON.stringify({ type: "ping" })}\n\n`);
+    }, 25000);
+
+    req.on("close", () => {
+      clearInterval(keepAlive);
+      removeNotificationClient(userId, res);
+      res.end();
+    });
+  } catch (err) {
+    console.error("SSE ERROR:", err);
+    res.end();
+  }
+};
+
 /* =========================
    EXPORTS
 ========================= */
@@ -305,4 +343,5 @@ module.exports = {
   deleteNotification,
   notify,
   saveFcmToken,
+  streamNotifications,
 };

@@ -440,62 +440,58 @@ const deleteSlide = asyncHandler(async (req, res) => {
 });
 
 const uploadAppVersion = asyncHandler(async (req, res) => {
-  try {
-    console.log("APK UPLOAD HIT");
-    console.log("BODY:", req.body);
-    console.log("FILE:", req.file);
+  const {
+    version,
+    versionCode,
+    changelog,
+    forceUpdate,
+  } = req.body;
 
-    const appVersion = await AppVersion.create({
-      version: req.body.version,
-      description: req.body.description || "",
-      changelog: req.body.changelog || "",
-      apkUrl: req.file.path,
-      forceUpdate: req.body.forceUpdate === "true",
-    });
-
-    res.status(201).json({
-      success: true,
-      appVersion,
-    });
-  } catch (err) {
-    console.error("APK UPLOAD ERROR:", err);
-
-    res.status(500).json({
-      message: err.message,
-      stack: err.stack,
+  if (!version || !versionCode) {
+    return res.status(400).json({
+      success: false,
+      message: "version and versionCode are required",
     });
   }
+
+  const apkUrl =
+    "https://github.com/Theophilus826/App-release/releases/latest/download/TinkReward.apk";
+
+  const appVersion = await AppVersion.create({
+    version,
+    versionCode: Number(versionCode),
+    changelog,
+    apkUrl,
+    forceUpdate: forceUpdate === true || forceUpdate === "true",
+  });
+
+  res.status(201).json({
+    success: true,
+    appVersion,
+  });
 });
 
 const getApks = asyncHandler(async (req, res) => {
-  try {
-    console.log("GET APKS HIT");
+  const apks = await AppVersion.find()
+    .sort({ versionCode: -1 });
 
-    const apks = await AppVersion.find();
-
-    console.log("APKS:", apks.length);
-
-    res.json({
-      success: true,
-      apks,
-    });
-  } catch (err) {
-    console.error("GET APKS ERROR:", err);
-
-    res.status(500).json({
-      message: err.message,
-      stack: err.stack,
-    });
-  }
+  res.json({
+    success: true,
+    apks,
+  });
 });
 
 const getLatestAppVersion = asyncHandler(async (req, res) => {
-  const version = await AppVersion.findOne()
-    .sort({ createdAt: -1 });
+  const version = await AppVersion.findOne({
+    isActive: true,
+  }).sort({
+    versionCode: -1,
+  });
 
   if (!version) {
     return res.status(404).json({
-      message: "No APK found",
+      success: false,
+      message: "No version found",
     });
   }
 
@@ -510,18 +506,18 @@ const deleteApk = asyncHandler(async (req, res) => {
 
   if (!apk) {
     return res.status(404).json({
-      message: "APK not found",
+      success: false,
+      message: "Version not found",
     });
   }
 
-  await AppVersion.findByIdAndDelete(req.params.id);
+  await apk.deleteOne();
 
   res.json({
     success: true,
-    message: "APK deleted",
+    message: "Version deleted",
   });
 });
-
 module.exports = {
   getPendingDeposits,
   approveDeposit,

@@ -2,11 +2,6 @@ const Notification = require("../models/Notification");
 const User = require("../models/UserModels");
 const mongoose = require("mongoose");
 const admin = require("../config/firebase");
-const {
-  pushNotification,
-  addNotificationClient,
-  removeNotificationClient,
-} = require("../config/sse");
 
 /* =========================
    HELPERS
@@ -76,18 +71,19 @@ const notify = async ({
       const response = await admin.messaging().send({
         token: targetUser.fcmToken,
 
-        notification: {
+        // ✅ DATA-ONLY PAYLOAD (RECOMMENDED FOR ANDROID PRODUCTION)
+        data: {
           title: "TinkReward",
           body: finalMessage,
+
+          notificationId: String(notification._id),
+          type: String(type),
+          postId: String(postId || ""),
+          chatUserId: String(chatUserId || ""),
         },
 
         android: {
           priority: "high",
-          notification: {
-            channelId: "default",
-            sound: "default",
-            defaultSound: true,
-          },
         },
 
         apns: {
@@ -96,13 +92,6 @@ const notify = async ({
               sound: "default",
             },
           },
-        },
-
-        data: {
-          notificationId: String(notification._id),
-          type: String(type),
-          postId: String(postId || ""),
-          chatUserId: String(chatUserId || ""),
         },
       });
 
@@ -173,8 +162,8 @@ const sendNotificationToAll = async (req, res) => {
           sender: req.user,
           type,
           message,
-        })
-      )
+        }),
+      ),
     );
 
     res.json({
@@ -222,7 +211,7 @@ const markAsRead = async (req, res) => {
     const notification = await Notification.findOneAndUpdate(
       { _id: id, user: req.user._id },
       { read: true },
-      { new: true }
+      { new: true },
     );
 
     if (!notification) {
@@ -268,44 +257,6 @@ const saveFcmToken = async (req, res) => {
   }
 };
 
-const streamNotifications = async (req, res) => {
-  try {
-    const userId = req.user._id;
-
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-    res.flushHeaders?.();
-
-    addNotificationClient(userId, res);
-
-    // ✅ send latest notifications on connect
-    const notifications = await Notification.find({ user: userId })
-      .sort({ createdAt: -1 })
-      .limit(20);
-
-    res.write(
-      `data: ${JSON.stringify({
-        type: "init",
-        notifications,
-      })}\n\n`,
-    );
-
-    const keepAlive = setInterval(() => {
-      res.write(`data: ${JSON.stringify({ type: "ping" })}\n\n`);
-    }, 25000);
-
-    req.on("close", () => {
-      clearInterval(keepAlive);
-      removeNotificationClient(userId, res);
-      res.end();
-    });
-  } catch (err) {
-    console.error("SSE ERROR:", err);
-    res.end();
-  }
-};
-
 /* =========================
    DELETE NOTIFICATION
 ========================= */
@@ -347,7 +298,6 @@ module.exports = {
   getUserNotifications,
   markAsRead,
   deleteNotification,
-  streamNotifications,
   notify,
   saveFcmToken,
 };

@@ -41,4 +41,38 @@ router.delete("/:id", protect, deleteNotification);
 // Save FCM token
 router.post("/fcm-token", protect, saveFcmToken);
 
+router.post("/test-push", async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+
+    const result = await admin.messaging().send({
+      token: user.fcmToken,
+
+      notification: {
+        title: "Test Notification",
+        body: "If you see this, FCM works.",
+      },
+
+      data: {
+        type: "system",
+      },
+
+      android: {
+        priority: "high",
+      },
+    });
+
+    res.json({
+      success: true,
+      result,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      error: err.message,
+    });
+  }
+});
+
 module.exports = router;

@@ -73,37 +73,45 @@ const notify = async ({
     }
 
     try {
-      const response = await admin.messaging().send({
-        token: targetUser.fcmToken,
+  const payload = {
+    token: targetUser.fcmToken,
 
-        // ✅ DATA-ONLY PAYLOAD (RECOMMENDED FOR ANDROID PRODUCTION)
-        data: {
-          title: "TinkReward",
-          body: finalMessage,
+    notification: {
+      title: "TinkReward",
+      body: finalMessage,
+    },
 
-          notificationId: String(notification._id),
-          type: String(type),
-          postId: String(postId || ""),
-          chatUserId: String(chatUserId || ""),
+    data: {
+      notificationId: String(notification._id),
+      type: String(type),
+      postId: String(postId || ""),
+      chatUserId: String(chatUserId || ""),
+    },
+
+    android: {
+      priority: "high",
+    },
+
+    apns: {
+      payload: {
+        aps: {
+          sound: "default",
         },
+      },
+    },
+  };
 
-        android: {
-          priority: "high",
-        },
+  console.log("🚀 SENDING FCM...");
+  console.log(JSON.stringify(payload, null, 2));
 
-        apns: {
-          payload: {
-            aps: {
-              sound: "default",
-            },
-          },
-        },
-      });
+  const response = await admin.messaging().send(payload);
 
-      console.log("✅ FCM SENT:", response);
-    } catch (firebaseErr) {
-      console.error("❌ FCM ERROR:", firebaseErr.code || firebaseErr.message);
-    }
+  console.log("✅ FCM SUCCESS");
+  console.log("MESSAGE ID:", response);
+} catch (firebaseErr) {
+  console.error("❌ FCM FAILED");
+  console.error(firebaseErr);
+}
 
     return notification;
   } catch (err) {

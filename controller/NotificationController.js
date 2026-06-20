@@ -3,7 +3,7 @@ const Notification = require("../models/Notification");
 const User = require("../models/UserModels");
 const {
   notify,
-} = require("../services/notification.service");
+} = require("../config/NotificationService");
 const {
   addNotificationClient,
   removeNotificationClient,

@@ -85,6 +85,12 @@ const notify = async ({
             postId: postId ? String(postId) : "",
             chatUserId: chatUserId ? String(chatUserId) : "",
           },
+          android: {
+            priority: "high",
+            notification: {
+              channelId: "tinkreward_notifications",
+            },
+          },
         });
       }
     } catch (err) {

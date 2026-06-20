@@ -1,104 +1,142 @@
 const Notification = require("../models/Notification");
+const User = require("../models/UserModels");
+const mongoose = require("mongoose");
+const admin = require("../config/firebase");
 const { pushNotification } = require("../config/sse");
 
-/* ================= CORE ================= */
-const createAndPush = async ({
+/* =========================
+   HELPERS
+========================= */
+
+const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
+
+/* =========================
+   MESSAGE BUILDER
+========================= */
+
+const buildMessage = ({ type, senderName }) => {
+  switch (type) {
+    case "like":
+      return `👍 ${senderName} liked your post`;
+    case "love":
+      return `❤️ ${senderName} loved your post`;
+    case "comment":
+      return `💬 ${senderName} commented on your post`;
+    case "chat":
+      return `💬 New message from ${senderName}`;
+    default:
+      return `🔔 Notification from ${senderName}`;
+  }
+};
+
+/* =========================
+   CORE NOTIFY SERVICE
+========================= */
+
+const notify = async ({
   user,
-  sender,
-  type,
+  sender = null,
+  type = "system",
   message,
   postId = null,
   chatUserId = null,
 }) => {
-  try {
-    if (!user) {
-      console.warn("⚠️ Notification skipped: missing user");
-      return null;
-    }
+  if (!user || !isValidId(user)) return null;
 
+  try {
+    const senderName = sender?.name || "Someone";
+    const finalMessage = message || buildMessage({ type, senderName });
+
+    /* ================= DB ================= */
     const notification = await Notification.create({
       user,
       sender: sender?._id || sender || null,
       type,
-      message,
+      message: finalMessage,
       postId,
-      chatUserId,
+      chatUserId: type === "chat" ? chatUserId || sender?._id : null,
       read: false,
     });
 
-    // Push safely (never crash app)
+    /* ================= SSE ================= */
     try {
-      pushNotification(user, notification);
+      pushNotification(user.toString(), {
+        type: "new",
+        notification,
+      });
     } catch (err) {
-      console.error("SSE push error:", err.message);
+      console.error("SSE error:", err.message);
+    }
+
+    /* ================= FCM ================= */
+    try {
+      const targetUser = await User.findById(user).select("fcmToken");
+
+      if (targetUser?.fcmToken) {
+        await admin.messaging().send({
+          token: targetUser.fcmToken,
+          notification: {
+            title: "TinkReward",
+            body: finalMessage,
+          },
+          data: {
+            notificationId: String(notification._id),
+            type: String(type),
+            postId: postId ? String(postId) : "",
+            chatUserId: chatUserId ? String(chatUserId) : "",
+          },
+        });
+      }
+    } catch (err) {
+      console.error("FCM error:", err.message);
     }
 
     return notification;
   } catch (err) {
-    console.error("Notification DB error:", err.message);
-    return null; // 🔥 NEVER throw (prevents 502 crash)
+    console.error("notify service error:", err.message);
+    return null;
   }
 };
 
-/* ================= CHAT ================= */
+/* ================= WRAPPERS ================= */
+
 const notifyChatMessage = async ({ receiverId, sender, messageType }) => {
-  try {
-    if (!receiverId || !sender) return null;
+  const senderName = sender?.name || "Someone";
 
-    const senderName = sender?.name || "Someone";
+  const map = {
+    text: `💬 New message from ${senderName}`,
+    voice: `🎤 Voice message from ${senderName}`,
+    image: `🖼️ Image from ${senderName}`,
+  };
 
-    const textMap = {
-      text: `💬 New message from ${senderName}`,
-      voice: `🎤 Voice message from ${senderName}`,
-      image: `🖼️ Image from ${senderName}`,
-    };
-
-    return await createAndPush({
-      user: receiverId,
-      sender,
-      type: "chat",
-      message:
-        textMap[messageType] || `New message from ${senderName}`,
-      chatUserId: sender?._id,
-    });
-  } catch (err) {
-    console.error("notifyChatMessage error:", err.message);
-    return null;
-  }
+  return notify({
+    user: receiverId,
+    sender,
+    type: "chat",
+    message: map[messageType] || `New message from ${senderName}`,
+    chatUserId: sender?._id,
+  });
 };
 
-/* ================= POST REACTIONS ================= */
-const notifyPostReaction = async ({
-  postOwnerId,
-  sender,
-  type,
-  postId,
-}) => {
-  try {
-    if (!postOwnerId || !sender) return null;
+const notifyPostReaction = async ({ postOwnerId, sender, type, postId }) => {
+  const senderName = sender?.name || "Someone";
 
-    const senderName = sender?.name || "Someone";
+  const message =
+    type === "like"
+      ? `👍 ${senderName} liked your post`
+      : `❤️ ${senderName} loved your post`;
 
-    const message =
-      type === "like"
-        ? `👍 ${senderName} liked your post`
-        : `❤️ ${senderName} loved your post`;
-
-    return await createAndPush({
-      user: postOwnerId,
-      sender,
-      type,
-      message,
-      postId,
-    });
-  } catch (err) {
-    console.error("notifyPostReaction error:", err.message);
-    return null;
-  }
+  return notify({
+    user: postOwnerId,
+    sender,
+    type,
+    message,
+    postId,
+  });
 };
 
 module.exports = {
-  createAndPush,
+  notify,
   notifyChatMessage,
   notifyPostReaction,
 };

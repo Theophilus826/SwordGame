@@ -1,9 +1,10 @@
+const mongoose = require("mongoose");
 const Notification = require("../models/Notification");
 const User = require("../models/UserModels");
-const mongoose = require("mongoose");
-const admin = require("../config/firebase");
 const {
-  pushNotification,
+  notify,
+} = require("../services/notification.service");
+const {
   addNotificationClient,
   removeNotificationClient,
 } = require("../config/sse");
@@ -15,112 +16,7 @@ const {
 const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
 
 /* =========================
-   AUTO MESSAGE BUILDER
-========================= */
-
-const buildMessage = ({ type, senderName }) => {
-  switch (type) {
-    case "like":
-      return `👍 ${senderName} liked your post`;
-    case "love":
-      return `❤️ ${senderName} loved your post`;
-    case "chat":
-      return `💬 New message from ${senderName}`;
-    case "comment":
-      return `💬 ${senderName} commented on your post`;
-    default:
-      return `🔔 New notification from ${senderName}`;
-  }
-};
-
-/* =========================
-   CORE NOTIFY (FIREBASE ONLY)
-========================= */
-
-const notify = async ({
-  user,
-  sender,
-  type = "system",
-  message,
-  postId = null,
-  chatUserId = null,
-}) => {
-  try {
-    if (!user) return;
-
-    const senderName = sender?.name || "Someone";
-    const finalMessage = message || buildMessage({ type, senderName });
-
-    // Save notification in DB (history)
-    const notification = await Notification.create({
-      user,
-      sender: sender?._id || null,
-      type,
-      message: finalMessage,
-      postId,
-      chatUserId: chatUserId || sender?._id || null,
-      read: false,
-    });
-
-    // =========================
-    // 🔥 FIREBASE PUSH ONLY
-    // =========================
-   const targetUser = await User.findById(user).select("fcmToken");
-
-    if (!targetUser?.fcmToken) {
-      console.log("⚠️ No FCM token for user:", user);
-      return notification;
-    }
-
-    try {
-  const payload = {
-    token: targetUser.fcmToken,
-
-    notification: {
-      title: "TinkReward",
-      body: finalMessage,
-    },
-
-    data: {
-      notificationId: String(notification._id),
-      type: String(type),
-      postId: String(postId || ""),
-      chatUserId: String(chatUserId || ""),
-    },
-
-    android: {
-      priority: "high",
-    },
-
-    apns: {
-      payload: {
-        aps: {
-          sound: "default",
-        },
-      },
-    },
-  };
-
-  console.log("🚀 SENDING FCM...");
-  console.log(JSON.stringify(payload, null, 2));
-
-  const response = await admin.messaging().send(payload);
-
-  console.log("✅ FCM SUCCESS");
-  console.log("MESSAGE ID:", response);
-} catch (firebaseErr) {
-  console.error("❌ FCM FAILED");
-  console.error(firebaseErr);
-}
-
-    return notification;
-  } catch (err) {
-    console.error("NOTIFY ERROR:", err);
-  }
-};
-
-/* =========================
-   SEND TO ONE USER
+   SEND NOTIFICATION (ADMIN/API)
 ========================= */
 
 const sendNotification = async (req, res) => {
@@ -149,7 +45,7 @@ const sendNotification = async (req, res) => {
       notification,
     });
   } catch (err) {
-    console.error("SEND ERROR:", err);
+    console.error("SEND ERROR:", err.message);
     res.status(500).json({ message: err.message });
   }
 };
@@ -184,7 +80,7 @@ const sendNotificationToAll = async (req, res) => {
       message: `Sent to ${users.length} users`,
     });
   } catch (err) {
-    console.error("SEND ALL ERROR:", err);
+    console.error("SEND ALL ERROR:", err.message);
     res.status(500).json({ message: err.message });
   }
 };
@@ -204,7 +100,6 @@ const getUserNotifications = async (req, res) => {
       notifications,
     });
   } catch (err) {
-    console.error("FETCH ERROR:", err);
     res.status(500).json({ message: err.message });
   }
 };
@@ -236,36 +131,6 @@ const markAsRead = async (req, res) => {
       notification,
     });
   } catch (err) {
-    console.error("MARK READ ERROR:", err);
-    res.status(500).json({ message: err.message });
-  }
-};
-
-/* =========================
-   SAVE FCM TOKEN
-========================= */
-
-const saveFcmToken = async (req, res) => {
-  try {
-    const userId = req.user?._id;
-    const { token } = req.body;
-
-    if (!userId) {
-      return res.status(401).json({ message: "No authenticated user" });
-    }
-
-    if (!token) {
-      return res.status(400).json({ message: "FCM token required" });
-    }
-
-    await User.findByIdAndUpdate(userId, { fcmToken: token });
-
-    res.json({
-      success: true,
-      message: "FCM token saved successfully",
-    });
-  } catch (err) {
-    console.error("FCM SAVE ERROR:", err);
     res.status(500).json({ message: err.message });
   }
 };
@@ -296,10 +161,13 @@ const deleteNotification = async (req, res) => {
       message: "Deleted successfully",
     });
   } catch (err) {
-    console.error("DELETE ERROR:", err);
     res.status(500).json({ message: err.message });
   }
 };
+
+/* =========================
+   SSE STREAM
+========================= */
 
 const streamNotifications = async (req, res) => {
   try {
@@ -312,7 +180,6 @@ const streamNotifications = async (req, res) => {
 
     addNotificationClient(userId, res);
 
-    // ✅ send latest notifications on connect
     const notifications = await Notification.find({ user: userId })
       .sort({ createdAt: -1 })
       .limit(20);
@@ -321,7 +188,7 @@ const streamNotifications = async (req, res) => {
       `data: ${JSON.stringify({
         type: "init",
         notifications,
-      })}\n\n`,
+      })}\n\n`
     );
 
     const keepAlive = setInterval(() => {
@@ -334,11 +201,46 @@ const streamNotifications = async (req, res) => {
       res.end();
     });
   } catch (err) {
-    console.error("SSE ERROR:", err);
+    console.error("SSE ERROR:", err.message);
     res.end();
   }
 };
 
+const saveFcmToken = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { fcmToken } = req.body;
+
+    if (!fcmToken) {
+      return res.status(400).json({ message: "FCM token is required" });
+    }
+
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // avoid unnecessary DB writes
+    if (user.fcmToken === fcmToken) {
+      return res.json({
+        success: true,
+        message: "FCM token already saved",
+      });
+    }
+
+    user.fcmToken = fcmToken;
+    await user.save();
+
+    res.json({
+      success: true,
+      message: "FCM token saved successfully",
+    });
+  } catch (err) {
+    console.error("SAVE FCM ERROR:", err.message);
+    res.status(500).json({ message: err.message });
+  }
+};
 /* =========================
    EXPORTS
 ========================= */
@@ -349,7 +251,6 @@ module.exports = {
   getUserNotifications,
   markAsRead,
   deleteNotification,
-  notify,
-  saveFcmToken,
   streamNotifications,
+  saveFcmToken,
 };

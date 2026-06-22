@@ -76,9 +76,12 @@ const notify = async ({
         await admin.messaging().send({
           token: targetUser.fcmToken,
 
-          data: {
+          notification: {
             title: "TinkReward",
             body: finalMessage,
+          },
+
+          data: {
             notificationId: String(notification._id),
             type: String(type),
             postId: postId ? String(postId) : "",

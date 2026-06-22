@@ -75,21 +75,18 @@ const notify = async ({
       if (targetUser?.fcmToken) {
         await admin.messaging().send({
           token: targetUser.fcmToken,
-          notification: {
+
+          data: {
             title: "TinkReward",
             body: finalMessage,
-          },
-          data: {
             notificationId: String(notification._id),
             type: String(type),
             postId: postId ? String(postId) : "",
             chatUserId: chatUserId ? String(chatUserId) : "",
           },
+
           android: {
             priority: "high",
-            notification: {
-              channelId: "tinkreward_notifications",
-            },
           },
         });
       }

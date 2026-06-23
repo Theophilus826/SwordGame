@@ -70,42 +70,44 @@ const notify = async ({
 
     /* ================= FCM ================= */
     try {
-      const targetUser = await User.findById(user).select("fcmToken");
+      const targetUser = await User.findByIdAndUpdate(userId, {
+        fcmToken: newToken,
+      });
 
       if (targetUser?.fcmToken) {
         await admin.messaging().send({
-              token: targetUser.fcmToken,
-    
-              notification: {
-                title: "TinkReward",
-                body: finalMessage,
+          token: targetUser.fcmToken,
+
+          notification: {
+            title: "TinkReward",
+            body: finalMessage,
+          },
+
+          android: {
+            priority: "high",
+            notification: {
+              channelId: "default",
+              sound: "default",
+              defaultSound: true,
+            },
+          },
+
+          apns: {
+            payload: {
+              aps: {
+                sound: "default",
               },
-    
-              android: {
-                priority: "high",
-                notification: {
-                  channelId: "default",
-                  sound: "default",
-                  defaultSound: true,
-                },
-              },
-    
-              apns: {
-                payload: {
-                  aps: {
-                    sound: "default",
-                  },
-                },
-              },
-    
-              data: {
-                notificationId: String(notification._id),
-                type: String(type),
-                postId: String(postId || ""),
-                chatUserId: String(chatUserId || ""),
-                click_action: "FLUTTER_NOTIFICATION_CLICK",
-              },
-            });
+            },
+          },
+
+          data: {
+            notificationId: String(notification._id),
+            type: String(type),
+            postId: String(postId || ""),
+            chatUserId: String(chatUserId || ""),
+            click_action: "FLUTTER_NOTIFICATION_CLICK",
+          },
+        });
       }
     } catch (err) {
       console.error("FCM error:", err.message);

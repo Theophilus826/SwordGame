@@ -74,24 +74,38 @@ const notify = async ({
 
       if (targetUser?.fcmToken) {
         await admin.messaging().send({
-          token: targetUser.fcmToken,
-
-          notification: {
-            title: "TinkReward",
-            body: finalMessage,
-          },
-
-          data: {
-            notificationId: String(notification._id),
-            type: String(type),
-            postId: postId ? String(postId) : "",
-            chatUserId: chatUserId ? String(chatUserId) : "",
-          },
-
-          android: {
-            priority: "high",
-          },
-        });
+              token: targetUser.fcmToken,
+    
+              notification: {
+                title: "TinkReward",
+                body: finalMessage,
+              },
+    
+              android: {
+                priority: "high",
+                notification: {
+                  channelId: "default",
+                  sound: "default",
+                  defaultSound: true,
+                },
+              },
+    
+              apns: {
+                payload: {
+                  aps: {
+                    sound: "default",
+                  },
+                },
+              },
+    
+              data: {
+                notificationId: String(notification._id),
+                type: String(type),
+                postId: String(postId || ""),
+                chatUserId: String(chatUserId || ""),
+                click_action: "FLUTTER_NOTIFICATION_CLICK",
+              },
+            });
       }
     } catch (err) {
       console.error("FCM error:", err.message);

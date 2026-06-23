@@ -84,6 +84,9 @@ const notify = async ({
 
       console.log("Sending FCM to:", targetUser._id);
 
+      console.log("SERVER TIME:", new Date().toISOString());
+      console.log("EPOCH:", Date.now());
+
       const response = await admin.messaging().send({
         token: targetUser.fcmToken,
 

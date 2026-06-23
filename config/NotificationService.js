@@ -47,7 +47,7 @@ const notify = async ({
     const senderName = sender?.name || "Someone";
     const finalMessage = message || buildMessage({ type, senderName });
 
-    /* ================= DB ================= */
+    // Save notification
     const notification = await Notification.create({
       user,
       sender: sender?._id || sender || null,
@@ -58,7 +58,7 @@ const notify = async ({
       read: false,
     });
 
-    /* ================= SSE ================= */
+    // SSE
     try {
       pushNotification(user.toString(), {
         type: "new",
@@ -68,49 +68,57 @@ const notify = async ({
       console.error("SSE error:", err.message);
     }
 
-    /* ================= FCM ================= */
+    // FCM
     try {
-      const targetUser = await User.findByIdAndUpdate(userId, {
-        fcmToken: newToken,
+      const targetUser = await User.findById(user);
+
+      if (!targetUser) {
+        console.log("Target user not found:", user);
+        return notification;
+      }
+
+      if (!targetUser.fcmToken) {
+        console.log("No FCM token for user:", user);
+        return notification;
+      }
+
+      console.log("Sending FCM to:", targetUser._id);
+
+      const response = await admin.messaging().send({
+        token: targetUser.fcmToken,
+
+        notification: {
+          title: "TinkReward",
+          body: finalMessage,
+        },
+
+        android: {
+          priority: "high",
+          notification: {
+            channelId: "tinkreward_notifications",
+            sound: "default",
+          },
+        },
+
+        apns: {
+          payload: {
+            aps: {
+              sound: "default",
+            },
+          },
+        },
+
+        data: {
+          notificationId: String(notification._id),
+          type: String(type),
+          postId: String(postId || ""),
+          chatUserId: String(chatUserId || ""),
+        },
       });
 
-      if (targetUser?.fcmToken) {
-        await admin.messaging().send({
-          token: targetUser.fcmToken,
-
-          notification: {
-            title: "TinkReward",
-            body: finalMessage,
-          },
-
-          android: {
-            priority: "high",
-            notification: {
-              channelId: "default",
-              sound: "default",
-              defaultSound: true,
-            },
-          },
-
-          apns: {
-            payload: {
-              aps: {
-                sound: "default",
-              },
-            },
-          },
-
-          data: {
-            notificationId: String(notification._id),
-            type: String(type),
-            postId: String(postId || ""),
-            chatUserId: String(chatUserId || ""),
-            click_action: "FLUTTER_NOTIFICATION_CLICK",
-          },
-        });
-      }
+      console.log("FCM SUCCESS:", response);
     } catch (err) {
-      console.error("FCM error:", err.message);
+      console.error("FCM ERROR:", err);
     }
 
     return notification;

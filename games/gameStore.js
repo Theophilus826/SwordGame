@@ -4,51 +4,48 @@ const games = new Map();
 CREATE GAME
 ========================================================= */
 function createGame({
-id,
-hostId,
-username,
-amount,
-pot,
-numEnemies,
-enemies = [],
+  id,
+  hostId = null,
+  username = null,
+  amount = 0,
+  pot = 0,
+  numEnemies = 0,
+  enemies = [],
 }) {
-if (!id) {
-throw new Error("Game id is required");
-}
+  if (!id) {
+    throw new Error("Game id is required");
+  }
 
-const game = {
-id,
+  const game = {
+    id,
 
+    hostId,
+    username,
 
-hostId,
-username,
+    amount: Number(amount || 0),
+    pot: Number(pot || 0),
 
-amount,
-pot,
+    numEnemies: Number(numEnemies || 0),
 
-numEnemies,
+    maxPlayers: 1,
+    players: hostId ? [hostId] : [],
 
-maxPlayers: 1,
-players: [hostId],
+    status: "waiting",
 
-status: "waiting",
+    winner: null,
+    result: null,
 
-winner: null,
-result: null,
+    startedAt: null,
+    finishedAt: null,
 
-startedAt: null,
-finishedAt: null,
+    enemies,
 
-enemies,
+    createdAt: Date.now(),
+  };
 
-createdAt: Date.now(),
+  games.set(id, game);
 
-
-};
-
-games.set(id, game);
-
-return game;
+  return game;
 }
 
 /* =========================================================

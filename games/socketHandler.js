@@ -9,7 +9,7 @@ getGame,
 createGame,
 updateGame,
 deleteGame,
-} = require("../gameStore");
+} = require("./gameStore");
 
 /* =========================================================
 EMITTERS

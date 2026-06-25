@@ -4,7 +4,7 @@ const { creditCoins } = require("./AccountController");
 const {
 getGame,
 finishGame: finishStoredGame,
-} = require("../gameStore");
+} = require("../games/gameStore");
 
 const { emitGameEvent } = require("../socket/gameEvents");
 

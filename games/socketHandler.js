@@ -85,13 +85,6 @@ function registerGameSockets(io, adminNamespace, socket) {
   ===================================================== */
 
   socket.on("joinRoom", (gameId, callback) => {
-    if (!gameId) {
-      return callback?.({
-        success: false,
-        message: "Missing gameId",
-      });
-    }
-
     const game = getGame(gameId);
 
     if (!game) {
@@ -257,7 +250,7 @@ function registerGameSockets(io, adminNamespace, socket) {
       const angle = (index / count) * Math.PI * 2;
 
       return {
-        id: crypto.randomUUID(),
+        enemyId: crypto.randomUUID(),
         enemyNo: index + 1,
         name: `Enemy ${index + 1}`,
         health: 100,

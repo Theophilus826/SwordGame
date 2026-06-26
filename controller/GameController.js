@@ -1,5 +1,4 @@
-const User = require("../models/User");
-const { creditCoins } = require("./AccountController");
+const { processGameCoins } = require("../config/gameCoinService");
 
 const {
   getGame,
@@ -31,17 +30,12 @@ const finishGame = async (req, res) => {
       });
     }
 
-    const allowedResults = [
-      "won",
-      "lost",
-      "cancelled",
-    ];
+    const allowedResults = ["won", "lost", "cancelled"];
 
     if (!allowedResults.includes(result)) {
       return res.status(400).json({
         success: false,
-        message:
-          "Result must be 'won', 'lost', or 'cancelled'",
+        message: "Result must be 'won', 'lost', or 'cancelled'",
       });
     }
 
@@ -104,52 +98,39 @@ const finishGame = async (req, res) => {
       status: "finishing",
     });
 
-    let creditedCoins = 0;
-    let creditedTo = null;
-    let winner = null;
-
     try {
-      /* =====================================================
-         PLAYER WON
-      ===================================================== */
+      const pot = Number(game.pot || 0);
+      let winner = null;
+      let creditedTo = "ADMIN";
 
-      if (result === "won") {
-        await creditCoins({
-          userId: game.hostId,
-          coins: Number(game.pot || 0),
-        });
+      switch (result) {
+        case "won":
+          winner = game.hostId;
+          creditedTo = String(winner);
 
-        creditedCoins = Number(game.pot || 0);
-        creditedTo = String(game.hostId);
-        winner = game.hostId;
-      }
-
-      /* =====================================================
-         PLAYER LOST / CANCELLED
-      ===================================================== */
-
-      else {
-        const admin = await User.findOne({
-          isAdmin: true,
-        });
-
-        if (!admin) {
-          updateGame(gameId, {
-            status: "started",
+          await processGameCoins({
+            gameId,
+            action: "PLAYER_WIN",
+            amount: pot,
+            playerId: winner,
           });
+          break;
 
-          return res.status(500).json({
-            success: false,
-            message: "Admin account not found",
+        case "lost":
+          await processGameCoins({
+            gameId,
+            action: "PLAYER_LOST",
+            amount: pot,
           });
-        }
+          break;
 
-        admin.coins += Number(game.pot || 0);
-
-        await admin.save();
-
-        creditedCoins = Number(game.pot || 0);
-        creditedTo = String(admin._id);
+        case "cancelled":
+          await processGameCoins({
+            gameId,
+            action: "GAME_CANCELLED",
+            amount: pot,
+          });
+          break;
       }
 
       /* =====================================================
@@ -163,29 +144,22 @@ const finishGame = async (req, res) => {
       );
 
       /* =====================================================
-         SOCKET EVENT
+         EMIT SOCKET EVENT
       ===================================================== */
 
       const io = req.app.get("io");
-      const adminNamespace =
-        req.app.get("adminNamespace");
+      const adminNamespace = req.app.get("adminNamespace");
 
       if (io && adminNamespace) {
-        emitGameEvent(
-          io,
-          adminNamespace,
-          gameId,
-          {
-            type: "GAME_RESULT",
-            result,
-            winner,
-            pot: finishedGame.pot,
-            creditedCoins,
-            creditedTo,
-            finishedAt:
-              finishedGame.finishedAt,
-          }
-        );
+        emitGameEvent(io, adminNamespace, gameId, {
+          type: "GAME_RESULT",
+          result,
+          winner,
+          pot: finishedGame.pot,
+          creditedCoins: pot,
+          creditedTo,
+          finishedAt: finishedGame.finishedAt,
+        });
       }
 
       /* =====================================================
@@ -194,34 +168,25 @@ const finishGame = async (req, res) => {
 
       return res.status(200).json({
         success: true,
-
         gameId,
-
         result,
         winner,
-
         status: finishedGame.status,
-
         pot: finishedGame.pot,
-
-        creditedCoins,
+        creditedCoins: pot,
         creditedTo,
-
-        finishedAt:
-          finishedGame.finishedAt,
+        finishedAt: finishedGame.finishedAt,
       });
-    } catch (innerError) {
+    } catch (error) {
+      // Unlock game if payout failed
       updateGame(gameId, {
         status: "started",
       });
 
-      throw innerError;
+      throw error;
     }
   } catch (error) {
-    console.error(
-      "[finishGame] Error:",
-      error
-    );
+    console.error("[finishGame]", error);
 
     return res.status(500).json({
       success: false,

@@ -416,40 +416,68 @@ function registerGameSockets(io, adminNamespace, socket) {
 
 // socket.on("FinishGame", ({ gameId }, callback) => {
 
-  socket.on("game:finished", async ({ gameId, reason }) => {
+  socket.on("game:finished", async ({ gameId, reason }, ack) => {
   try {
     const game = getGame(gameId);
-    if (!game) return;
 
-    if (game.status === "finished") return;
-
-    const pot = Number(game.pot || 0);
-
-    let result = null;
-    let winnerId = null;
-    let creditedTo = "ADMIN";
-
-    if (reason === "allEnemiesDead") {
-      result = "won";
-      winnerId = game.hostId;
-      creditedTo = String(winnerId);
-
-      await processGameCoins({
-        gameId,
-        action: "PLAYER_WIN",
-        amount: pot,
-        playerId: winnerId,
+    if (!game) {
+      return ack?.({
+        success: false,
+        message: "Game not found.",
       });
     }
 
-    if (reason === "playerDied") {
-      result = "lost";
-
-      await processGameCoins({
-        gameId,
-        action: "PLAYER_LOST",
-        amount: pot,
+    // Prevent duplicate processing
+    if (game.status === "finished") {
+      return ack?.({
+        success: false,
+        message: "Game already finished.",
       });
+    }
+
+    // Don't pay cancelled games
+    if (game.status === "cancelled") {
+      return ack?.({
+        success: false,
+        message: "Game was cancelled.",
+      });
+    }
+
+    const pot = Number(game.pot || 0);
+
+    let result;
+    let winnerId = null;
+    let creditedTo = "ADMIN";
+
+    switch (reason) {
+      case "allEnemiesDead":
+        result = "won";
+        winnerId = game.hostId;
+        creditedTo = String(winnerId);
+
+        await processGameCoins({
+          gameId,
+          action: "PLAYER_WIN",
+          amount: pot,
+          playerId: winnerId,
+        });
+        break;
+
+      case "playerDied":
+        result = "lost";
+
+        await processGameCoins({
+          gameId,
+          action: "PLAYER_LOST",
+          amount: pot,
+        });
+        break;
+
+      default:
+        return ack?.({
+          success: false,
+          message: "Invalid game result.",
+        });
     }
 
     const finishedGame = finishStoredGame(
@@ -459,7 +487,6 @@ function registerGameSockets(io, adminNamespace, socket) {
     );
 
     const io = socket.server || socket.nsp.server;
-    const adminNamespace = socket.adminNamespace;
 
     io.to(gameId).emit("game:event", {
       type: "GAME_RESULT",
@@ -469,8 +496,19 @@ function registerGameSockets(io, adminNamespace, socket) {
       creditedTo,
       finishedAt: finishedGame.finishedAt,
     });
+
+    ack?.({
+      success: true,
+      result,
+      winner: winnerId,
+    });
   } catch (err) {
     console.error("[game:finished]", err);
+
+    ack?.({
+      success: false,
+      message: err.message,
+    });
   }
 });
 
@@ -478,25 +516,46 @@ function registerGameSockets(io, adminNamespace, socket) {
      DISCONNECT
   ===================================================== */
 
-  socket.on("disconnect", () => {
-    const p = players.get(socket.id);
+  socket.on("disconnect", async () => {
+  const p = players.get(socket.id);
 
-    if (!p) return;
+  if (!p) return;
 
-    players.delete(socket.id);
+  players.delete(socket.id);
 
-    if (p.room) {
+  if (p.room) {
+    const game = games.get(p.room);
+
+    if (game && game.status !== "FINISHED") {
+      game.status = "CANCELLED";
+
       emitGameEvent(io, adminNamespace, p.room, {
-        type: "PLAYER_DISCONNECTED",
+        type: "GAME_CANCELLED",
+        reason: "PLAYER_DISCONNECTED",
         userId: p.userId,
         username: p.username,
       });
 
-      cleanupGameIfEmpty(p.room);
+      io.to(p.room).emit("game:event", {
+        type: "GAME_CANCELLED",
+        reason: "PLAYER_DISCONNECTED",
+      });
+
+      // Remove the game so no payout can occur later
+      games.delete(p.room);
     }
 
-    emitTacticalUpdate(io);
-  });
+    emitGameEvent(io, adminNamespace, p.room, {
+      type: "PLAYER_DISCONNECTED",
+      userId: p.userId,
+      username: p.username,
+    });
+
+    cleanupGameIfEmpty(p.room);
+  }
+
+  emitTacticalUpdate(io);
+});
 }
 
 module.exports = {

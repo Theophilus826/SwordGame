@@ -1,7 +1,7 @@
 // services/gameCoinService.js
 
 const User = require("../models/UserModels");
-const { updateCoins } = require("./AccountController");
+const { updateCoins } = require("../controller/AccountController");
 
 async function processGameCoins({
   gameId,

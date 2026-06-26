@@ -414,6 +414,66 @@ function registerGameSockets(io, adminNamespace, socket) {
     });
   });
 
+// socket.on("FinishGame", ({ gameId }, callback) => {
+
+  socket.on("game:finished", async ({ gameId, reason }) => {
+  try {
+    const game = getGame(gameId);
+    if (!game) return;
+
+    if (game.status === "finished") return;
+
+    const pot = Number(game.pot || 0);
+
+    let result = null;
+    let winnerId = null;
+    let creditedTo = "ADMIN";
+
+    if (reason === "allEnemiesDead") {
+      result = "won";
+      winnerId = game.hostId;
+      creditedTo = String(winnerId);
+
+      await processGameCoins({
+        gameId,
+        action: "PLAYER_WIN",
+        amount: pot,
+        playerId: winnerId,
+      });
+    }
+
+    if (reason === "playerDied") {
+      result = "lost";
+
+      await processGameCoins({
+        gameId,
+        action: "PLAYER_LOST",
+        amount: pot,
+      });
+    }
+
+    const finishedGame = finishStoredGame(
+      gameId,
+      result,
+      winnerId
+    );
+
+    const io = socket.server || socket.nsp.server;
+    const adminNamespace = socket.adminNamespace;
+
+    io.to(gameId).emit("game:event", {
+      type: "GAME_RESULT",
+      result,
+      winner: winnerId,
+      pot: finishedGame.pot,
+      creditedTo,
+      finishedAt: finishedGame.finishedAt,
+    });
+  } catch (err) {
+    console.error("[game:finished]", err);
+  }
+});
+
   /* =====================================================
      DISCONNECT
   ===================================================== */

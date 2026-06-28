@@ -35,6 +35,13 @@ router.post(
   chatController.sendMessage
 );
 
+// 🗑️ Delete message
+router.delete(
+  "/messages/:messageId",
+  protect,
+  chatController.deleteMessage
+);
+
 // 🎤 Send voice message (FIXED + CLEAN)
 router.post(
   "/messages/voice",

@@ -572,6 +572,76 @@ const getGroupMessages = async (req, res) => {
   }
 };
 
+const deleteGroupMessage = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { groupId, messageId } = req.params;
+
+    if (!isValidId(groupId) || !isValidId(messageId)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid group or message id",
+      });
+    }
+
+    const group = await Group.findById(groupId);
+
+    if (!group) {
+      return res.status(404).json({
+        success: false,
+        error: "Group not found",
+      });
+    }
+
+    const member = group.members.find(
+      (m) => m.user.toString() === userId.toString(),
+    );
+
+    if (!member) {
+      return res.status(403).json({
+        success: false,
+        error: "Not in group",
+      });
+    }
+
+    const message = await GroupMessage.findById(messageId);
+
+    if (!message || message.group.toString() !== groupId) {
+      return res.status(404).json({
+        success: false,
+        error: "Message not found",
+      });
+    }
+
+    if (message.fromUser.toString() !== userId.toString()) {
+      return res.status(403).json({
+        success: false,
+        error: "Not authorized to delete this message",
+      });
+    }
+
+    message.deletedForEveryone = true;
+    await message.save();
+
+    pushGroupMessage(groupId, {
+      type: "group_message_deleted",
+      messageId,
+    });
+
+    return res.json({
+      success: true,
+      messageId,
+    });
+  } catch (err) {
+    console.error("DELETE GROUP MESSAGE ERROR:", err);
+
+    return res.status(500).json({
+      success: false,
+      error: "Failed to delete group message",
+    });
+  }
+};
+
 /* ================= ADD MEMBER ================= */
 
 const addMember = async (
@@ -1278,6 +1348,7 @@ module.exports = {
   leaveGroup,
 
   changeRole,
+  deleteGroupMessage,
   deleteGroup,
   toggleGroupRewards
 };

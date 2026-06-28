@@ -244,10 +244,27 @@ function pushMessage(userId, otherUserId, message) {
   keys.forEach((key) => {
     clients[key]?.forEach((res) => {
       const ok = safeWrite(res, {
-        type: "new_message",
-        scope: "dm",
-        message,
+          type: "new_message",
+          scope: "dm",
+          message,
       });
+
+      if (!ok) {
+        clients[key].delete(res);
+      }
+    });
+  });
+}
+
+function pushMessageEvent(userId, otherUserId, payload) {
+  const keys = [
+    getKey(userId, otherUserId),
+    getKey(otherUserId, userId),
+  ];
+
+  keys.forEach((key) => {
+    clients[key]?.forEach((res) => {
+      const ok = safeWrite(res, payload);
 
       if (!ok) {
         clients[key].delete(res);
@@ -367,6 +384,7 @@ module.exports = {
   broadcastGroupOnlineMembers,
 
   pushMessage,
+  pushMessageEvent,
   pushGroupMessage,
 
   addNotificationClient,

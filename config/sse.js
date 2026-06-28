@@ -323,13 +323,31 @@ function isOnline(userId) {
 }
 
 function broadcastStatus(userId, status) {
+  const payload = {
+    type: "status",
+    userId,
+    status,
+  };
+
+  // send to DM clients
   Object.values(clients).forEach((set) => {
     set.forEach((res) => {
-      safeWrite(res, {
-        type: "status",
-        userId,
-        status,
-      });
+      const ok = safeWrite(res, payload);
+
+      if (!ok) {
+        set.delete(res);
+      }
+    });
+  });
+
+  // send to notification stream clients (global listeners)
+  Object.values(notificationClients).forEach((set) => {
+    set.forEach((res) => {
+      const ok = safeWrite(res, payload);
+
+      if (!ok) {
+        set.delete(res);
+      }
     });
   });
 }

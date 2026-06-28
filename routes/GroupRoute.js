@@ -12,6 +12,7 @@ const {
   removeMember,
   leaveGroup,
   changeRole,
+  deleteGroupMessage,
   toggleGroupRewards,
   deleteGroup,
 } = require("../controller/GroupController");
@@ -82,7 +83,13 @@ router.get(
   getGroupMessages
 );
 
-/* ================= DELETE ================= */
+router.delete(
+  "/:groupId/messages/:messageId",
+  protect,
+  deleteGroupMessage
+);
+
+/* ================= DELETE GROUP ================= */
 
 router.delete(
   "/:groupId",

@@ -6,6 +6,7 @@ const {
   addClient,
   removeClient,
   pushMessage,
+  pushMessageEvent,
   sendTyping,
   setOnline,
   setOffline,
@@ -234,6 +235,49 @@ const sendMessage = async (req, res) => {
     res.status(500).json({
       error: "Failed to send message",
     });
+  }
+};
+
+/* ================= DELETE MESSAGE ================= */
+
+const deleteMessage = async (req, res) => {
+  try {
+    const userId = req.user?._id;
+    const { messageId } = req.params;
+
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    if (!messageId || !isValidId(messageId)) {
+      return res.status(400).json({ error: "Invalid message id" });
+    }
+
+    const message = await Message.findById(messageId);
+
+    if (!message) {
+      return res.status(404).json({ error: "Message not found" });
+    }
+
+    // only sender can delete their message
+    if (message.fromUser.toString() !== userId.toString()) {
+      return res.status(403).json({ error: "Not authorized to delete this message" });
+    }
+
+    const fromUser = message.fromUser.toString();
+    const toUser = message.toUser.toString();
+
+    await Message.findByIdAndDelete(messageId);
+
+    // notify SSE clients in this chat
+    pushMessageEvent(fromUser, toUser, {
+      type: "message_deleted",
+      scope: "dm",
+      messageId,
+    });
+
+    res.json({ success: true, messageId });
+  } catch (err) {
+    console.error("DELETE MESSAGE ERROR:", err);
+    res.status(500).json({ error: "Failed to delete message" });
   }
 };
 
@@ -571,6 +615,7 @@ const sendMedia = async (req, res) => {
 module.exports = {
   streamChat,
   sendMessage,
+  deleteMessage,
   typing,
   stopTyping,
   sendVoice,

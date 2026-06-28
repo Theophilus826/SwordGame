@@ -3,6 +3,8 @@ const notificationClients = {};
 const groupClients = {};
 const onlineUsers = new Set();
 
+const User = require("../models/UserModels");
+
 /* =========================================================
    🔵 CHAT KEY
 ========================================================= */
@@ -310,12 +312,53 @@ function sendGroupTyping(groupId, fromUser, status) {
    🔵 ONLINE STATUS
 ========================================================= */
 
+
 function setOnline(userId) {
-  onlineUsers.add(String(userId));
+  const id = String(userId);
+
+  if (onlineUsers.has(id)) return;
+
+  onlineUsers.add(id);
+
+  // persist to DB, but don't block callers
+  User.findByIdAndUpdate(
+    id,
+    { online: true },
+    { new: true },
+  )
+    .then(() => {
+      try {
+        broadcastStatus(id, "online");
+      } catch (err) {
+        console.error("broadcastStatus error:", err.message || err);
+      }
+    })
+    .catch((err) => console.error("setOnline DB error:", err.message || err));
 }
 
 function setOffline(userId) {
-  onlineUsers.delete(String(userId));
+  const id = String(userId);
+
+  if (!onlineUsers.has(id)) return;
+
+  onlineUsers.delete(id);
+
+  // persist to DB, set lastActive
+  User.findByIdAndUpdate(
+    id,
+    { online: false, lastActive: Date.now() },
+    { new: true },
+  )
+    .then(() => {
+      try {
+        broadcastStatus(id, "offline");
+      } catch (err) {
+        console.error("broadcastStatus error:", err.message || err);
+      }
+    })
+    .catch((err) =>
+      console.error("setOffline DB error:", err.message || err),
+    );
 }
 
 function isOnline(userId) {

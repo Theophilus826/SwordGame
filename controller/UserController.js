@@ -61,7 +61,8 @@ const registerUser = asyncHandler(async (req, res) => {
   const userData = {
     name,
     password: hashedPassword,
-    isVerified: true,
+    // mark unverified if registering with phone
+    isVerified: phone ? false : true,
     online: true,
   };
 
@@ -69,7 +70,36 @@ const registerUser = asyncHandler(async (req, res) => {
   if (phone) userData.phone = phone;
 
   const user = await User.create(userData);
+  // If phone provided, generate a verification code and don't auto-login
+  if (phone) {
+    const verificationCode = String(
+      crypto.randomInt(100000, 999999)
+    );
 
+    const hashedCode = crypto
+      .createHash("sha256")
+      .update(verificationCode)
+      .digest("hex");
+
+    user.phoneVerificationToken = hashedCode;
+    user.phoneVerificationExpire = Date.now() + 10 * 60 * 1000;
+
+    await user.save();
+
+    res.status(201).json({
+      _id: user._id,
+      name: user.name,
+      email: user.email || null,
+      phone: user.phone || null,
+      avatar: user.avatar || null,
+      isAdmin: user.isAdmin,
+      message: "Verification code generated",
+      verificationCode,
+    });
+    return;
+  }
+
+  // Email registration: issue token and auto-login
   const token = generateToken(user._id);
 
   res.cookie("token", token, {
@@ -89,6 +119,7 @@ const registerUser = asyncHandler(async (req, res) => {
     isAdmin: user.isAdmin,
   });
 });
+
 /* ================= LOGIN ================= */
 const loginUser = asyncHandler(async (req, res) => {
   let { identifier, password } = req.body;
@@ -281,7 +312,7 @@ const getUserById = asyncHandler(async (req, res) => {
   const { userId } = req.params;
 
   const user = await User.findById(userId)
-    .select("_id name avatar online");
+    .select("_id name avatar online lastActive");
 
   if (!user) {
     res.status(404);
@@ -295,22 +326,30 @@ const getUserById = asyncHandler(async (req, res) => {
       name: user.name,
       avatar: user.avatar || null,
       status: user.online ? "online" : "offline",
+      lastActive: user.lastActive,
     },
   });
 });
 
 /* ================= FORGOT PASSWORD ================= */
 const forgotPassword = asyncHandler(async (req, res) => {
-  const { identifier } = req.body;
+  let { identifier } = req.body;
 
-  const formattedPhone = formatPhone(identifier);
+  if (!identifier) {
+    res.status(400);
+    throw new Error("Identifier (email or phone) required");
+  }
+
+  identifier = String(identifier).trim();
+
+  const isEmail = identifier.includes("@");
+
+  const formattedPhone = isEmail ? null : formatPhone(identifier);
 
   const user = await User.findOne({
     $or: [
-      { email: identifier?.toLowerCase() },
-      ...(formattedPhone
-        ? [{ phone: formattedPhone }]
-        : []),
+      ...(isEmail ? [{ email: identifier.toLowerCase() }] : []),
+      ...(formattedPhone ? [{ phone: formattedPhone }] : []),
     ],
   });
 
@@ -319,9 +358,7 @@ const forgotPassword = asyncHandler(async (req, res) => {
     throw new Error("User not found");
   }
 
-  const resetToken = crypto
-    .randomBytes(32)
-    .toString("hex");
+  const resetToken = crypto.randomBytes(32).toString("hex");
 
   const hashedToken = crypto
     .createHash("sha256")
@@ -329,8 +366,7 @@ const forgotPassword = asyncHandler(async (req, res) => {
     .digest("hex");
 
   user.resetPasswordToken = hashedToken;
-  user.resetPasswordExpire =
-    Date.now() + 10 * 60 * 1000;
+  user.resetPasswordExpire = Date.now() + 10 * 60 * 1000;
 
   await user.save();
 
@@ -345,6 +381,16 @@ const resetPassword = asyncHandler(async (req, res) => {
   const { token } = req.params;
 
   const { password } = req.body;
+
+  if (!token) {
+    res.status(400);
+    throw new Error("Reset token required");
+  }
+
+  if (!password || !String(password).trim()) {
+    res.status(400);
+    throw new Error("Password required");
+  }
 
   const hashedToken = crypto
     .createHash("sha256")
@@ -372,6 +418,53 @@ const resetPassword = asyncHandler(async (req, res) => {
 
   res.json({
     message: "Password reset successful",
+  });
+});
+
+/* ================= VERIFY PHONE ================= */
+const verifyPhone = asyncHandler(async (req, res) => {
+  const { userId, code } = req.body;
+
+  if (!userId || !code) {
+    res.status(400);
+    throw new Error("userId and code required");
+  }
+
+  const hashed = crypto
+    .createHash("sha256")
+    .update(String(code))
+    .digest("hex");
+
+  const user = await User.findOne({
+    _id: userId,
+    phoneVerificationToken: hashed,
+    phoneVerificationExpire: { $gt: Date.now() },
+  });
+
+  if (!user) {
+    res.status(400);
+    throw new Error("Invalid or expired verification code");
+  }
+
+  user.isVerified = true;
+  user.phoneVerificationToken = undefined;
+  user.phoneVerificationExpire = undefined;
+
+  await user.save();
+
+  // Issue auth token after verification
+  const token = generateToken(user._id);
+
+  res.cookie("token", token, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  });
+
+  res.json({
+    message: "Phone verified",
+    token,
   });
 });
 
@@ -587,6 +680,7 @@ module.exports = {
   logoutUser,
   forgotPassword,
   resetPassword,
+  verifyPhone,
   welcome,
   sendMood,
   generateToken,

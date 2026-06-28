@@ -70,7 +70,6 @@ const streamChat = async (req, res) => {
     res.flushHeaders?.();
 
     setOnline(userId);
-    broadcastStatus(userId, "online");
 
     addClient(userId, otherUserId, res);
 
@@ -93,7 +92,6 @@ const streamChat = async (req, res) => {
     req.on("close", () => {
       clearInterval(keepAlive);
       setOffline(userId);
-      broadcastStatus(userId, "offline");
       removeClient(userId, otherUserId, res);
       res.end();
     });

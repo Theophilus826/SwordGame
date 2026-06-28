@@ -111,8 +111,11 @@ const uploadMedia = asyncHandler(async (req, res) => {
 ========================= */
 const getPosts = asyncHandler(async (req, res) => {
   const userId = req.user?._id?.toString();
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-  const posts = await Post.find()
+  const posts = await Post.find({
+    createdAt: { $gte: since },
+  })
     .sort({ createdAt: -1 })
     .populate("user", "name avatar")
     .populate("comments.user", "name avatar")

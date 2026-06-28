@@ -13,6 +13,7 @@ const {
   logoutUser,
   forgotPassword,
   resetPassword,
+  verifyPhone,
   welcome,
   sendMood,
   updateAvatar,
@@ -70,6 +71,8 @@ router.put(
   "/reset-password/:token",
   resetPassword
 );
+
+router.post("/verify-phone", verifyPhone);
 
 /* =========================
    PROTECTED

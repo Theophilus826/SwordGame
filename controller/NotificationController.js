@@ -168,24 +168,64 @@ const deleteNotification = async (req, res) => {
 /* =========================
    SSE STREAM
 ========================= */
-const streamNotifications = (req, res) => {
-  const userId = req.user._id;
+const streamNotifications = async (req, res) => {
+  try {
+    const token = req.query.token;
 
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("Connection", "keep-alive");
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: "No token provided",
+      });
+    }
 
-  addNotificationClient(userId, res);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-  const keepAlive = setInterval(() => {
-    res.write(`data: ${JSON.stringify({ type: "ping" })}\n\n`);
-  }, 25000);
+    const user = await User.findById(decoded.id).select("_id");
 
-  req.on("close", () => {
-    clearInterval(keepAlive);
-    removeNotificationClient(userId, res);
-    res.end();
-  });
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const userId = user._id.toString();
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders?.();
+
+    addNotificationClient(userId, res);
+
+    res.write(
+      `data: ${JSON.stringify({
+        type: "connected",
+      })}\n\n`
+    );
+
+    const keepAlive = setInterval(() => {
+      res.write(
+        `data: ${JSON.stringify({
+          type: "ping",
+        })}\n\n`
+      );
+    }, 25000);
+
+    req.on("close", () => {
+      clearInterval(keepAlive);
+      removeNotificationClient(userId, res);
+      res.end();
+    });
+  } catch (err) {
+    console.error("SSE ERROR:", err);
+
+    return res.status(401).json({
+      success: false,
+      message: "Invalid token",
+    });
+  }
 };
 
 // saveFcm token

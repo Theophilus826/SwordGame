@@ -168,44 +168,27 @@ const deleteNotification = async (req, res) => {
 /* =========================
    SSE STREAM
 ========================= */
+const streamNotifications = (req, res) => {
+  const userId = req.user._id;
 
-const streamNotifications = async (req, res) => {
-  try {
-    const userId = req.user._id;
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
 
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-    res.flushHeaders?.();
+  addNotificationClient(userId, res);
 
-    addNotificationClient(userId, res);
+  const keepAlive = setInterval(() => {
+    res.write(`data: ${JSON.stringify({ type: "ping" })}\n\n`);
+  }, 25000);
 
-    const notifications = await Notification.find({ user: userId })
-      .sort({ createdAt: -1 })
-      .limit(20);
-
-    res.write(
-      `data: ${JSON.stringify({
-        type: "init",
-        notifications,
-      })}\n\n`
-    );
-
-    const keepAlive = setInterval(() => {
-      res.write(`data: ${JSON.stringify({ type: "ping" })}\n\n`);
-    }, 25000);
-
-    req.on("close", () => {
-      clearInterval(keepAlive);
-      removeNotificationClient(userId, res);
-      res.end();
-    });
-  } catch (err) {
-    console.error("SSE ERROR:", err.message);
+  req.on("close", () => {
+    clearInterval(keepAlive);
+    removeNotificationClient(userId, res);
     res.end();
-  }
+  });
 };
 
+// saveFcm token
 const saveFcmToken = async (req, res) => {
   try {
     const userId = req.user._id;

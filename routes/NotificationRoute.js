@@ -17,7 +17,7 @@ const {
 ========================== */
 
 // 🔔 Real-time notifications stream
-router.get("/stream", protect, streamNotifications);
+router.get("/stream", streamNotifications);
 
 /* ==========================
    REST ROUTES

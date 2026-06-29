@@ -2,7 +2,11 @@ const mongoose = require("mongoose");
 
 const userSchema = new mongoose.Schema(
   {
-    name: { type: String, required: true, trim: true },
+    name: {
+      type: String,
+      required: true,
+      trim: true,
+    },
 
     email: {
       type: String,
@@ -21,19 +25,51 @@ const userSchema = new mongoose.Schema(
       default: undefined,
     },
 
-    password: { type: String, required: true },
+    // Used for syncing contacts
+    phoneHash: {
+      type: String,
+      unique: true,
+      sparse: true,
+      default: undefined,
+    },
 
-    coins: { type: Number, default: 0, min: 0 },
+    password: {
+      type: String,
+      required: true,
+    },
 
-    avatar: { type: String, default: null },
+    coins: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
 
-    isAdmin: { type: Boolean, default: false },
+    avatar: {
+      type: String,
+      default: null,
+    },
 
-    online: { type: Boolean, default: false },
+    isAdmin: {
+      type: Boolean,
+      default: false,
+    },
 
-    lastActive: { type: Date, default: Date.now },
+    // Phone verification status
+    isVerified: {
+      type: Boolean,
+      default: false,
+    },
 
-    // NEW
+    online: {
+      type: Boolean,
+      default: false,
+    },
+
+    lastActive: {
+      type: Date,
+      default: Date.now,
+    },
+
     contacts: [
       {
         type: mongoose.Schema.Types.ObjectId,
@@ -46,12 +82,30 @@ const userSchema = new mongoose.Schema(
       default: null,
     },
 
-    resetPasswordToken: String,
-    resetPasswordExpire: Date,
-    phoneVerificationToken: String,
-    phoneVerificationExpire: Date,
+    resetPasswordToken: {
+      type: String,
+      default: null,
+    },
+
+    resetPasswordExpire: {
+      type: Date,
+      default: null,
+    },
+
+    phoneVerificationToken: {
+      type: String,
+      default: null,
+    },
+
+    phoneVerificationExpire: {
+      type: Date,
+      default: null,
+    },
   },
-  { timestamps: true },
+  {
+    timestamps: true,
+  }
 );
 
-module.exports = mongoose.models.User || mongoose.model("User", userSchema);
+module.exports =
+  mongoose.models.User || mongoose.model("User", userSchema);

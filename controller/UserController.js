@@ -61,45 +61,18 @@ const registerUser = asyncHandler(async (req, res) => {
   const userData = {
     name,
     password: hashedPassword,
-    // mark unverified if registering with phone
-    isVerified: phone ? false : true,
+    isVerified: true, // Temporarily skip phone verification
     online: true,
   };
 
   if (email) userData.email = email;
   if (phone) userData.phone = phone;
 
+  // If you're using phoneHash:
+  // if (phone) userData.phoneHash = hashPhone(phone);
+
   const user = await User.create(userData);
-  // If phone provided, generate a verification code and don't auto-login
-  if (phone) {
-    const verificationCode = String(
-      crypto.randomInt(100000, 999999)
-    );
 
-    const hashedCode = crypto
-      .createHash("sha256")
-      .update(verificationCode)
-      .digest("hex");
-
-    user.phoneVerificationToken = hashedCode;
-    user.phoneVerificationExpire = Date.now() + 10 * 60 * 1000;
-
-    await user.save();
-
-    res.status(201).json({
-      _id: user._id,
-      name: user.name,
-      email: user.email || null,
-      phone: user.phone || null,
-      avatar: user.avatar || null,
-      isAdmin: user.isAdmin,
-      message: "Verification code generated",
-      verificationCode,
-    });
-    return;
-  }
-
-  // Email registration: issue token and auto-login
   const token = generateToken(user._id);
 
   res.cookie("token", token, {
@@ -114,12 +87,12 @@ const registerUser = asyncHandler(async (req, res) => {
     name: user.name,
     email: user.email || null,
     phone: user.phone || null,
-    token,
     avatar: user.avatar || null,
     isAdmin: user.isAdmin,
+    token,
+    message: "Registration successful",
   });
 });
-
 /* ================= LOGIN ================= */
 const loginUser = asyncHandler(async (req, res) => {
   let { identifier, password } = req.body;

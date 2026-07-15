@@ -20,6 +20,8 @@ const ChatRoutes = require("./routes/ChatRoutes");
 const WithdrawalRoutes = require("./routes/WithdrawalRoutes");
 const GroupRoute = require("./routes/GroupRoute");
 const admin = require("./config/firebase");
+const { initializeBubble, connect } = require("./controller/BubbleController");
+
 // ==========================
 // LOAD ENV
 // ==========================
@@ -169,7 +171,8 @@ app.use("/api/wallet", require("./routes/DepositRoutes"));
 app.use("/api/chat", ChatRoutes);
 app.use("/api/withdrawals", WithdrawalRoutes);
 app.use("/api/group", GroupRoute);
-app.use("/api/test", require("./routes/test"));
+app.use("/api/bubble", require("./routes/BubbleRoutes"));
+
 // Route to get posts by a specific user
 
 // ==========================
@@ -181,8 +184,9 @@ app.use(errorHandler);
 // MAIN SOCKET
 // ==========================
 io.use(socketAuth);
-
+initializeBubble(io);
 io.on("connection", async (socket) => {
+  connect(socket);
   try {
     console.log(`🟢 ${socket.user.name} connected`);
 

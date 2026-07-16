@@ -15,57 +15,63 @@ async function processGameCoins({
     throw new Error("Admin account not found");
   }
 
-  const actions = {
-    MATCH_BET: {
-      userId: admin._id,
-      amount: -amount,
-      type: "GAME_POT",
-      description: `Matched bet for game ${gameId}`,
-    },
+  switch (action) {
+    case "MATCH_BET":
+      return updateCoins({
+        userId: admin._id,
+        amount: -amount,
+        type: "GAME_POT",
+        description: `Matched bet for game ${gameId}`,
+      });
 
-    ADD_TO_POT: {
-      userId: admin._id,
-      amount: -amount,
-      type: "GAME_POT",
-      description: `Added ${amount} coins to game ${gameId}`,
-    },
+    case "ADD_TO_POT":
+      return updateCoins({
+        userId: admin._id,
+        amount: -amount,
+        type: "GAME_POT",
+        description: `Added ${amount} coins to game ${gameId}`,
+      });
 
-    PLAYER_WIN: {
-      userId: playerId,
-      amount,
-      type: "GAME_WIN",
-      description: `Won game ${gameId}`,
-    },
+    case "PLAYER_WIN":
+      if (!playerId) {
+        throw new Error("Missing playerId for PLAYER_WIN");
+      }
 
-    PLAYER_LOST: {
-      userId: admin._id,
-      amount,
-      type: "GAME_RETURN",
-      description: `Returned pot from game ${gameId}`,
-    },
+      // Debit admin
+      await updateCoins({
+        userId: admin._id,
+        amount: -amount,
+        type: "GAME_PAYOUT",
+        description: `Paid winner for game ${gameId}`,
+      });
 
-    GAME_CANCELLED: {
-      userId: admin._id,
-      amount,
-      type: "GAME_RETURN",
-      description: `Returned pot from game ${gameId}`,
-    },
-  };
+      // Credit player
+      return updateCoins({
+        userId: playerId,
+        amount,
+        type: "GAME_WIN",
+        description: `Won game ${gameId}`,
+      });
 
-  const transaction = actions[action];
+    case "PLAYER_LOST":
+      return updateCoins({
+        userId: admin._id,
+        amount,
+        type: "GAME_RETURN",
+        description: `Player lost game ${gameId}`,
+      });
 
-  if (!transaction) {
-    throw new Error(`Unknown game action: ${action}`);
+    case "GAME_CANCELLED":
+      return updateCoins({
+        userId: admin._id,
+        amount,
+        type: "GAME_RETURN",
+        description: `Game ${gameId} was cancelled`,
+      });
+
+    default:
+      throw new Error(`Unknown game action: ${action}`);
   }
-
-  if (
-    transaction.userId === undefined ||
-    transaction.userId === null
-  ) {
-    throw new Error(`Missing userId for action: ${action}`);
-  }
-
-  return updateCoins(transaction);
 }
 
 module.exports = {

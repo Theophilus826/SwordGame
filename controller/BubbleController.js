@@ -349,7 +349,9 @@ const createGame = async (req, res) => {
 
 const joinGame = async (req, res) => {
   try {
-    const game = await BubbleGame.findById(req.params.id);
+    const game = await BubbleGame.findById(req.params.id)
+      .populate("host", "name")
+      .populate("players", "name");
 
     if (!game) {
       return res.status(404).json({
@@ -361,41 +363,39 @@ const joinGame = async (req, res) => {
     if (game.status === "Finished") {
       return res.status(400).json({
         success: false,
-        message: "Game finished",
+        message: "Game has already finished",
       });
     }
 
-    if (game.players.length >= game.maxPlayers) {
+    const alreadyJoined = game.players.some(
+      (player) => player._id.toString() === req.user._id.toString()
+    );
+
+    if (!alreadyJoined && game.players.length >= game.maxPlayers) {
       return res.status(400).json({
         success: false,
         message: "Game is full",
       });
     }
 
-    const joined = game.players.some(
-      (id) => id.toString() === req.user._id.toString(),
-    );
+    // Do NOT modify the game here.
+    // Socket.IO will handle:
+    // - adding the player
+    // - changing status
+    // - starting the timer
+    // - emitting gameStarted
 
-    if (!joined) {
-      game.players.push(req.user._id);
-    }
-
-    if (game.status === "Waiting") {
-      game.status = "Playing";
-    }
-
-    await game.save();
-
-    io.emit("bubble:updated", game);
-
-    res.json({
+    return res.status(200).json({
       success: true,
+      message: "Ready to join game",
       game,
     });
   } catch (err) {
-    res.status(500).json({
+    console.error("Join game error:", err);
+
+    return res.status(500).json({
       success: false,
-      message: err.message,
+      message: err.message || "Internal server error",
     });
   }
 };

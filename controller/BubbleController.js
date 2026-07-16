@@ -23,95 +23,112 @@ const connect = (socket) => {
   //--------------------------------------------------------
 
   socket.on("joinGame", async (gameId) => {
-    try {
-      const game = await BubbleGame.findById(gameId);
+  try {
+    console.log(`🎮 joinGame requested: ${gameId}`);
 
-      if (!game) {
-        return socket.emit("error", "Game not found");
-      }
+    const game = await BubbleGame.findById(gameId);
 
-      if (game.status === "Finished") {
-        return socket.emit("error", "Game already finished");
-      }
-
-      if (game.players.length >= game.maxPlayers) {
-        return socket.emit("error", "Game is full");
-      }
-
-      // Prevent duplicate socket session
-      if (sessions.has(socket.id)) {
-        return;
-      }
-
-      // Add player if not already in game
-      if (socket.user) {
-        const joined = game.players.some(
-          (id) => id.toString() === socket.user._id.toString(),
-        );
-
-        if (!joined) {
-          game.players.push(socket.user._id);
-
-          // Debit admin and add coins to the game pot
-          await processGameCoins({
-            gameId: game._id,
-            action: "ADD_TO_POT",
-            amount: game.coin, // or game.betAmount
-          });
-        }
-      }
-
-      if (game.status === "Waiting") {
-        game.status = "Playing";
-      }
-
-      await game.save();
-
-      socket.join(gameId);
-
-      const session = {
-        socketId: socket.id,
-        gameId,
-        timer: null,
-        timeRemaining: game.timeLimit,
-      };
-
-      sessions.set(socket.id, session);
-
-      // Send game configuration
-      socket.emit("gameConfig", {
-        targetScore: game.scoreTarget,
-        turnsBeforeShift: game.turnsBeforeShift,
-        timeLimit: game.timeLimit,
-        level: game.level,
+    if (!game) {
+      return socket.emit("bubble:error", {
+        message: "Game not found",
       });
-
-      // Notify clients that the game has officially started
-      io.to(gameId).emit("gameStarted", {
-        gameId: game._id,
-        playerId: socket.user?._id,
-        targetScore: game.scoreTarget,
-        turnsBeforeShift: game.turnsBeforeShift,
-        timeLimit: game.timeLimit,
-        level: game.level,
-        status: game.status,
-      });
-
-      // Start timer after gameStarted event
-      startTimer(socket, session);
-
-      io.to(gameId).emit("bubble:playerJoined", {
-        socketId: socket.id,
-        playerId: socket.user?._id,
-        gameId,
-      });
-
-      io.emit("bubble:updated", game);
-    } catch (err) {
-      console.error(err);
-      socket.emit("error", err.message);
     }
-  });
+
+    if (game.status === "Finished") {
+      return socket.emit("bubble:error", {
+        message: "Game already finished",
+      });
+    }
+
+    if (sessions.has(socket.id)) {
+      return;
+    }
+
+    const alreadyJoined =
+      socket.user &&
+      game.players.some(
+        (id) => id.toString() === socket.user._id.toString()
+      );
+
+    if (!alreadyJoined && game.players.length >= game.maxPlayers) {
+      return socket.emit("bubble:error", {
+        message: "Game is full",
+      });
+    }
+
+    if (!alreadyJoined && socket.user) {
+      game.players.push(socket.user._id);
+
+      await processGameCoins({
+        gameId: game._id,
+        action: "ADD_TO_POT",
+        amount: game.coin,
+      });
+    }
+
+    if (game.status === "Waiting") {
+      game.status = "Playing";
+    }
+
+    await game.save();
+
+    // Join room before emitting
+    await socket.join(gameId);
+
+    const session = {
+      socketId: socket.id,
+      gameId,
+      timer: null,
+      timeRemaining: game.timeLimit,
+    };
+
+    sessions.set(socket.id, session);
+
+    const payload = {
+      gameId: game._id.toString(),
+      playerId: socket.user?._id?.toString(),
+      targetScore: game.scoreTarget,
+      turnsBeforeShift: game.turnsBeforeShift,
+      timeLimit: game.timeLimit,
+      level: game.level,
+      status: game.status,
+    };
+
+    console.log("🚀 Starting Bubble Game:", payload);
+
+    // Always start the joining player's game
+    socket.emit("gameStarted", payload);
+
+    // Optional configuration event
+    socket.emit("gameConfig", {
+      targetScore: game.scoreTarget,
+      turnsBeforeShift: game.turnsBeforeShift,
+      timeLimit: game.timeLimit,
+      level: game.level,
+    });
+
+    // Notify everyone else in the room
+    socket.to(gameId).emit("gameStarted", payload);
+
+    startTimer(socket, session);
+
+    io.to(gameId).emit("bubble:playerJoined", {
+      socketId: socket.id,
+      playerId: socket.user?._id,
+      gameId,
+    });
+
+    io.emit("bubble:updated", game);
+
+    console.log(`✅ Player ${socket.id} joined Bubble Game ${gameId}`);
+  } catch (err) {
+    console.error("joinGame error:", err);
+
+    socket.emit("bubble:error", {
+      message: err.message || "Unable to join game",
+    });
+  }
+});
 
   //--------------------------------------------------------
   // Restart

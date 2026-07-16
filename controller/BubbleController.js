@@ -1,5 +1,5 @@
 const BubbleGame = require("../models/BubbleGame");
-
+const { processGameCoins } = require("../config/gameCoinService");
 const sessions = new Map();
 let io = null;
 
@@ -43,6 +43,30 @@ const connect = (socket) => {
         return;
       }
 
+      // Add player if not already in game
+      if (socket.user) {
+        const joined = game.players.some(
+          (id) => id.toString() === socket.user._id.toString(),
+        );
+
+        if (!joined) {
+          game.players.push(socket.user._id);
+
+          // Debit admin and add coins to the game pot
+          await processGameCoins({
+            gameId: game._id,
+            action: "ADD_TO_POT",
+            amount: game.coin, // or game.betAmount
+          });
+        }
+      }
+
+      if (game.status === "Waiting") {
+        game.status = "Playing";
+      }
+
+      await game.save();
+
       socket.join(gameId);
 
       const session = {
@@ -54,6 +78,7 @@ const connect = (socket) => {
 
       sessions.set(socket.id, session);
 
+      // Send game configuration
       socket.emit("gameConfig", {
         targetScore: game.scoreTarget,
         turnsBeforeShift: game.turnsBeforeShift,
@@ -61,14 +86,30 @@ const connect = (socket) => {
         level: game.level,
       });
 
+      // Notify clients that the game has officially started
+      io.to(gameId).emit("gameStarted", {
+        gameId: game._id,
+        playerId: socket.user?._id,
+        targetScore: game.scoreTarget,
+        turnsBeforeShift: game.turnsBeforeShift,
+        timeLimit: game.timeLimit,
+        level: game.level,
+        status: game.status,
+      });
+
+      // Start timer after gameStarted event
       startTimer(socket, session);
 
       io.to(gameId).emit("bubble:playerJoined", {
         socketId: socket.id,
+        playerId: socket.user?._id,
         gameId,
       });
+
+      io.emit("bubble:updated", game);
     } catch (err) {
       console.error(err);
+      socket.emit("error", err.message);
     }
   });
 
@@ -113,8 +154,24 @@ const connect = (socket) => {
 
       if (!game) return;
 
+      // Prevent duplicate processing
+      if (game.status === "Finished") return;
+
       if (result.win && socket.user) {
         game.winner = socket.user._id;
+
+        await processGameCoins({
+          gameId: game._id,
+          action: "PLAYER_WIN",
+          amount: game.coin, // or game.betAmount
+          playerId: socket.user._id,
+        });
+      } else {
+        await processGameCoins({
+          gameId: game._id,
+          action: "PLAYER_LOST",
+          amount: game.coin, // or game.betAmount
+        });
       }
 
       game.status = "Finished";
@@ -122,9 +179,15 @@ const connect = (socket) => {
 
       await game.save();
 
+      io.to(session.gameId).emit("gameFinished", {
+        winner: game.winner,
+        status: game.status,
+      });
+
       io.emit("bubble:updated", game);
     } catch (err) {
       console.error(err);
+      socket.emit("error", err.message);
     }
   });
 
@@ -142,18 +205,36 @@ const connect = (socket) => {
         clearInterval(session.timer);
       }
 
-      if (socket.user) {
-        await BubbleGame.findByIdAndUpdate(session.gameId, {
-          $pull: {
-            players: socket.user._id,
-          },
-        });
+      const game = await BubbleGame.findById(session.gameId);
+
+      if (game) {
+        // Remove player from the game
+        if (socket.user) {
+          game.players.pull(socket.user._id);
+        }
+
+        // If game is still active, disconnect counts as a loss
+        if (game.status !== "Finished") {
+          await processGameCoins({
+            gameId: game._id,
+            action: "PLAYER_LOST",
+            amount: game.coin, // or game.betAmount
+          });
+
+          game.status = "Finished";
+          game.endedAt = new Date();
+        }
+
+        await game.save();
+
+        io.emit("bubble:updated", game);
       }
 
       sessions.delete(socket.id);
 
-      io.emit("bubble:playerLeft", {
+      io.to(session.gameId).emit("bubble:playerLeft", {
         gameId: session.gameId,
+        playerId: socket.user?._id,
       });
 
       console.log(`🔴 Bubble Player Disconnected: ${socket.id}`);
@@ -176,18 +257,40 @@ function startTimer(socket, session) {
     if (session.timeRemaining <= 0) {
       clearInterval(session.timer);
 
-      const game = await BubbleGame.findById(session.gameId);
+      try {
+        const game = await BubbleGame.findById(session.gameId);
 
-      if (!game) return;
+        if (!game) return;
 
-      game.status = "Finished";
-      game.endedAt = new Date();
+        // Prevent duplicate processing
+        if (game.status === "Finished") return;
 
-      await game.save();
+        // Time out counts as a loss
+        await processGameCoins({
+          gameId: game._id,
+          action: "PLAYER_LOST",
+          amount: game.coin, // or game.betAmount
+        });
 
-      io.to(session.gameId).emit("timeUp");
+        game.status = "Finished";
+        game.endedAt = new Date();
 
-      io.emit("bubble:updated", game);
+        await game.save();
+
+        sessions.delete(socket.id);
+
+        io.to(session.gameId).emit("timeUp");
+
+        io.to(session.gameId).emit("gameFinished", {
+          winner: null,
+          status: game.status,
+          reason: "TIME_UP",
+        });
+
+        io.emit("bubble:updated", game);
+      } catch (err) {
+        console.error(err);
+      }
     }
   }, 1000);
 }
@@ -212,7 +315,7 @@ const getGames = async (req, res) => {
 const getGame = async (req, res) => {
   const game = await BubbleGame.findById(req.params.id).populate(
     "host",
-    "name"
+    "name",
   );
 
   if (!game) {
@@ -270,7 +373,7 @@ const joinGame = async (req, res) => {
     }
 
     const joined = game.players.some(
-      (id) => id.toString() === req.user._id.toString()
+      (id) => id.toString() === req.user._id.toString(),
     );
 
     if (!joined) {

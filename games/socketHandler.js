@@ -414,148 +414,157 @@ function registerGameSockets(io, adminNamespace, socket) {
     });
   });
 
-// socket.on("FinishGame", ({ gameId }, callback) => {
+  // socket.on("FinishGame", ({ gameId }, callback) => {
 
   socket.on("game:finished", async ({ gameId, reason }, ack) => {
-  try {
-    const game = getGame(gameId);
+    try {
+      const game = getGame(gameId);
 
-    if (!game) {
-      return ack?.({
-        success: false,
-        message: "Game not found.",
-      });
-    }
-
-    // Prevent duplicate processing
-    if (game.status === "finished") {
-      return ack?.({
-        success: false,
-        message: "Game already finished.",
-      });
-    }
-
-    // Don't pay cancelled games
-    if (game.status === "cancelled") {
-      return ack?.({
-        success: false,
-        message: "Game was cancelled.",
-      });
-    }
-
-    const pot = Number(game.pot || 0);
-
-    let result;
-    let winnerId = null;
-    let creditedTo = "ADMIN";
-
-    switch (reason) {
-      case "allEnemiesDead":
-        result = "won";
-        winnerId = game.hostId;
-        creditedTo = String(winnerId);
-
-        await processGameCoins({
-          gameId,
-          action: "PLAYER_WIN",
-          amount: pot,
-          playerId: winnerId,
-        });
-        break;
-
-      case "playerDied":
-        result = "lost";
-
-        await processGameCoins({
-          gameId,
-          action: "PLAYER_LOST",
-          amount: pot,
-        });
-        break;
-
-      default:
+      if (!game) {
         return ack?.({
           success: false,
-          message: "Invalid game result.",
+          message: "Game not found.",
         });
+      }
+
+      // Prevent duplicate processing
+      if (game.status === "finished") {
+        return ack?.({
+          success: false,
+          message: "Game already finished.",
+        });
+      }
+
+      // Don't pay cancelled games
+      if (game.status === "cancelled") {
+        return ack?.({
+          success: false,
+          message: "Game was cancelled.",
+        });
+      }
+
+      const pot = Number(game.pot || 0);
+
+      let result;
+      let winnerId = null;
+      let creditedTo = "ADMIN";
+
+      switch (reason) {
+        case "allEnemiesDead":
+          result = "won";
+          winnerId = game.hostId;
+          creditedTo = String(game.hostId);
+
+          await processGameCoins({
+            gameId,
+            action: "PLAYER_WIN",
+            amount: pot,
+            playerId: game.hostId,
+          });
+
+          updateGame(gameId, {
+            status: "finished",
+            winnerId: game.hostId,
+            finishedAt: Date.now(),
+          });
+
+          break;
+
+        case "playerDied":
+          result = "lost";
+
+          await processGameCoins({
+            gameId,
+            action: "PLAYER_LOST",
+            amount: pot,
+          });
+
+          updateGame(gameId, {
+            status: "finished",
+            winnerId: null,
+            finishedAt: Date.now(),
+          });
+
+          break;
+
+        default:
+          return ack?.({
+            success: false,
+            message: "Invalid game result.",
+          });
+      }
+
+      const finishedGame = getGame(gameId);
+
+      emitGameEvent(io, adminNamespace, gameId, {
+        type: "GAME_RESULT",
+        result,
+        winner: winnerId,
+        pot: finishedGame.pot,
+        creditedTo,
+        finishedAt: finishedGame.finishedAt,
+      });
+
+      ack?.({
+        success: true,
+        result,
+        winner: winnerId,
+        pot: finishedGame.pot,
+      });
+    } catch (err) {
+      console.error("[game:finished]", err);
+
+      ack?.({
+        success: false,
+        message: err.message,
+      });
     }
-
-    const finishedGame = finishStoredGame(
-      gameId,
-      result,
-      winnerId
-    );
-
-    const io = socket.server || socket.nsp.server;
-
-    io.to(gameId).emit("game:event", {
-      type: "GAME_RESULT",
-      result,
-      winner: winnerId,
-      pot: finishedGame.pot,
-      creditedTo,
-      finishedAt: finishedGame.finishedAt,
-    });
-
-    ack?.({
-      success: true,
-      result,
-      winner: winnerId,
-    });
-  } catch (err) {
-    console.error("[game:finished]", err);
-
-    ack?.({
-      success: false,
-      message: err.message,
-    });
-  }
-});
+  });
 
   /* =====================================================
      DISCONNECT
   ===================================================== */
 
   socket.on("disconnect", async () => {
-  const p = players.get(socket.id);
+    const p = players.get(socket.id);
 
-  if (!p) return;
+    if (!p) return;
 
-  players.delete(socket.id);
+    players.delete(socket.id);
 
-  if (p.room) {
-    const game = games.get(p.room);
+    if (p.room) {
+      const game = games.get(p.room);
 
-    if (game && game.status !== "FINISHED") {
-      game.status = "CANCELLED";
+      if (game && game.status !== "FINISHED") {
+        game.status = "CANCELLED";
+
+        emitGameEvent(io, adminNamespace, p.room, {
+          type: "GAME_CANCELLED",
+          reason: "PLAYER_DISCONNECTED",
+          userId: p.userId,
+          username: p.username,
+        });
+
+        io.to(p.room).emit("game:event", {
+          type: "GAME_CANCELLED",
+          reason: "PLAYER_DISCONNECTED",
+        });
+
+        // Remove the game so no payout can occur later
+        games.delete(p.room);
+      }
 
       emitGameEvent(io, adminNamespace, p.room, {
-        type: "GAME_CANCELLED",
-        reason: "PLAYER_DISCONNECTED",
+        type: "PLAYER_DISCONNECTED",
         userId: p.userId,
         username: p.username,
       });
 
-      io.to(p.room).emit("game:event", {
-        type: "GAME_CANCELLED",
-        reason: "PLAYER_DISCONNECTED",
-      });
-
-      // Remove the game so no payout can occur later
-      games.delete(p.room);
+      cleanupGameIfEmpty(p.room);
     }
 
-    emitGameEvent(io, adminNamespace, p.room, {
-      type: "PLAYER_DISCONNECTED",
-      userId: p.userId,
-      username: p.username,
-    });
-
-    cleanupGameIfEmpty(p.room);
-  }
-
-  emitTacticalUpdate(io);
-});
+    emitTacticalUpdate(io);
+  });
 }
 
 module.exports = {

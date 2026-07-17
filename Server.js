@@ -233,21 +233,19 @@ io.on("connection", async (socket) => {
 
     socket.userId = socket.user._id;
 
-    // Join private room
+    // Private room
     socket.join(socket.userId.toString());
 
-    // Mark user online
+    // Online status
     await User.findByIdAndUpdate(socket.userId, {
       online: true,
     });
 
-    // Notify all clients
     io.emit("user:status", {
       userId: socket.userId,
       online: true,
     });
 
-    // Notify admin dashboard
     adminNamespace.emit("activity:event", {
       type: "USER_ONLINE",
       userId: socket.userId,
@@ -255,9 +253,19 @@ io.on("connection", async (socket) => {
       timestamp: Date.now(),
     });
 
-    // Register socket events
+    // Register general game events
     registerGameSockets(io, adminNamespace, socket);
-    registerBubbleSockets(io, socket);
+
+    // Register Bubble events only once, when needed
+    socket.on("bubble:init", () => {
+      if (socket.bubbleInitialized) return;
+
+      socket.bubbleInitialized = true;
+
+      console.log(`🫧 Bubble initialized for ${socket.user.name}`);
+
+      registerBubbleSockets(io, socket);
+    });
 
     console.log(`✅ Socket initialized for ${socket.user.name}`);
   } catch (err) {
@@ -271,7 +279,9 @@ io.on("connection", async (socket) => {
   //--------------------------------------------------------
   socket.on("disconnect", async (reason) => {
     try {
-      console.log(`🔴 ${socket.user?.name || "Unknown"} disconnected (${reason})`);
+      console.log(
+        `🔴 ${socket.user?.name || "Unknown"} disconnected (${reason})`
+      );
 
       if (socket.userId) {
         await User.findByIdAndUpdate(socket.userId, {

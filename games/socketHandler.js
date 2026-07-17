@@ -525,46 +525,50 @@ function registerGameSockets(io, adminNamespace, socket) {
      DISCONNECT
   ===================================================== */
 
-  socket.on("disconnect", async () => {
-    const p = players.get(socket.id);
+  socket.on("disconnect", () => {
+  const p = players.get(socket.id);
 
-    if (!p) return;
+  if (!p) return;
 
-    players.delete(socket.id);
+  players.delete(socket.id);
 
-    if (p.room) {
-      const game = games.get(p.room);
+  if (p.room) {
+    const game = getGame(p.room);
 
-      if (game && game.status !== "FINISHED") {
-        game.status = "CANCELLED";
-
-        emitGameEvent(io, adminNamespace, p.room, {
-          type: "GAME_CANCELLED",
-          reason: "PLAYER_DISCONNECTED",
-          userId: p.userId,
-          username: p.username,
-        });
-
-        io.to(p.room).emit("game:event", {
-          type: "GAME_CANCELLED",
-          reason: "PLAYER_DISCONNECTED",
-        });
-
-        // Remove the game so no payout can occur later
-        games.delete(p.room);
-      }
+    if (game && game.status !== "finished") {
+      updateGame(p.room, {
+        status: "cancelled",
+        finishedAt: Date.now(),
+      });
 
       emitGameEvent(io, adminNamespace, p.room, {
-        type: "PLAYER_DISCONNECTED",
+        type: "GAME_CANCELLED",
+        reason: "PLAYER_DISCONNECTED",
         userId: p.userId,
         username: p.username,
       });
 
-      cleanupGameIfEmpty(p.room);
+      io.to(p.room).emit("game:event", {
+        type: "GAME_CANCELLED",
+        reason: "PLAYER_DISCONNECTED",
+      });
+
+      // remove cancelled game
+      deleteGame(p.room);
     }
 
-    emitTacticalUpdate(io);
-  });
+    emitGameEvent(io, adminNamespace, p.room, {
+      type: "PLAYER_DISCONNECTED",
+      userId: p.userId,
+      username: p.username,
+    });
+
+    cleanupGameIfEmpty(p.room);
+  }
+
+  emitTacticalUpdate(io);
+});
+      
 }
 
 module.exports = {

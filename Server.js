@@ -222,21 +222,32 @@ app.use(errorHandler);
 io.use(socketAuth);
 
 io.on("connection", async (socket) => {
-  connect(socket);
   try {
+    if (!socket.user) {
+      console.error("❌ Socket connected without authenticated user.");
+      socket.disconnect(true);
+      return;
+    }
+
     console.log(`🟢 ${socket.user.name} connected`);
 
     socket.userId = socket.user._id;
 
-    // join private user room
+    // Join private room
     socket.join(socket.userId.toString());
 
-    // mark user online
-    await User.findByIdAndUpdate(socket.userId, { online: true });
+    // Mark user online
+    await User.findByIdAndUpdate(socket.userId, {
+      online: true,
+    });
 
-    io.emit("user:status", { userId: socket.userId, online: true });
+    // Notify all clients
+    io.emit("user:status", {
+      userId: socket.userId,
+      online: true,
+    });
 
-    // notify admin dashboard
+    // Notify admin dashboard
     adminNamespace.emit("activity:event", {
       type: "USER_ONLINE",
       userId: socket.userId,
@@ -244,51 +255,41 @@ io.on("connection", async (socket) => {
       timestamp: Date.now(),
     });
 
-    // register game sockets
+    // Register socket events
     registerGameSockets(io, adminNamespace, socket);
     registerBubbleSockets(io, socket);
-    // ==========================
-    // USER CHAT
-    // ==========================
+
+    console.log(`✅ Socket initialized for ${socket.user.name}`);
   } catch (err) {
-    console.error("Socket connection setup error:", err);
+    console.error("❌ Socket connection setup error:", err);
+    socket.disconnect(true);
+    return;
   }
 
-  const testFirebase = async () => {
-    try {
-      const res = await admin.messaging().send({
-        token: "test-token",
-        notification: {
-          title: "Test",
-          body: "Firebase Admin works",
-        },
-      });
-
-      console.log("🔥 Firebase message sent:", res);
-    } catch (err) {
-      console.error("❌ Firebase error:", err);
-    }
-  };
-
-  // call manually (ONLY when needed)
-  testFirebase();
-  // ==========================
+  //--------------------------------------------------------
   // DISCONNECT
-  // ==========================
-  socket.on("disconnect", async () => {
+  //--------------------------------------------------------
+  socket.on("disconnect", async (reason) => {
     try {
-      console.log(`🔴 ${socket.user.name} disconnected`);
+      console.log(`🔴 ${socket.user?.name || "Unknown"} disconnected (${reason})`);
 
-      await User.findByIdAndUpdate(socket.userId, { online: false });
+      if (socket.userId) {
+        await User.findByIdAndUpdate(socket.userId, {
+          online: false,
+        });
 
-      io.emit("user:status", { userId: socket.userId, online: false });
+        io.emit("user:status", {
+          userId: socket.userId,
+          online: false,
+        });
 
-      adminNamespace.emit("activity:event", {
-        type: "USER_OFFLINE",
-        userId: socket.userId,
-        username: socket.user.name,
-        timestamp: Date.now(),
-      });
+        adminNamespace.emit("activity:event", {
+          type: "USER_OFFLINE",
+          userId: socket.userId,
+          username: socket.user?.name,
+          timestamp: Date.now(),
+        });
+      }
     } catch (err) {
       console.error("Disconnect error:", err);
     }

@@ -74,7 +74,7 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.options("*", cors(corsOptions));
+
 
 app.use((req, res, next) => {
   const contentLength = req.headers["content-length"];

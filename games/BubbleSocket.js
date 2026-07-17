@@ -9,7 +9,7 @@ function registerBubbleSockets(io, socket) {
 
   socket.bubbleRegistered = true;
 
-  console.log(`🫧 Bubble socket registered: ${socket.id}`);
+  console.log("🔥 NEW bubble:join handler", gameId);
   //--------------------------------------------------------
   // JOIN GAME
   //--------------------------------------------------------

@@ -75,8 +75,31 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
-
 app.use((req, res, next) => {
+  const origin = req.headers.origin;
+
+  if (
+    !origin ||
+    allowedOrigins.includes(origin) ||
+    origin?.includes("onrender.com")
+  ) {
+    res.header("Access-Control-Allow-Origin", origin || "*");
+    res.header("Vary", "Origin");
+    res.header("Access-Control-Allow-Credentials", "true");
+    res.header(
+      "Access-Control-Allow-Methods",
+      "GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS"
+    );
+    res.header(
+      "Access-Control-Allow-Headers",
+      "Content-Type, Authorization, X-Requested-With, Origin, Accept"
+    );
+  }
+
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+
   const contentLength = req.headers["content-length"];
 
   if (contentLength && Number(contentLength) > 300 * 1024 * 1024) {

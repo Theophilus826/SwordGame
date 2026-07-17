@@ -20,7 +20,7 @@ const ChatRoutes = require("./routes/ChatRoutes");
 const WithdrawalRoutes = require("./routes/WithdrawalRoutes");
 const GroupRoute = require("./routes/GroupRoute");
 const admin = require("./config/firebase");
-const { initializeBubble, connect } = require("./controller/BubbleController");
+const { registerBubbleSockets } = require("./games/BubbleSocket");
 
 // ==========================
 // LOAD ENV
@@ -189,7 +189,7 @@ app.use(errorHandler);
 // MAIN SOCKET
 // ==========================
 io.use(socketAuth);
-initializeBubble(io);
+
 io.on("connection", async (socket) => {
   connect(socket);
   try {
@@ -215,7 +215,7 @@ io.on("connection", async (socket) => {
 
     // register game sockets
     registerGameSockets(io, adminNamespace, socket);
-
+    registerBubbleSockets(io, socket);
     // ==========================
     // USER CHAT
     // ==========================

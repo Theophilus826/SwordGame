@@ -257,15 +257,7 @@ io.on("connection", async (socket) => {
     registerGameSockets(io, adminNamespace, socket);
 
     // Register Bubble events only once, when needed
-    socket.on("bubble:init", () => {
-      if (socket.bubbleInitialized) return;
-
-      socket.bubbleInitialized = true;
-
-      console.log(`🫧 Bubble initialized for ${socket.user.name}`);
-
-      registerBubbleSockets(io, socket);
-    });
+    registerBubbleSockets(io, socket);
 
     console.log(`✅ Socket initialized for ${socket.user.name}`);
   } catch (err) {

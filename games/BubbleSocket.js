@@ -65,12 +65,13 @@ function registerBubbleSockets(io, socket) {
 
       if (!alreadyJoined && socket.user) {
         game.players.push(socket.user._id);
-
+        console.log("Before ADD_TO_POT");
         await processGameCoins({
           gameId: game._id,
           action: "ADD_TO_POT",
           amount: game.coin,
         });
+        console.log("After ADD_TO_POT");
       }
 
       if (game.status === "Waiting") {
@@ -126,7 +127,8 @@ function registerBubbleSockets(io, socket) {
 
       console.log(`✅ Bubble player joined ${gameId}`);
     } catch (err) {
-      console.error(err);
+      console.error("bubble:join failed:", err);
+      console.error(err.stack);
 
       callback?.({
         success: false,

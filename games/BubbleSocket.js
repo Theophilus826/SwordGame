@@ -17,7 +17,10 @@ function registerBubbleSockets(io, socket) {
     try {
       console.log(`🫧 bubble:join -> ${gameId}`);
 
+      console.log("1️⃣ Finding game...");
       const game = await BubbleGame.findById(gameId);
+
+      console.log("2️⃣ Game:", game ? "FOUND" : "NOT FOUND");
 
       if (!game) {
         callback?.({
@@ -30,6 +33,8 @@ function registerBubbleSockets(io, socket) {
         });
       }
 
+      console.log("3️⃣ Status:", game.status);
+
       if (game.status === "Finished") {
         callback?.({
           success: false,
@@ -41,6 +46,8 @@ function registerBubbleSockets(io, socket) {
         });
       }
 
+      console.log("4️⃣ Session exists:", sessions.has(socket.id));
+
       if (sessions.has(socket.id)) {
         return callback?.({
           success: true,
@@ -48,9 +55,15 @@ function registerBubbleSockets(io, socket) {
         });
       }
 
+      console.log("5️⃣ socket.user:", socket.user);
+
       const alreadyJoined =
         socket.user &&
         game.players.some((id) => id.toString() === socket.user._id.toString());
+
+      console.log("6️⃣ alreadyJoined:", alreadyJoined);
+
+      console.log("7️⃣ Players:", game.players.length, "/", game.maxPlayers);
 
       if (!alreadyJoined && game.players.length >= game.maxPlayers) {
         callback?.({
@@ -64,23 +77,30 @@ function registerBubbleSockets(io, socket) {
       }
 
       if (!alreadyJoined && socket.user) {
+        console.log("8️⃣ Adding player");
         game.players.push(socket.user._id);
-        console.log("Before ADD_TO_POT");
+
+        console.log("9️⃣ Before ADD_TO_POT");
+
         await processGameCoins({
           gameId: game._id,
           action: "ADD_TO_POT",
           amount: game.coin,
         });
-        console.log("After ADD_TO_POT");
+
+        console.log("🔟 After ADD_TO_POT");
       }
 
       if (game.status === "Waiting") {
         game.status = "Playing";
       }
 
+      console.log("1️⃣1️⃣ Saving game");
       await game.save();
+      console.log("1️⃣2️⃣ Game saved");
 
       socket.join(gameId);
+      console.log("1️⃣3️⃣ Joined room");
 
       const session = {
         socketId: socket.id,
@@ -101,6 +121,7 @@ function registerBubbleSockets(io, socket) {
         status: game.status,
       };
 
+      console.log("1️⃣4️⃣ Emitting gameStarted");
       socket.emit("gameStarted", payload);
 
       socket.emit("gameConfig", {
@@ -119,6 +140,7 @@ function registerBubbleSockets(io, socket) {
 
       io.emit("bubble:updated", game);
 
+      console.log("1️⃣5️⃣ Starting timer");
       startTimer(io, socket, session, sessions);
 
       callback?.({
@@ -127,7 +149,8 @@ function registerBubbleSockets(io, socket) {
 
       console.log(`✅ Bubble player joined ${gameId}`);
     } catch (err) {
-      console.error("bubble:join failed:", err);
+      console.error("❌ bubble:join failed");
+      console.error(err);
       console.error(err.stack);
 
       callback?.({

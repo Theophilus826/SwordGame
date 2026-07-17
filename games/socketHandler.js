@@ -525,7 +525,7 @@ function registerGameSockets(io, adminNamespace, socket) {
      DISCONNECT
   ===================================================== */
 
-  socket.on("disconnect", () => {
+ socket.on("disconnect", async () => {
   const p = players.get(socket.id);
 
   if (!p) return;
@@ -538,7 +538,6 @@ function registerGameSockets(io, adminNamespace, socket) {
     if (game && game.status !== "finished") {
       updateGame(p.room, {
         status: "cancelled",
-        finishedAt: Date.now(),
       });
 
       emitGameEvent(io, adminNamespace, p.room, {
@@ -548,12 +547,6 @@ function registerGameSockets(io, adminNamespace, socket) {
         username: p.username,
       });
 
-      io.to(p.room).emit("game:event", {
-        type: "GAME_CANCELLED",
-        reason: "PLAYER_DISCONNECTED",
-      });
-
-      // remove cancelled game
       deleteGame(p.room);
     }
 
@@ -567,8 +560,7 @@ function registerGameSockets(io, adminNamespace, socket) {
   }
 
   emitTacticalUpdate(io);
-});
-      
+});      
 }
 
 module.exports = {

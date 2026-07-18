@@ -142,7 +142,7 @@ function registerBubbleSockets(io, socket) {
       io.emit("bubble:updated", game);
 
       console.log("1️⃣5️⃣ Starting timer");
-      startTimer(io, socket, session, sessions);
+      startTimer(io, session, sessions);
 
       callback?.({
         success: true,
@@ -191,7 +191,7 @@ function registerBubbleSockets(io, socket) {
         level: game.level,
       });
 
-      startTimer(io, socket, session, sessions);
+      startTimer(io, session, sessions);
     } catch (err) {
       console.error(err);
     }

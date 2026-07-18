@@ -2,7 +2,6 @@ const BubbleGame = require("../models/BubbleGame");
 const { processGameCoins } = require("../config/gameCoinService");
 
 async function startTimer(io, session, gameSessions) {
-  // Prevent duplicate timers
   if (session.timer) {
     clearInterval(session.timer);
   }
@@ -11,14 +10,11 @@ async function startTimer(io, session, gameSessions) {
     try {
       session.timeRemaining--;
 
-      // Broadcast timer to everyone in the room
       io.to(session.gameId).emit("timer", {
         timeRemaining: session.timeRemaining,
       });
 
-      if (session.timeRemaining > 0) {
-        return;
-      }
+      if (session.timeRemaining > 0) return;
 
       clearInterval(session.timer);
       session.timer = null;
@@ -26,13 +22,12 @@ async function startTimer(io, session, gameSessions) {
       const game = await BubbleGame.findById(session.gameId);
 
       if (!game) {
-        gameSessions.delete(session.gameId);
+        gameSessions.delete(session.socketId);
         return;
       }
 
-      // Someone already finished the game
       if (game.status === "Finished") {
-        gameSessions.delete(session.gameId);
+        gameSessions.delete(session.socketId);
         return;
       }
 
@@ -57,8 +52,7 @@ async function startTimer(io, session, gameSessions) {
 
       io.emit("bubble:updated", game);
 
-      // Remove game session
-      gameSessions.delete(session.gameId);
+      gameSessions.delete(session.socketId);
 
       console.log(`⏰ Bubble game ${session.gameId} ended by timer.`);
     } catch (err) {
@@ -68,7 +62,7 @@ async function startTimer(io, session, gameSessions) {
         clearInterval(session.timer);
       }
 
-      gameSessions.delete(session.gameId);
+      gameSessions.delete(session.socketId);
     }
   }, 1000);
 }

@@ -27,6 +27,7 @@ const coinTransactionSchema = mongoose.Schema(
 
         // Game
         "GAME_POT",
+        "GAME_PAYOUT",
         "GAME_WIN",
         "GAME_RETURN",
         "GAME_BET",

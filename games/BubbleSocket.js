@@ -262,7 +262,7 @@ function registerBubbleSockets(io, socket) {
         await processGameCoins({
           gameId: game._id,
           action: "PLAYER_LOST",
-          amount: game.betAmount,
+          amount: game.betAmount * 2,
         });
       }
 
@@ -340,7 +340,7 @@ function registerBubbleSockets(io, socket) {
         await processGameCoins({
           gameId: game._id,
           action: "PLAYER_LOST",
-          amount: game.betAmount,
+           amount: game.betAmount * 2,
         });
 
         await game.save();

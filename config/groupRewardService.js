@@ -1,48 +1,84 @@
-const CoinTransaction = require("../models/CoinTransaction");
+// services/gameCoinService.js
+
+const User = require("../models/UserModels");
 const { updateCoins } = require("../controller/AccountController");
 
-const GROUP_REWARDS = {
-  CREATE_GROUP: 50,
-  SEND_MESSAGE: 1,
-  ADD_MEMBER: 20,
-  DAILY_ACTIVE: 5,
-  INVITE_ACCEPTED: 25,
-};
+async function processGameCoins({ gameId, action, amount = 0, playerId }) {
+  const admin = await User.findOne({ isAdmin: true });
 
-const rewardGroupAction = async ({
-  userId,
-  groupId,
-  action,
-  description,
-}) => {
-  const amount = GROUP_REWARDS[action];
-
-  if (!amount) return null;
-
-  // 🔥 ANTI-SPAM CHECK
-  if (action === "SEND_MESSAGE") {
-    const oneMinuteAgo = new Date(Date.now() - 60 * 1000);
-
-    const recent = await CoinTransaction.findOne({
-      user: userId,
-      type: "GROUP_MESSAGE_REWARD",
-      createdAt: { $gte: oneMinuteAgo },
-    });
-
-    if (recent) {
-      return null;
-    }
+  if (!admin) {
+    throw new Error("Admin account not found");
   }
 
-  return await updateCoins({
-    userId,
-    amount,
-    type: `GROUP_${action}`,
-    description:
-      description || `Reward for ${action} in group ${groupId}`,
-  });
-};
+  switch (action) {
+    case "MATCH_BET":
+      return updateCoins({
+        userId: admin._id,
+        amount: -amount,
+        type: "GAME_POT",
+        description: `Matched bet for game ${gameId}`,
+      });
+
+    case "ADD_TO_POT":
+      // If a playerId is provided, debit the player for their bet only.
+      // The pot/admin will be credited when the player loses (PLAYER_LOST).
+      if (playerId) {
+        return updateCoins({
+          userId: playerId,
+          amount: -amount,
+          type: "GAME_BET",
+          description: `Bet placed in game ${gameId}`,
+        });
+      }
+
+      // Legacy behavior: admin funds the pot
+      return updateCoins({
+        userId: admin._id,
+        amount: -amount,
+        type: "GAME_POT",
+        description: `Added ${amount} coins to game ${gameId}`,
+      });
+
+    case "PLAYER_WIN":
+      if (!playerId) {
+        throw new Error("Missing playerId for PLAYER_WIN");
+      }
+      // Debit admin (payout) then credit the player
+      await updateCoins({
+        userId: admin._id,
+        amount: -amount,
+        type: "GAME_PAYOUT",
+        description: `Paid winner for game ${gameId}`,
+      });
+
+      return updateCoins({
+        userId: playerId,
+        amount,
+        type: "GAME_WIN",
+        description: `Won game ${gameId}`,
+      });
+
+    case "PLAYER_LOST":
+      return updateCoins({
+        userId: admin._id,
+        amount,
+        type: "GAME_RETURN",
+        description: `Player lost in game ${gameId}`,
+      });
+
+    case "GAME_CANCELLED":
+      return updateCoins({
+        userId: admin._id,
+        amount,
+        type: "GAME_RETURN",
+        description: `Game ${gameId} was cancelled`,
+      });
+
+    default:
+      throw new Error(`Unknown game action: ${action}`);
+  }
+}
 
 module.exports = {
-  rewardGroupAction,
+  processGameCoins,
 };

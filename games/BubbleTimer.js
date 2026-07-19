@@ -34,7 +34,7 @@ async function startTimer(io, session, gameSessions) {
       await processGameCoins({
         gameId: game._id,
         action: "PLAYER_LOST",
-        amount: game.betAmount,
+        amount: game.betAmount * 2,
       });
 
       game.status = "Finished";

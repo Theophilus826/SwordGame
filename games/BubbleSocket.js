@@ -81,16 +81,30 @@ function registerBubbleSockets(io, socket) {
         console.log("8️⃣ Adding player");
         game.players.push(socket.user._id);
 
-        console.log("9️⃣ Before ADD_TO_POT");
+        console.log("9️⃣ Debiting player bet");
 
+        // Player contributes bet
         await processGameCoins({
-          gameId: game._id,
+          gameId,
           action: "ADD_TO_POT",
           amount: game.betAmount,
           playerId: socket.user._id,
         });
 
-        console.log("🔟 After ADD_TO_POT");
+        console.log("🔟 Matching admin bet");
+
+        // Admin contributes matching bet
+        await processGameCoins({
+          gameId,
+          action: "MATCH_BET",
+          amount: game.betAmount,
+        });
+
+        console.log(
+          `✅ Pot funded: Player ${game.betAmount} + Admin ${game.betAmount} = ${
+            game.betAmount * 2
+          }`,
+        );
       }
 
       if (game.status === "Waiting") {
@@ -241,9 +255,8 @@ function registerBubbleSockets(io, socket) {
 
         await processGameCoins({
           gameId: game._id,
-          action: "PLAYER_WIN",
-          amount: game.rewardAmount,
-          playerId: socket.user._id,
+          action: "PLAYER_LOST",
+          amount: game.betAmount * 2,
         });
       } else {
         await processGameCoins({

@@ -87,6 +87,7 @@ function registerBubbleSockets(io, socket) {
           gameId: game._id,
           action: "ADD_TO_POT",
           amount: game.betAmount,
+          playerId: socket.user._id,
         });
 
         console.log("🔟 After ADD_TO_POT");

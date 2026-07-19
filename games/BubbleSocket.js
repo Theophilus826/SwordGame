@@ -249,14 +249,15 @@ function registerBubbleSockets(io, socket) {
         session.timer = null;
       }
 
-      // Winner
+      // Winner / Loser handling: pay out the full pot (player + admin)
       if (result.win && socket.user) {
         game.winner = socket.user._id;
 
         await processGameCoins({
           gameId: game._id,
-          action: "PLAYER_LOST",
+          action: "PLAYER_WIN",
           amount: game.betAmount * 2,
+          playerId: socket.user._id,
         });
       } else {
         await processGameCoins({

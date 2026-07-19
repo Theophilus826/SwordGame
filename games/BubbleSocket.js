@@ -86,7 +86,7 @@ function registerBubbleSockets(io, socket) {
         await processGameCoins({
           gameId: game._id,
           action: "ADD_TO_POT",
-          amount: game.coin,
+          amount: game.betAmount,
         });
 
         console.log("🔟 After ADD_TO_POT");
@@ -241,14 +241,14 @@ function registerBubbleSockets(io, socket) {
         await processGameCoins({
           gameId: game._id,
           action: "PLAYER_WIN",
-          amount: game.coin,
+          amount: game.rewardAmount,
           playerId: socket.user._id,
         });
       } else {
         await processGameCoins({
           gameId: game._id,
           action: "PLAYER_LOST",
-          amount: game.coin,
+          amount: game.betAmount,
         });
       }
 
@@ -326,7 +326,7 @@ function registerBubbleSockets(io, socket) {
         await processGameCoins({
           gameId: game._id,
           action: "PLAYER_LOST",
-          amount: game.coin,
+          amount: game.betAmount,
         });
 
         await game.save();

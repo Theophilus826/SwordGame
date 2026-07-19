@@ -25,6 +25,18 @@ async function processGameCoins({
       });
 
     case "ADD_TO_POT":
+      // If a playerId is provided, debit the player for their bet only.
+      // The pot/admin will be credited when the player loses (PLAYER_LOST).
+      if (playerId) {
+        return updateCoins({
+          userId: playerId,
+          amount: -amount,
+          type: "GAME_BET",
+          description: `Bet placed in game ${gameId}`,
+        });
+      }
+
+      // Legacy behavior: admin funds the pot
       return updateCoins({
         userId: admin._id,
         amount: -amount,

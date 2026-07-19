@@ -63,7 +63,7 @@ async function processGameCoins({ gameId, action, amount = 0, playerId }) {
       return updateCoins({
         userId: admin._id,
         amount,
-        type: "GAME_WIN",
+        type: "GAME_RETURN",
         description: `Won game ${gameId}`,
       });
 

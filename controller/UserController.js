@@ -153,10 +153,7 @@ const loginUser = asyncHandler(async (req, res) => {
     throw new Error("Invalid credentials");
   }
 
-  const matched = await bcrypt.compare(
-    password,
-    user.password
-  );
+  const matched = await bcrypt.compare(password, user.password);
 
   if (!matched) {
     res.status(401);
@@ -165,6 +162,23 @@ const loginUser = asyncHandler(async (req, res) => {
 
   user.online = true;
   user.lastActive = Date.now();
+
+  // Generate referral code for old users that don't have one
+  if (!user.referralCode) {
+    let code;
+    let exists = true;
+
+    while (exists) {
+      code = Math.random()
+        .toString(36)
+        .substring(2, 8)
+        .toUpperCase();
+
+      exists = await User.findOne({ referralCode: code });
+    }
+
+    user.referralCode = code;
+  }
 
   await user.save();
 
@@ -177,13 +191,24 @@ const loginUser = asyncHandler(async (req, res) => {
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 
-  res.json({
+  res.status(200).json({
+    success: true,
+    message: "Login successful",
+
     _id: user._id,
     name: user.name,
     email: user.email || null,
     phone: user.phone || null,
     avatar: user.avatar || null,
+
+    referralCode: user.referralCode,
+    referredBy: user.referredBy || null,
+    coins: user.coins || 0,
+
+    isVerified: user.isVerified,
     isAdmin: user.isAdmin,
+    online: user.online,
+
     token,
   });
 });

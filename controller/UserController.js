@@ -7,7 +7,8 @@ const { formatPhone, hashPhone } = require("../config/phone");
 
 const User = require("../models/UserModels");
 const Message = require("../models/Message");
-
+const { handleReferral } = require("./ShareControllers");
+// or the correct relative path
 const cloudinary = require("../config/Cloudinary");
 
 /* ================= TOKEN ================= */
@@ -19,7 +20,14 @@ const generateToken = (id, expiresIn = "7d") => {
 
 /* ================= REGISTER ================= */
 const registerUser = asyncHandler(async (req, res) => {
-  let { name, email, phone, password, confirmPassword } = req.body;
+  let {
+    name,
+    email,
+    phone,
+    password,
+    confirmPassword,
+    referralCode, // referral code from signup form
+  } = req.body;
 
   if (!name || !password || !confirmPassword) {
     res.status(400);
@@ -32,6 +40,7 @@ const registerUser = asyncHandler(async (req, res) => {
   }
 
   email = email?.toLowerCase().trim();
+
   const rawPhone = phone?.trim();
   phone = rawPhone ? formatPhone(rawPhone) : undefined;
 
@@ -46,6 +55,7 @@ const registerUser = asyncHandler(async (req, res) => {
   }
 
   const orQuery = [];
+
   if (email) orQuery.push({ email });
   if (phone) orQuery.push({ phone });
 
@@ -58,20 +68,38 @@ const registerUser = asyncHandler(async (req, res) => {
 
   const hashedPassword = await bcrypt.hash(password, 10);
 
+  /* Generate unique referral code for this new user */
+  let myReferralCode;
+  let exists = true;
+
+  while (exists) {
+    myReferralCode = Math.random()
+      .toString(36)
+      .substring(2, 8)
+      .toUpperCase();
+
+    exists = await User.findOne({
+      referralCode: myReferralCode,
+    });
+  }
+
   const userData = {
     name,
     password: hashedPassword,
-    isVerified: true, // Temporarily skip phone verification
+    isVerified: true,
     online: true,
+    referralCode: myReferralCode,
   };
 
   if (email) userData.email = email;
   if (phone) userData.phone = phone;
 
-  // If you're using phoneHash:
-  // if (phone) userData.phoneHash = hashPhone(phone);
-
   const user = await User.create(userData);
+
+  /* Save referral if a referral code was supplied */
+  if (referralCode) {
+    await handleReferral(user._id, referralCode);
+  }
 
   const token = generateToken(user._id);
 
@@ -88,11 +116,14 @@ const registerUser = asyncHandler(async (req, res) => {
     email: user.email || null,
     phone: user.phone || null,
     avatar: user.avatar || null,
+    referralCode: user.referralCode,
+    coins: user.coins,
     isAdmin: user.isAdmin,
     token,
     message: "Registration successful",
   });
 });
+
 /* ================= LOGIN ================= */
 const loginUser = asyncHandler(async (req, res) => {
   let { identifier, password } = req.body;

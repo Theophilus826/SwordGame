@@ -8,51 +8,58 @@ const messageSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
+
     toUser: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
     },
 
-    /* ================= OLD FIELD (KEEP) ================= */
+    /* ================= BACKWARD COMPATIBILITY ================= */
     message: {
       type: String,
-      default: "", // backward compatibility
+      default: "",
     },
 
-    /* ================= NEW FIELDS ================= */
+    /* ================= MESSAGE CONTENT ================= */
     text: {
       type: String,
       default: "",
     },
 
-    audio: {
-      type: String, // voice note URL
+    image: {
+      type: String, // Cloudinary image URL
       default: null,
     },
 
+    audio: {
+      type: String, // Cloudinary voice note URL
+      default: null,
+    },
+
+    /* ================= MESSAGE TYPE ================= */
     type: {
       type: String,
-      enum: ["text", "voice"],
+      enum: [
+        "text",
+        "image",
+        "voice",
+        "video",
+        "document",
+      ],
       default: "text",
     },
 
+    /* ================= DELIVERY STATUS ================= */
     status: {
       type: String,
       enum: ["sent", "delivered", "seen"],
       default: "sent",
     },
-    image: {
-      type: String,
-      default: null,
-    },
-    
   },
   {
-    timestamps: true, // replaces createdAt
-  },
+    timestamps: true,
+  }
 );
 
-const Message = mongoose.model("Message", messageSchema);
-
-module.exports = Message; // ✅ CommonJS export
+module.exports = mongoose.model("Message", messageSchema);

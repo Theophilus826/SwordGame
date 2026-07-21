@@ -8,23 +8,19 @@ const storage = new CloudinaryStorage({
   params: (req, file) => {
     let folder = "uploads";
 
+    // auto-route by file type
     if (file.mimetype.startsWith("image/")) {
       folder = "carousel-images";
     } else if (file.mimetype.startsWith("audio/")) {
       folder = "chat-voice-notes";
     } else if (file.mimetype.startsWith("video/")) {
       folder = "videos";
-    } else if (
-      file.mimetype === "application/vnd.android.package-archive" ||
-      file.originalname?.endsWith(".apk")
-    ) {
-      folder = "apk-files";
     }
 
     return {
       folder,
 
-      // IMPORTANT for APK + non-media files
+      // IMPORTANT: let Cloudinary decide type correctly
       resource_type: "auto",
 
       public_id: `${folder}-${Date.now()}`,
@@ -32,7 +28,7 @@ const storage = new CloudinaryStorage({
   },
 });
 
-/* ================= FILE FILTER ================= */
+/* ================= FILTER ================= */
 const fileFilter = (req, file, cb) => {
   const allowedMimeTypes = [
     // images
@@ -50,27 +46,26 @@ const fileFilter = (req, file, cb) => {
     "video/mp4",
     "video/webm",
 
-    // apk (varies by browser/device)
+    // APK
     "application/vnd.android.package-archive",
     "application/octet-stream",
-    "application/x-zip-compressed",
   ];
 
-  const isApk = file.originalname?.toLowerCase().endsWith(".apk");
-
-  if (allowedMimeTypes.includes(file.mimetype) || isApk) {
+  if (allowedMimeTypes.includes(file.mimetype)) {
+    console.log(`✅ FILE ACCEPTED: ${file.originalname} (${file.mimetype})`);
     cb(null, true);
   } else {
-    cb(new Error("Unsupported file type"), false);
+    console.error(`❌ FILE REJECTED: ${file.originalname} (${file.mimetype})`);
+    cb(new Error(`Unsupported file type: ${file.mimetype}`), false);
   }
 };
 
-/* ================= UPLOAD CONFIG ================= */
+/* ================= UPLOAD ================= */
 const upload = multer({
   storage,
   fileFilter,
   limits: {
-    fileSize: 200 * 1024 * 1024, // 200MB (APK-safe)
+    fileSize: 10 * 1024 * 1024, // 10MB
   },
 });
 

@@ -200,7 +200,7 @@ app.use("/api/coins", require("./routes/AccountRoutes"));
 app.use("/api/admin", require("./routes/AdminRoutes"));
 app.use("/api/feedbacks", require("./routes/FeedbackRoutes"));
 app.use("/api/post", require("./routes/PostRoute"));
-app.use("/api/share", require("./routes/ShareRoutes"));
+app.use("/api/share", require("./routes/ShareRoute"));
 // app.use(express.static("public"));
 app.use("/uploads", express.static("uploads"));
 app.use("/api/notifications", require("./routes/NotificationRoute"));

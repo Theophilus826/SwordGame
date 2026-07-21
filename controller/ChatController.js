@@ -404,12 +404,27 @@ const sendVoice = async (req, res) => {
       await receiver.save();
     }
 
+    // Build file URL - handle both Cloudinary and local uploads
+    let audioUrl;
+    if (req.file.secure_url) {
+      // Cloudinary response
+      audioUrl = req.file.secure_url;
+    } else if (req.file.path) {
+      // Local/other storage
+      audioUrl = buildFileUrl(req.file);
+    } else {
+      console.error("AUDIO FILE OBJECT:", req.file);
+      return res.status(400).json({
+        error: "File upload incomplete - no URL returned",
+      });
+    }
+
     // create voice message
     const newMessage =
       await Message.create({
         fromUser: userId,
         toUser: toUserId,
-        audio: buildFileUrl(req.file),
+        audio: audioUrl,
         duration:
           Number(duration) || 0,
         type: "voice",
@@ -554,12 +569,27 @@ const sendMedia = async (req, res) => {
       await receiver.save();
     }
 
+    // Build file URL - handle both Cloudinary and local uploads
+    let imageUrl;
+    if (req.file.secure_url) {
+      // Cloudinary response
+      imageUrl = req.file.secure_url;
+    } else if (req.file.path) {
+      // Local/other storage
+      imageUrl = buildFileUrl(req.file);
+    } else {
+      console.error("FILE OBJECT:", req.file);
+      return res.status(400).json({
+        error: "File upload incomplete - no URL returned",
+      });
+    }
+
     // create image message
     const newMessage =
       await Message.create({
         fromUser: userId,
         toUser: toUserId,
-        image: buildFileUrl(req.file),
+        image: imageUrl,
         type: "image",
         status: "sent",
       });

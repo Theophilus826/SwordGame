@@ -2,6 +2,9 @@ const asyncHandler = require("express-async-handler");
 const User = require("../models/UserModels");
 const CoinTransaction = require("../models/CoinTransaction");
 
+// ✅ NEW (centralized notifications)
+const { notify } = require("../config/NotificationService");
+
 // ================= CORE COIN ENGINE =================
 const updateCoins = async ({
     userId,
@@ -39,6 +42,7 @@ const updateCoins = async ({
 
     return { coins: user.coins, transaction };
 };
+
 // ================= USER COINS =================
 const creditCoins = asyncHandler(async (req, res) => {
     const { coins } = req.body;
@@ -52,6 +56,17 @@ const creditCoins = asyncHandler(async (req, res) => {
             type: "REWARD",
             description: "Manual wallet credit",
         });
+
+        // 🔔 Notify user
+        try {
+            await notify({
+                user: req.user.id,
+                type: "coin",
+                message: `+${coins} coins credited. Balance: ${result.coins}`,
+            });
+        } catch (err) {
+            console.error("Notification error:", err.message);
+        }
 
         res.json({ coins: result.coins, transaction: result.transaction });
     } catch (error) {
@@ -74,6 +89,17 @@ const purchaseItem = asyncHandler(async (req, res) => {
             type: "PURCHASE",
             description: `Purchased ${itemName}`,
         });
+
+        // 🔔 Notify user
+        try {
+            await notify({
+                user: userId,
+                type: "coin",
+                message: `You spent ${cost} coins on ${itemName}. Balance: ${result.coins}`,
+            });
+        } catch (err) {
+            console.error("Notification error:", err.message);
+        }
 
         res.json({ success: true, coins: result.coins, history: result.transaction });
     } catch (error) {
@@ -107,6 +133,17 @@ const dailyLoginReward = asyncHandler(async (req, res) => {
             type: "LOGIN",
             description: "Daily login reward",
         });
+
+        // 🔔 Notify user
+        try {
+            await notify({
+                user: user._id,
+                type: "coin",
+                message: `🎁 Daily login reward! +5 coins. Balance: ${result.coins}`,
+            });
+        } catch (err) {
+            console.error("Notification error:", err.message);
+        }
 
         res.json({ message: "Daily login reward credited", coins: result.coins });
     } catch (error) {
@@ -145,6 +182,19 @@ const adminCreditCoins = asyncHandler(async (req, res) => {
             description: description || "Admin balance update",
         });
 
+        // 🔔 Notify user
+        try {
+            const actionType = amount > 0 ? "credited" : "debited";
+            const symbol = amount > 0 ? "+" : "";
+            await notify({
+                user: userId,
+                type: "coin",
+                message: `Admin ${actionType} ${symbol}${amount} coins. Balance: ${result.coins}`,
+            });
+        } catch (err) {
+            console.error("Notification error:", err.message);
+        }
+
         res.json({ message: `Coins ${amount > 0 ? "credited" : "debited"} successfully`, coins: result.coins, history: result.transaction });
     } catch (error) {
         res.status(400).json({ message: error.message });
@@ -164,6 +214,17 @@ const creditGameWin = asyncHandler(async (req, res) => {
             type: "REWARD",
             description: "Game win credit",
         });
+
+        // 🔔 Notify user
+        try {
+            await notify({
+                user: req.user.id,
+                type: "coin",
+                message: `🎮 You won! +${coins} coins. Balance: ${result.coins}`,
+            });
+        } catch (err) {
+            console.error("Notification error:", err.message);
+        }
 
         res.json({ coins: result.coins, transaction: result.transaction });
     } catch (error) {
@@ -223,6 +284,22 @@ const transferCoins = asyncHandler(async (req, res) => {
             balanceBefore: toUser.coins - amount,
             balanceAfter: toUser.coins,
         });
+
+        // 🔔 Notify both users
+        try {
+            await notify({
+                user: fromUserId,
+                type: "coin",
+                message: `-${amount} coins sent. Balance: ${fromUser.coins}`,
+            });
+            await notify({
+                user: toUserId,
+                type: "coin",
+                message: `+${amount} coins received. Balance: ${toUser.coins}`,
+            });
+        } catch (err) {
+            console.error("Notification error:", err.message);
+        }
 
         res.json({
             coins: fromUser.coins,

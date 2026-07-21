@@ -1,37 +1,181 @@
 const express = require("express");
-const { register, handleReferral } = require("../controller/ShareControllers");
-const { protect } = require("../middleware/AuthMiddleware");
-
 const router = express.Router();
 
-router.post("/register", register);
+const User = require("../models/UserModels");
+const {
+  Referral,
+  AdminSettings,
+} = require("../models/ShareModels");
 
-router.post("/share", protect, async (req, res) => {
+const {
+  completeReferralTask,
+  getSettings,
+  updateSettings,
+  getAllReferrals,
+  rewardReferral
+} = require("../controller/ShareControllers");
+
+const { protect, admin  } = require("../middleware/AuthMiddleware");
+
+/* ==========================================
+   REFERRAL STATS
+========================================== */
+
+router.get("/referral-stats", protect, async (req, res) => {
   try {
-    const userId = req.user._id;
-    const { referralCode } = req.body;
+    let settings = await AdminSettings.findOne();
 
-    if (!referralCode) {
-      return res.status(400).json({
-        success: false,
-        message: "No referral code",
+    if (!settings) {
+      settings = await AdminSettings.create({
+        referralsRequired: 5,
+        rewardCoins: 10,
       });
     }
 
-    await handleReferral(userId, referralCode);
+    const user = await User.findById(req.user._id);
 
-    res.status(200).json({
-      success: true,
-      message: "Referral processed successfully",
+    const referrals = await Referral.countDocuments({
+      referrer: req.user._id,
     });
 
+    const rewarded = await Referral.countDocuments({
+      referrer: req.user._id,
+      rewarded: true,
+    });
+
+    const invitees = await Referral.find({
+      referrer: req.user._id,
+    })
+      .populate("referredUser", "name email phone")
+      .select("referredUser completed rewarded createdAt")
+      .sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+
+      cash: user?.coins || 0,
+
+      referrals,
+
+      rewarded,
+
+      required: settings.referralsRequired,
+
+      reward: settings.rewardCoins,
+
+      milestones: [
+        {
+          users: 2,
+          reward: 2400,
+        },
+        {
+          users: 5,
+          reward: 5200,
+        },
+        {
+          users: 8,
+          reward: 18000,
+        },
+      ],
+
+      invitees,
+    });
   } catch (err) {
-    console.error("Share Route Error:", err);
+    console.error(err);
+
     res.status(500).json({
       success: false,
-      message: "Server error",
+      message: "Unable to fetch referral stats",
     });
   }
 });
 
+/* ==========================================
+   COMPLETE REFERRAL TASK
+========================================== */
+
+router.post(
+  "/complete-task",
+  protect,
+  completeReferralTask
+);
+
+/* ==========================================
+   REWARD HISTORY
+========================================== */
+
+router.get("/reward-history", protect, async (req, res) => {
+  try {
+    const history = await Referral.find({
+      referrer: req.user._id,
+      rewarded: true,
+    })
+      .populate("referredUser", "name email phone")
+      .select("referredUser rewarded completed updatedAt")
+      .sort({ updatedAt: -1 });
+
+    res.json({
+      success: true,
+      history,
+    });
+  } catch (err) {
+    console.error(err);
+
+    res.status(500).json({
+      success: false,
+      message: "Unable to load reward history",
+    });
+  }
+});
+
+/* ==========================================
+   WITHDRAW
+========================================== */
+
+router.post("/withdraw", protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+
+    if (!user || user.coins <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No balance available",
+      });
+    }
+
+    /*
+      TODO:
+      Replace with your payout logic
+      Flutterwave
+      Paystack
+      Bank Transfer
+      Mobile Money
+    */
+
+    user.coins = 0;
+
+    await user.save();
+
+    res.json({
+      success: true,
+      message: "Withdrawal request submitted",
+      balance: user.coins,
+    });
+  } catch (err) {
+    console.error(err);
+
+    res.status(500).json({
+      success: false,
+      message: "Withdrawal failed",
+    });
+  }
+});
+
+router.get("/admin/settings", protect, admin, getSettings);
+
+router.put("/admin/settings", protect, admin, updateSettings);
+
+router.get("/admin/referrals", protect, admin, getAllReferrals);
+
+router.post("/admin/reward/:id", protect, admin, rewardReferral);
 module.exports = router;

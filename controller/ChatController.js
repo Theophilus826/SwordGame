@@ -480,8 +480,9 @@ const sendVoice = async (req, res) => {
 const sendMedia = async (req, res) => {
   try {
     const userId = req.user?._id;
-
     const { toUserId } = req.body;
+
+    /* ================= AUTH ================= */
 
     if (!req.user || !userId) {
       return res.status(401).json({
@@ -489,34 +490,32 @@ const sendMedia = async (req, res) => {
       });
     }
 
+    /* ================= FILE ================= */
+
     if (!req.file) {
       return res.status(400).json({
         error: "No file uploaded",
       });
     }
 
-    if (
-      !toUserId ||
-      !isValidId(toUserId)
-    ) {
+    /* ================= RECEIVER ================= */
+
+    if (!toUserId || !isValidId(toUserId)) {
       return res.status(400).json({
         error: "Invalid receiver",
       });
     }
 
-    // prevent self messaging
     if (userId.toString() === toUserId) {
       return res.status(400).json({
         error: "Cannot message yourself",
       });
     }
 
-    const sender = await User.findById(
-      userId
-    );
+    /* ================= USERS ================= */
 
-    const receiver =
-      await User.findById(toUserId);
+    const sender = await User.findById(userId);
+    const receiver = await User.findById(toUserId);
 
     if (!sender || !receiver) {
       return res.status(404).json({
@@ -524,116 +523,83 @@ const sendMedia = async (req, res) => {
       });
     }
 
-    // helper
-    const hasContact = (contacts, id) => {
-      return contacts.some(
-        (c) => c.toString() === id.toString()
-      );
-    };
+    const hasContact = (contacts, id) =>
+      contacts.some((c) => c.toString() === id.toString());
 
-    // allow admin OR contacts
     const isAllowed =
       sender.isAdmin ||
-      hasContact(
-        sender.contacts,
-        toUserId
-      );
+      hasContact(sender.contacts, toUserId);
 
     if (!isAllowed) {
       return res.status(403).json({
-        error:
-          "User not in your contacts",
+        error: "User not in your contacts",
       });
     }
 
-    // auto-add both users
-    if (
-      !hasContact(
-        sender.contacts,
-        toUserId
-      )
-    ) {
-      sender.contacts.push(toUserId);
+    /* ================= AUTO ADD CONTACTS ================= */
 
+    if (!hasContact(sender.contacts, toUserId)) {
+      sender.contacts.push(toUserId);
       await sender.save();
     }
 
-    if (
-      !hasContact(
-        receiver.contacts,
-        userId
-      )
-    ) {
+    if (!hasContact(receiver.contacts, userId)) {
       receiver.contacts.push(userId);
-
       await receiver.save();
     }
 
-    // Build file URL - handle both Cloudinary and local uploads
-    let imageUrl;
-    if (req.file.secure_url) {
-      // Cloudinary response
-      imageUrl = req.file.secure_url;
-    } else if (req.file.path) {
-      // Local/other storage
-      imageUrl = buildFileUrl(req.file);
-    } else {
-      console.error("FILE OBJECT:", req.file);
+    /* ================= CLOUDINARY IMAGE URL ================= */
+
+    console.log("UPLOADED FILE:", req.file);
+
+    if (!req.file.path) {
       return res.status(400).json({
-        error: "File upload incomplete - no URL returned",
+        error: "Image upload failed",
       });
     }
 
-    // create image message
-    const newMessage =
-      await Message.create({
-        fromUser: userId,
-        toUser: toUserId,
-        image: imageUrl,
-        type: "image",
-        status: "sent",
-      });
+    const imageUrl = req.file.path;
 
-    // populate users
-    const populatedMessage =
-      await Message.findById(
-        newMessage._id
-      )
-        .populate(
-          "fromUser",
-          "_id name avatar"
-        )
-        .populate(
-          "toUser",
-          "_id name avatar"
-        );
+    /* ================= CREATE MESSAGE ================= */
 
-    // realtime push
-    pushMessage(
-      userId,
-      toUserId,
-      populatedMessage
-    );
+    const newMessage = await Message.create({
+      fromUser: userId,
+      toUser: toUserId,
+      message: "", // backward compatibility
+      text: "",
+      image: imageUrl,
+      type: "image",
+      status: "sent",
+    });
 
-    // notification
+    /* ================= POPULATE ================= */
+
+    const populatedMessage = await Message.findById(newMessage._id)
+      .populate("fromUser", "_id name avatar")
+      .populate("toUser", "_id name avatar");
+
+    /* ================= REALTIME ================= */
+
+    pushMessage(userId, toUserId, populatedMessage);
+
+    /* ================= NOTIFICATION ================= */
+
     await notifyChatMessage({
       receiverId: toUserId,
       sender: req.user,
       messageType: "image",
     });
 
-    res.json({
+    return res.json({
       success: true,
       message: populatedMessage,
     });
   } catch (err) {
-    console.error(
-      "IMAGE ERROR:",
-      err
-    );
+    console.error("IMAGE ERROR:", err);
 
-    res.status(500).json({
+    return res.status(500).json({
       error: "Image upload failed",
+      message: err.message,
     });
   }
 };

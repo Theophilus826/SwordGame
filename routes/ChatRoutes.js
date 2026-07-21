@@ -19,7 +19,7 @@ router.get(
 
 // 🔔 Notification stream (user-based)
 router.get(
-  "/notifications/stream", protect,
+  "/notifications/stream",
   notificationController.streamNotifications
 );
 
@@ -48,6 +48,7 @@ router.post(
   (req, res, next) => {
     upload.single("audio")(req, res, (err) => {
       if (err) {
+        console.error("MULTER AUDIO UPLOAD ERROR:", err);
         return res.status(400).json({
           success: false,
           message: err.message || "Audio upload failed",
@@ -66,6 +67,7 @@ router.post(
   (req, res, next) => {
     upload.single("image")(req, res, (err) => {
       if (err) {
+        console.error("MULTER IMAGE UPLOAD ERROR:", err);
         return res.status(400).json({
           success: false,
           message: err.message || "Image upload failed",

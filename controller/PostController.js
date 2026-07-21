@@ -111,17 +111,21 @@ const uploadMedia = asyncHandler(async (req, res) => {
 ========================= */
 const getPosts = asyncHandler(async (req, res) => {
   const userId = req.user?._id?.toString();
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  // const since = new Date(Date.now() - 24 * 60 * 60 * 1000); // ❌ DISABLED - shows all posts
 
-  const posts = await Post.find({
-    createdAt: { $gte: since },
-  })
-    .sort({ createdAt: -1 })
-    .populate("user", "name avatar")
-    .populate("comments.user", "name avatar")
-    .lean();
+  const posts = await Post.aggregate([
+    // 🔥 TEMPORARY: Removed date filter to keep posts persistent
+    // { $match: { createdAt: { $gte: since } } },
+    { $sample: { size: 1000 } }, // 🔀 SHUFFLE posts on each reload
+  ]);
 
-  const formattedPosts = posts.map((post) => ({
+  // Populate user and comments
+  const populatedPosts = await Post.populate(posts, [
+    { path: "user", select: "name avatar" },
+    { path: "comments.user", select: "name avatar" },
+  ]);
+
+  const formattedPosts = populatedPosts.map((post) => ({
     ...post,
     liked: userId
       ? post.likedBy.some((id) => id.toString() === userId)

@@ -101,11 +101,21 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    // For future use
+    referralCode: {
+      type: String,
+      unique: true,
+    },
+
+    referredBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
   },
   {
     timestamps: true,
-  }
+  },
 );
 
-module.exports =
-  mongoose.models.User || mongoose.model("User", userSchema);
+module.exports = mongoose.models.User || mongoose.model("User", userSchema);

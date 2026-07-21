@@ -21,6 +21,7 @@ const WithdrawalRoutes = require("./routes/WithdrawalRoutes");
 const GroupRoute = require("./routes/GroupRoute");
 const admin = require("./config/firebase");
 const { registerBubbleSockets } = require("./games/BubbleSocket");
+const shareRoutes = require("./routes/ShareRoute");
 
 // ==========================
 // LOAD ENV
@@ -199,7 +200,7 @@ app.use("/api/coins", require("./routes/AccountRoutes"));
 app.use("/api/admin", require("./routes/AdminRoutes"));
 app.use("/api/feedbacks", require("./routes/FeedbackRoutes"));
 app.use("/api/post", require("./routes/PostRoute"));
-app.use("/api/auth", require("./routes/ShareRoute"));
+app.use("/api/share", require("./routes/ShareRoutes"));
 // app.use(express.static("public"));
 app.use("/uploads", express.static("uploads"));
 app.use("/api/notifications", require("./routes/NotificationRoute"));

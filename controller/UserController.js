@@ -73,10 +73,7 @@ const registerUser = asyncHandler(async (req, res) => {
   let exists = true;
 
   while (exists) {
-    myReferralCode = Math.random()
-      .toString(36)
-      .substring(2, 8)
-      .toUpperCase();
+    myReferralCode = Math.random().toString(36).substring(2, 8).toUpperCase();
 
     exists = await User.findOne({
       referralCode: myReferralCode,
@@ -137,9 +134,7 @@ const loginUser = asyncHandler(async (req, res) => {
 
   const formattedPhone = formatPhone(identifier);
 
-  const email = identifier.includes("@")
-    ? identifier.toLowerCase()
-    : null;
+  const email = identifier.includes("@") ? identifier.toLowerCase() : null;
 
   const user = await User.findOne({
     $or: [
@@ -163,23 +158,6 @@ const loginUser = asyncHandler(async (req, res) => {
   user.online = true;
   user.lastActive = Date.now();
 
-  // Generate referral code for old users that don't have one
-  if (!user.referralCode) {
-    let code;
-    let exists = true;
-
-    while (exists) {
-      code = Math.random()
-        .toString(36)
-        .substring(2, 8)
-        .toUpperCase();
-
-      exists = await User.findOne({ referralCode: code });
-    }
-
-    user.referralCode = code;
-  }
-
   await user.save();
 
   const token = generateToken(user._id);
@@ -191,24 +169,13 @@ const loginUser = asyncHandler(async (req, res) => {
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 
-  res.status(200).json({
-    success: true,
-    message: "Login successful",
-
+  res.json({
     _id: user._id,
     name: user.name,
     email: user.email || null,
     phone: user.phone || null,
     avatar: user.avatar || null,
-
-    referralCode: user.referralCode,
-    referredBy: user.referredBy || null,
-    coins: user.coins || 0,
-
-    isVerified: user.isVerified,
     isAdmin: user.isAdmin,
-    online: user.online,
-
     token,
   });
 });
@@ -288,15 +255,9 @@ const sendMessage = asyncHandler(async (req, res) => {
     .populate("toUser", "_id name avatar");
 
   if (req.io) {
-    req.io.to(toUserId.toString()).emit(
-      "receiveMessage",
-      populatedMessage
-    );
+    req.io.to(toUserId.toString()).emit("receiveMessage", populatedMessage);
 
-    req.io.to(req.user._id.toString()).emit(
-      "receiveMessage",
-      populatedMessage
-    );
+    req.io.to(req.user._id.toString()).emit("receiveMessage", populatedMessage);
   }
 
   res.status(201).json({
@@ -340,8 +301,9 @@ const getMessages = asyncHandler(async (req, res) => {
 const getUserById = asyncHandler(async (req, res) => {
   const { userId } = req.params;
 
-  const user = await User.findById(userId)
-    .select("_id name avatar online lastActive");
+  const user = await User.findById(userId).select(
+    "_id name avatar online lastActive",
+  );
 
   if (!user) {
     res.status(404);
@@ -421,10 +383,7 @@ const resetPassword = asyncHandler(async (req, res) => {
     throw new Error("Password required");
   }
 
-  const hashedToken = crypto
-    .createHash("sha256")
-    .update(token)
-    .digest("hex");
+  const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
 
   const user = await User.findOne({
     resetPasswordToken: hashedToken,
@@ -459,10 +418,7 @@ const verifyPhone = asyncHandler(async (req, res) => {
     throw new Error("userId and code required");
   }
 
-  const hashed = crypto
-    .createHash("sha256")
-    .update(String(code))
-    .digest("hex");
+  const hashed = crypto.createHash("sha256").update(String(code)).digest("hex");
 
   const user = await User.findOne({
     _id: userId,
@@ -529,10 +485,7 @@ const updateAvatar = asyncHandler(async (req, res) => {
   }
 
   try {
-    const avatarUrl =
-      req.file.path ||
-      req.file.filename ||
-      req.file.url;
+    const avatarUrl = req.file.path || req.file.filename || req.file.url;
 
     const user = await User.findById(userId);
 
@@ -560,32 +513,40 @@ const updateAvatar = asyncHandler(async (req, res) => {
 });
 
 /* ================= GET ALL USERS (ADMIN ONLY) ================= */
+/* ================= GET ALL USERS (ADMIN ONLY) ================= */
 const getAllUsers = asyncHandler(async (req, res) => {
-  // check admin
   if (!req.user.isAdmin) {
     res.status(403);
     throw new Error("Admin access only");
   }
 
   const users = await User.find({})
-    .select("_id name email phone avatar online isAdmin createdAt")
+    .select(
+      `
+      _id
+      name
+      email
+      phone
+      avatar
+      online
+      lastActive
+      isAdmin
+      isVerified
+      coins
+      mood
+      referralCode
+      createdAt
+      updatedAt
+      contacts
+      `,
+    )
+    .populate("contacts", "_id name avatar phone online")
     .lean();
 
-  const formattedUsers = users.map((u) => ({
-    _id: u._id,
-    name: u.name,
-    email: u.email || null,
-    phone: u.phone || null,
-    avatar: u.avatar || null,
-    status: u.online ? "online" : "offline",
-    isAdmin: u.isAdmin,
-    createdAt: u.createdAt,
-  }));
-
-  res.json({
+  res.status(200).json({
     success: true,
-    count: formattedUsers.length,
-    users: formattedUsers,
+    count: users.length,
+    users,
   });
 });
 
@@ -621,7 +582,7 @@ const syncContacts = asyncHandler(async (req, res) => {
 
 /* ================= SEARCH USERS ================= */
 const searchUsers = asyncHandler(async (req, res) => {
-  const q = req.query.q;
+  const q = req.query.q?.trim();
 
   if (!q) {
     return res.status(400).json({
@@ -629,13 +590,32 @@ const searchUsers = asyncHandler(async (req, res) => {
     });
   }
 
-  const users = await User.find({
-    name: {
-      $regex: q,
-      $options: "i",
+  const formattedPhone = formatPhone(q);
+
+  const searchConditions = [
+    {
+      name: {
+        $regex: q,
+        $options: "i",
+      },
     },
+  ];
+
+  // If the query looks like a valid phone number,
+  // search by phone too.
+  if (formattedPhone) {
+    searchConditions.push({
+      phone: {
+        $regex: formattedPhone,
+        $options: "i",
+      },
+    });
+  }
+
+  const users = await User.find({
+    $or: searchConditions,
   })
-    .select("_id name avatar online")
+    .select("_id name avatar phone online")
     .limit(20);
 
   res.json({
@@ -646,59 +626,95 @@ const searchUsers = asyncHandler(async (req, res) => {
 
 /* ================= ADD CONTACT ================= */
 const addContact = asyncHandler(async (req, res) => {
-  const { userId } = req.body;
+  let { userId, phone } = req.body;
 
-  if (!userId) {
+  if (!userId && !phone) {
     res.status(400);
-    throw new Error("User ID required");
-  }
-
-  if (req.user._id.toString() === userId) {
-    res.status(400);
-    throw new Error("Cannot add yourself");
+    throw new Error("User ID or phone required");
   }
 
   const user = await User.findById(req.user._id);
 
-  const targetUser = await User.findById(userId);
+  if (!user) {
+    res.status(404);
+    throw new Error("User not found");
+  }
+
+  let targetUser;
+
+  if (userId) {
+    targetUser = await User.findById(userId);
+  } else {
+    const formattedPhone = formatPhone(phone);
+
+    if (!formattedPhone) {
+      res.status(400);
+      throw new Error("Invalid phone number");
+    }
+
+    targetUser = await User.findOne({
+      phone: formattedPhone,
+    });
+  }
 
   if (!targetUser) {
     res.status(404);
     throw new Error("User not found");
   }
 
-  // prevent duplicates
-  if (user.contacts.includes(userId)) {
+  if (req.user._id.equals(targetUser._id)) {
+    res.status(400);
+    throw new Error("Cannot add yourself");
+  }
+
+  // Prevent duplicates
+  if (user.contacts.some((id) => id.equals(targetUser._id))) {
     return res.json({
       success: true,
       message: "Already in contacts",
     });
   }
 
-  user.contacts.push(userId);
-
+  user.contacts.push(targetUser._id);
   await user.save();
 
   res.json({
     success: true,
     message: "Contact added",
+    contact: {
+      _id: targetUser._id,
+      name: targetUser.name,
+      phone: targetUser.phone,
+      avatar: targetUser.avatar || null,
+      status: targetUser.online ? "online" : "offline",
+    },
   });
 });
 
 /* ================= GET CONTACTS ================= */
 const getContacts = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user._id)
-    .populate("contacts", "_id name avatar online");
+  const user = await User.findById(req.user._id).populate(
+    "contacts",
+    "_id name phone avatar online lastActive",
+  );
+
+  if (!user) {
+    res.status(404);
+    throw new Error("User not found");
+  }
 
   const formattedUsers = user.contacts.map((u) => ({
     _id: u._id,
     name: u.name,
+    phone: u.phone || null,
     avatar: u.avatar || null,
     status: u.online ? "online" : "offline",
+    lastActive: u.lastActive,
   }));
 
   res.json({
     success: true,
+    count: formattedUsers.length,
     users: formattedUsers,
   });
 });

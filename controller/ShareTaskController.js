@@ -14,7 +14,7 @@ const trackShareTask = async ({
 }) => {
   try {
     const tasks = await ShareTask.find({
-      active: true,
+      status: "active",
       $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }],
     });
 
@@ -106,23 +106,23 @@ const createTask = async (req, res) => {
     const {
       title,
       description,
-      image,
       rewardCoins,
       requiredMessages,
       allowedTypes,
       requiredKeyword,
       expiresAt,
+      assignedUsers,
     } = req.body;
 
     const task = await ShareTask.create({
       title,
       description,
-      image,
       rewardCoins,
       requiredMessages,
       allowedTypes,
       requiredKeyword,
       expiresAt,
+      assignedUsers,
       createdBy: req.user._id,
     });
 
@@ -145,7 +145,7 @@ const createTask = async (req, res) => {
 const getTasks = async (req, res) => {
   try {
     const tasks = await ShareTask.find({
-      active: true,
+      status: "active",
       $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }],
     }).sort({
       createdAt: -1,

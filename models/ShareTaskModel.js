@@ -1,95 +1,107 @@
 const mongoose = require("mongoose");
 
-const UserShareTaskSchema = new mongoose.Schema(
+const ShareTaskSchema = new mongoose.Schema(
   {
-    task: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "ShareTask",
+    title: {
+      type: String,
       required: true,
+      trim: true,
     },
 
-    user: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-    },
-
-    // Every successful share
-    recipients: [
+    assignedUsers: [
       {
-        user: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "User",
-          required: true,
-        },
-
-        messageId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "Message",
-          default: null,
-        },
-
-        messagedAt: {
-          type: Date,
-          default: Date.now,
-        },
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
       },
     ],
 
-    status: {
+    description: {
       type: String,
-      enum: [
-        "pending",
-        "completed",
-        "rewarded",
-        "rejected",
-      ],
-      default: "pending",
+      required: true,
+      trim: true,
     },
 
-    completedAt: Date,
+    image: {
+      type: String,
+      default: "",
+    },
 
-    rewardedAt: Date,
+    type: {
+      type: String,
+      enum: ["message_users", "share_post", "share_receipt", "invite_users"],
+      default: "message_users",
+    },
 
-    rewardedBy: {
+    targetId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
       default: null,
     },
 
-    rejectionReason: {
+    targetModel: {
       type: String,
       default: "",
+    },
+
+    rewardCoins: {
+      type: Number,
+      default: 100,
+      min: 1,
+    },
+
+    requiredMessages: {
+      type: Number,
+      default: 10,
+      min: 1,
+    },
+
+    // NEW
+    allowedTypes: {
+      type: [
+        {
+          type: String,
+          enum: ["text", "image", "voice"],
+        },
+      ],
+      default: ["text"],
+    },
+
+    requiredKeyword: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    // Keep both for backward compatibility
+    active: {
+      type: Boolean,
+      default: true,
+    },
+
+    status: {
+      type: String,
+      enum: ["draft", "active", "ended"],
+      default: "active",
+    },
+
+    autoReward: {
+      type: Boolean,
+      default: false,
+    },
+
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+
+    expiresAt: {
+      type: Date,
+      default: null,
     },
   },
   {
     timestamps: true,
-    toJSON: {
-      virtuals: true,
-    },
-    toObject: {
-      virtuals: true,
-    },
-  }
-);
-
-// One record per user per task
-UserShareTaskSchema.index(
-  {
-    task: 1,
-    user: 1,
   },
-  {
-    unique: true,
-  }
 );
 
-// Number of valid shares
-UserShareTaskSchema.virtual("messageCount").get(function () {
-  return this.recipients.length;
-});
-
-module.exports = mongoose.model(
-  "UserShareTask",
-  UserShareTaskSchema
-);
+module.exports = mongoose.model("ShareTask", ShareTaskSchema);

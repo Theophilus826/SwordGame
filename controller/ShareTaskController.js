@@ -103,72 +103,33 @@ const trackShareTask = async ({
 
 const createTask = async (req, res) => {
   try {
-    console.log("========== CREATE SHARE TASK ==========");
-    console.log("User:", req.user);
-    console.log("Body:", JSON.stringify(req.body, null, 2));
+    console.log("1. Entered createTask");
 
-    const {
-      title,
-      description,
-      rewardCoins,
-      requiredMessages,
-      allowedTypes,
-      requiredKeyword,
-      expiresAt,
-      assignedUsers,
-    } = req.body;
-
-    // Verify authentication
-    if (!req.user) {
-      return res.status(401).json({
-        success: false,
-        message: "req.user is undefined. Authentication failed.",
-      });
-    }
-
-    const taskData = {
-      title,
-      description,
-      rewardCoins,
-      requiredMessages,
-      allowedTypes: allowedTypes || ["text"],
-      requiredKeyword: requiredKeyword || "",
-      expiresAt: expiresAt || null,
-      assignedUsers: assignedUsers || [],
+    const task = await ShareTask.create({
+      title: req.body.title,
+      description: req.body.description,
+      rewardCoins: req.body.rewardCoins,
+      requiredMessages: req.body.requiredMessages,
+      allowedTypes: req.body.allowedTypes || ["text"],
+      requiredKeyword: req.body.requiredKeyword || "",
+      expiresAt: req.body.expiresAt || null,
+      assignedUsers: req.body.assignedUsers || [],
       createdBy: req.user._id,
-    };
+    });
 
-    console.log("Task Data:", JSON.stringify(taskData, null, 2));
-
-    const task = await ShareTask.create(taskData);
-
-    console.log("Task Created:", task._id);
+    console.log("2. ShareTask created:", task._id);
 
     return res.status(201).json({
       success: true,
       task,
     });
   } catch (err) {
-    console.error("========== CREATE TASK ERROR ==========");
+    console.error("3. ERROR");
     console.error(err);
-
-    if (err.name === "ValidationError") {
-      console.error("Validation Errors:", err.errors);
-    }
-
-    if (err.name === "CastError") {
-      console.error("Cast Error:", err.path, err.value);
-    }
 
     return res.status(500).json({
       success: false,
       message: err.message,
-      errorName: err.name,
-      errors: err.errors || null,
-      stack:
-        process.env.NODE_ENV === "development"
-          ? err.stack
-          : undefined,
     });
   }
 };

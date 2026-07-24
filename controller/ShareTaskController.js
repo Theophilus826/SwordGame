@@ -42,9 +42,20 @@ const trackShareTask = async ({
 
     const tasks = await ShareTask.find({
       status: "active",
-      $or: [
-        { expiresAt: null },
-        { expiresAt: { $gt: new Date() } },
+      $and: [
+        {
+          $or: [
+            { expiresAt: null },
+            { expiresAt: { $gt: new Date() } },
+          ],
+        },
+        {
+          $or: [
+            { assignedUsers: { $in: [userId] } },
+            { assignedUsers: { $size: 0 } },
+            { assignedUsers: { $exists: false } },
+          ],
+        },
       ],
     });
 
@@ -220,21 +231,6 @@ const createTask = async (req, res) => {
 
 const getTasks = async (req, res) => {
   try {
-    console.log("===== GET TASKS =====");
-    console.log("Current user:", req.user._id);
-
-    const all = await ShareTask.find();
-
-    console.log(
-      all.map(t => ({
-        id: t._id,
-        title: t.title,
-        assignedUsers: t.assignedUsers,
-        status: t.status,
-        expiresAt: t.expiresAt,
-      }))
-    );
-
     const tasks = await ShareTask.find({
       status: "active",
       $and: [
@@ -246,29 +242,25 @@ const getTasks = async (req, res) => {
         },
         {
           $or: [
-            { assignedUsers: req.user._id },
+            { assignedUsers: { $in: [req.user._id] } },
             { assignedUsers: { $size: 0 } },
             { assignedUsers: { $exists: false } },
           ],
         },
       ],
-    });
-
-    console.log("Matched tasks:", tasks);
+    }).sort({ createdAt: -1 });
 
     res.json({
       success: true,
       tasks,
     });
   } catch (err) {
-    console.error(err);
     res.status(500).json({
       success: false,
       message: err.message,
     });
   }
 };
-
 /* =========================================
    USER PROGRESS
 ========================================= */

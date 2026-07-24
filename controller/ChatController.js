@@ -19,6 +19,11 @@ const {
   notifyChatMessage,
 } = require("../config/NotificationService");
 
+// ✅ Track share task progress when messages are sent
+const {
+  trackShareTask,
+} = require("../controller/ShareTaskController");
+
 /* ================= HELPERS ================= */
 
 // Validate Mongo ID
@@ -218,6 +223,15 @@ const sendMessage = async (req, res) => {
       receiverId: toUserId,
       sender: req.user,
       messageType: "text",
+    });
+
+    // ✅ Track share task progress
+    await trackShareTask({
+      userId: userId.toString(),
+      recipientId: toUserId.toString(),
+      messageId: newMessage._id.toString(),
+      type: "text",
+      text: text.trim(),
     });
 
     res.json({
@@ -459,6 +473,15 @@ const sendVoice = async (req, res) => {
       messageType: "voice",
     });
 
+    // ✅ Track share task progress
+    await trackShareTask({
+      userId: userId.toString(),
+      recipientId: toUserId.toString(),
+      messageId: newMessage._id.toString(),
+      type: "voice",
+      text: "",
+    });
+
     res.json({
       success: true,
       message: populatedMessage,
@@ -588,6 +611,16 @@ const sendMedia = async (req, res) => {
       receiverId: toUserId,
       sender: req.user,
       messageType: "image",
+    });
+
+    /* ================= TRACK SHARE TASK ================= */
+
+    await trackShareTask({
+      userId: userId.toString(),
+      recipientId: toUserId.toString(),
+      messageId: newMessage._id.toString(),
+      type: "image",
+      text: "",
     });
 
     return res.json({

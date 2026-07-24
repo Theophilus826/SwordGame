@@ -1,6 +1,9 @@
 const ShareTask = require("../models/ShareTaskModel");
+console.log("ShareTask =", ShareTask.modelName);
 const UserShareTask = require("../models/UserShareTaskModel");
+console.log("UserShareTask =", UserShareTask.modelName);
 const User = require("../models/UserModels");
+
 
 /*
  * Track a user's progress on active share tasks.

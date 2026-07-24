@@ -103,6 +103,10 @@ const trackShareTask = async ({
 
 const createTask = async (req, res) => {
   try {
+    console.log("========== CREATE SHARE TASK ==========");
+    console.log("User:", req.user);
+    console.log("Body:", JSON.stringify(req.body, null, 2));
+
     const {
       title,
       description,
@@ -114,30 +118,60 @@ const createTask = async (req, res) => {
       assignedUsers,
     } = req.body;
 
-    const task = await ShareTask.create({
+    // Verify authentication
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "req.user is undefined. Authentication failed.",
+      });
+    }
+
+    const taskData = {
       title,
       description,
       rewardCoins,
       requiredMessages,
-      allowedTypes,
-      requiredKeyword,
-      expiresAt,
-      assignedUsers,
+      allowedTypes: allowedTypes || ["text"],
+      requiredKeyword: requiredKeyword || "",
+      expiresAt: expiresAt || null,
+      assignedUsers: assignedUsers || [],
       createdBy: req.user._id,
-    });
+    };
 
-    res.status(201).json({
+    console.log("Task Data:", JSON.stringify(taskData, null, 2));
+
+    const task = await ShareTask.create(taskData);
+
+    console.log("Task Created:", task._id);
+
+    return res.status(201).json({
       success: true,
       task,
     });
   } catch (err) {
-    res.status(500).json({
+    console.error("========== CREATE TASK ERROR ==========");
+    console.error(err);
+
+    if (err.name === "ValidationError") {
+      console.error("Validation Errors:", err.errors);
+    }
+
+    if (err.name === "CastError") {
+      console.error("Cast Error:", err.path, err.value);
+    }
+
+    return res.status(500).json({
       success: false,
       message: err.message,
+      errorName: err.name,
+      errors: err.errors || null,
+      stack:
+        process.env.NODE_ENV === "development"
+          ? err.stack
+          : undefined,
     });
   }
 };
-
 /* =========================================
    GET ACTIVE TASKS
 ========================================= */

@@ -162,6 +162,7 @@ const trackShareTask = async ({
     console.error(err);
   }
 };
+
 /* =========================================
    CREATE TASK (ADMIN)
 ========================================= */
@@ -214,10 +215,21 @@ const getTasks = async (req, res) => {
   try {
     const tasks = await ShareTask.find({
       status: "active",
-      $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }],
-    }).sort({
-      createdAt: -1,
-    });
+      $and: [
+        {
+          $or: [
+            { expiresAt: null },
+            { expiresAt: { $gt: new Date() } },
+          ],
+        },
+        {
+          $or: [
+            { assignedUsers: req.user._id },
+            { assignedUsers: { $size: 0 } },
+          ],
+        },
+      ],
+    }).sort({ createdAt: -1 });
 
     res.json({
       success: true,
@@ -230,20 +242,40 @@ const getTasks = async (req, res) => {
     });
   }
 };
-
 /* =========================================
    USER PROGRESS
 ========================================= */
 
 const getMyTasks = async (req, res) => {
   try {
-    const tasks = await UserShareTask.find({
+    const progress = await UserShareTask.find({
       user: req.user._id,
     })
-      .populate("task")
-      .sort({
-        updatedAt: -1,
-      });
+      .populate({
+        path: "task",
+        match: {
+          status: "active",
+          $and: [
+            {
+              $or: [
+                { expiresAt: null },
+                { expiresAt: { $gt: new Date() } },
+              ],
+            },
+            {
+              $or: [
+                { assignedUsers: req.user._id },
+                { assignedUsers: { $size: 0 } },
+              ],
+            },
+          ],
+        },
+      })
+      .populate("recipients.user", "name avatar")
+      .sort({ updatedAt: -1 });
+
+    // Remove orphaned or hidden tasks
+    const tasks = progress.filter((item) => item.task);
 
     res.json({
       success: true,

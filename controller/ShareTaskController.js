@@ -1,9 +1,14 @@
-const ShareTask = require("../models/ShareTaskModel");
-console.log("ShareTask =", ShareTask.modelName);
-const UserShareTask = require("../models/UserShareTaskModel");
-console.log("UserShareTask =", UserShareTask.modelName);
-const User = require("../models/UserModels");
+const mongoose = require("mongoose");
 
+const ShareTask = require("../models/ShareTaskModel");
+const UserShareTask = require("../models/UserShareTaskModel");
+
+console.log("ShareTask =", ShareTask.modelName);
+console.log("UserShareTask =", UserShareTask.modelName);
+console.log("Same model =", ShareTask === UserShareTask);
+console.log("Registered models =", mongoose.modelNames());
+
+const User = require("../models/UserModels");
 
 /*
  * Track a user's progress on active share tasks.
@@ -47,12 +52,32 @@ const trackShareTask = async ({
       });
 
       if (!progress) {
-        progress = await UserShareTask.create({
+        console.log("===== Creating UserShareTask =====");
+        console.log("Task ID:", task?._id);
+        console.log("User ID:", userId);
+        console.log("Recipient ID:", recipientId);
+
+        if (!task?._id) {
+          throw new Error("trackShareTask: task._id is undefined");
+        }
+
+        if (!userId) {
+          throw new Error("trackShareTask: userId is undefined");
+        }
+
+        progress = new UserShareTask({
           task: task._id,
           user: userId,
           recipients: [],
           messageCount: 0,
+          completed: false,
+          rewarded: false,
+          status: "pending",
         });
+
+        await progress.save();
+
+        console.log("✅ UserShareTask created:", progress._id);
       }
 
       if (progress.rewarded) continue;
@@ -106,7 +131,12 @@ const trackShareTask = async ({
 
 const createTask = async (req, res) => {
   try {
-    const task = await ShareTask.create({
+    console.log("===== CREATE TASK =====");
+    console.log("Model:", ShareTask.modelName);
+    console.log("Body:", req.body);
+    console.log("User:", req.user);
+
+    const data = {
       title: req.body.title,
       description: req.body.description,
       rewardCoins: req.body.rewardCoins,
@@ -116,9 +146,13 @@ const createTask = async (req, res) => {
       expiresAt: req.body.expiresAt || null,
       assignedUsers: req.body.assignedUsers || [],
       createdBy: req.user._id,
-    });
+    };
 
-    console.log("✅ ShareTask created:", task._id);
+    console.log("Creating:", data);
+
+    const task = await ShareTask.create(data);
+
+    console.log("Created:", task);
 
     return res.status(201).json({
       success: true,
@@ -126,7 +160,7 @@ const createTask = async (req, res) => {
     });
   } catch (err) {
     console.error("CREATE TASK ERROR");
-    console.error("Model:", ShareTask.modelName);
+    console.error("ShareTask model:", ShareTask.modelName);
     console.error(err);
 
     return res.status(500).json({
@@ -135,7 +169,6 @@ const createTask = async (req, res) => {
     });
   }
 };
-
 /* =========================================
    GET ACTIVE TASKS
 ========================================= */

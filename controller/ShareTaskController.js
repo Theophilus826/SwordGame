@@ -220,6 +220,21 @@ const createTask = async (req, res) => {
 
 const getTasks = async (req, res) => {
   try {
+    console.log("===== GET TASKS =====");
+    console.log("Current user:", req.user._id);
+
+    const all = await ShareTask.find();
+
+    console.log(
+      all.map(t => ({
+        id: t._id,
+        title: t.title,
+        assignedUsers: t.assignedUsers,
+        status: t.status,
+        expiresAt: t.expiresAt,
+      }))
+    );
+
     const tasks = await ShareTask.find({
       status: "active",
       $and: [
@@ -231,25 +246,29 @@ const getTasks = async (req, res) => {
         },
         {
           $or: [
-            { assignedUsers: { $in: [req.user._id] } },
+            { assignedUsers: req.user._id },
             { assignedUsers: { $size: 0 } },
             { assignedUsers: { $exists: false } },
           ],
         },
       ],
-    }).sort({ createdAt: -1 });
+    });
+
+    console.log("Matched tasks:", tasks);
 
     res.json({
       success: true,
       tasks,
     });
   } catch (err) {
+    console.error(err);
     res.status(500).json({
       success: false,
       message: err.message,
     });
   }
 };
+
 /* =========================================
    USER PROGRESS
 ========================================= */

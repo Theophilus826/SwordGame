@@ -103,29 +103,18 @@ const trackShareTask = async ({
 
 const createTask = async (req, res) => {
   try {
-    console.log("1. Entered createTask");
+    console.log("===== CREATE TASK TEST =====");
+    console.log("Authenticated User:", req.user);
+    console.log("Request Body:", req.body);
 
-    const task = await ShareTask.create({
-      title: req.body.title,
-      description: req.body.description,
-      rewardCoins: req.body.rewardCoins,
-      requiredMessages: req.body.requiredMessages,
-      allowedTypes: req.body.allowedTypes || ["text"],
-      requiredKeyword: req.body.requiredKeyword || "",
-      expiresAt: req.body.expiresAt || null,
-      assignedUsers: req.body.assignedUsers || [],
-      createdBy: req.user._id,
-    });
-
-    console.log("2. ShareTask created:", task._id);
-
-    return res.status(201).json({
+    return res.status(200).json({
       success: true,
-      task,
+      message: "createTask controller reached successfully",
+      user: req.user,
+      body: req.body,
     });
   } catch (err) {
-    console.error("3. ERROR");
-    console.error(err);
+    console.error("CREATE TASK TEST ERROR:", err);
 
     return res.status(500).json({
       success: false,
@@ -133,6 +122,7 @@ const createTask = async (req, res) => {
     });
   }
 };
+
 /* =========================================
    GET ACTIVE TASKS
 ========================================= */

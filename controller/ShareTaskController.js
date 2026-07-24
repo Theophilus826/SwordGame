@@ -174,6 +174,13 @@ const createTask = async (req, res) => {
     console.log("Body:", req.body);
     console.log("User:", req.user);
 
+    const assignedUsers = req.body.assignedUsers;
+    const normalizedAssignedUsers = Array.isArray(assignedUsers)
+      ? assignedUsers
+      : typeof assignedUsers === "string"
+      ? [assignedUsers]
+      : [];
+
     const data = {
       title: req.body.title,
       description: req.body.description,
@@ -182,7 +189,7 @@ const createTask = async (req, res) => {
       allowedTypes: req.body.allowedTypes || ["text"],
       requiredKeyword: req.body.requiredKeyword || "",
       expiresAt: req.body.expiresAt || null,
-      assignedUsers: req.body.assignedUsers || [],
+      assignedUsers: normalizedAssignedUsers,
       createdBy: req.user._id,
     };
 
@@ -224,8 +231,9 @@ const getTasks = async (req, res) => {
         },
         {
           $or: [
-            { assignedUsers: req.user._id },
+            { assignedUsers: { $in: [req.user._id] } },
             { assignedUsers: { $size: 0 } },
+            { assignedUsers: { $exists: false } },
           ],
         },
       ],
@@ -264,8 +272,9 @@ const getMyTasks = async (req, res) => {
             },
             {
               $or: [
-                { assignedUsers: req.user._id },
+                { assignedUsers: { $in: [req.user._id] } },
                 { assignedUsers: { $size: 0 } },
+                { assignedUsers: { $exists: false } },
               ],
             },
           ],
@@ -295,9 +304,28 @@ const getMyTasks = async (req, res) => {
 
 const updateTask = async (req, res) => {
   try {
-    const task = await ShareTask.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-    });
+    const assignedUsers = req.body.assignedUsers;
+    const normalizedAssignedUsers = Array.isArray(assignedUsers)
+      ? assignedUsers
+      : typeof assignedUsers === "string"
+      ? [assignedUsers]
+      : undefined;
+
+    const updateData = {
+      ...req.body,
+    };
+
+    if (normalizedAssignedUsers !== undefined) {
+      updateData.assignedUsers = normalizedAssignedUsers;
+    }
+
+    const task = await ShareTask.findByIdAndUpdate(
+      req.params.id,
+      updateData,
+      {
+        new: true,
+      }
+    );
 
     if (!task) {
       return res.status(404).json({

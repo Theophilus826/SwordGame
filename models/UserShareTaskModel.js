@@ -8,6 +8,13 @@ const ShareTaskSchema = new mongoose.Schema(
       trim: true,
     },
 
+    assignedUsers: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+
     description: {
       type: String,
       required: true,
@@ -19,19 +26,12 @@ const ShareTaskSchema = new mongoose.Schema(
       default: "",
     },
 
-    // Type of task
     type: {
       type: String,
-      enum: [
-        "message_users",
-        "share_post",
-        "share_receipt",
-        "invite_users",
-      ],
+      enum: ["message_users", "share_post", "share_receipt", "invite_users"],
       default: "message_users",
     },
 
-    // Optional item being shared
     targetId: {
       type: mongoose.Schema.Types.ObjectId,
       default: null,
@@ -54,20 +54,32 @@ const ShareTaskSchema = new mongoose.Schema(
       min: 1,
     },
 
-    // Optional keyword users must send
+    // NEW
+    allowedTypes: {
+      type: [
+        {
+          type: String,
+          enum: ["text", "image", "voice"],
+        },
+      ],
+      default: ["text"],
+    },
+
     requiredKeyword: {
       type: String,
       default: "",
       trim: true,
     },
 
+    // Keep both for backward compatibility
+    active: {
+      type: Boolean,
+      default: true,
+    },
+
     status: {
       type: String,
-      enum: [
-        "draft",
-        "active",
-        "ended",
-      ],
+      enum: ["draft", "active", "ended"],
       default: "active",
     },
 
@@ -82,14 +94,14 @@ const ShareTaskSchema = new mongoose.Schema(
       required: true,
     },
 
-    expiresAt: Date,
+    expiresAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
-  }
+  },
 );
 
-module.exports = mongoose.model(
-  "ShareTask",
-  ShareTaskSchema
-);
+module.exports = mongoose.model("ShareTask", ShareTaskSchema);

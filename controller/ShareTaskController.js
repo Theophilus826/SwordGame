@@ -17,53 +17,85 @@ const trackShareTask = async ({
   userId,
   recipientId,
   messageId = null,
-  type = "text", // text | image | voice
+  type = "text",
   text = "",
 }) => {
   try {
-    const tasks = await ShareTask.find({
-      status: "active",
-      $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }],
+    console.log("========== trackShareTask ==========");
+    console.log({
+      userId,
+      recipientId,
+      messageId,
+      type,
+      text,
     });
 
-    if (!tasks.length) return;
+    if (!userId) {
+      console.error("trackShareTask: Missing userId");
+      return;
+    }
+
+    if (!recipientId) {
+      console.error("trackShareTask: Missing recipientId");
+      return;
+    }
+
+    const tasks = await ShareTask.find({
+      status: "active",
+      $or: [
+        { expiresAt: null },
+        { expiresAt: { $gt: new Date() } },
+      ],
+    });
+
+    console.log("Active tasks:", tasks.length);
+
+    if (!tasks.length) {
+      console.log("No active share tasks found.");
+      return;
+    }
 
     for (const task of tasks) {
-      /* ---------- Message type ---------- */
+      console.log("--------------------------------");
+      console.log("Checking task:", task._id.toString());
+      console.log("Title:", task.title);
 
-      if (task.allowedTypes?.length && !task.allowedTypes.includes(type)) {
+      // Message type check
+      if (
+        task.allowedTypes?.length &&
+        !task.allowedTypes.includes(type)
+      ) {
+        console.log(
+          `Skipped: type "${type}" not allowed (${task.allowedTypes.join(", ")})`
+        );
         continue;
       }
 
-      /* ---------- Keyword ---------- */
-
+      // Keyword check
       if (
         task.requiredKeyword &&
         !text.toLowerCase().includes(task.requiredKeyword.toLowerCase())
       ) {
+        console.log(
+          `Skipped: keyword "${task.requiredKeyword}" not found`
+        );
         continue;
       }
 
-      /* ---------- User Progress ---------- */
-
+      // Find existing progress
       let progress = await UserShareTask.findOne({
         task: task._id,
         user: userId,
       });
 
+      console.log(
+        "Existing progress:",
+        progress ? progress._id.toString() : "NONE"
+      );
+
+      // Create progress if it doesn't exist
       if (!progress) {
-        console.log("===== Creating UserShareTask =====");
-        console.log("Task ID:", task?._id);
-        console.log("User ID:", userId);
-        console.log("Recipient ID:", recipientId);
-
-        if (!task?._id) {
-          throw new Error("trackShareTask: task._id is undefined");
-        }
-
-        if (!userId) {
-          throw new Error("trackShareTask: userId is undefined");
-        }
+        console.log("Creating UserShareTask...");
 
         progress = new UserShareTask({
           task: task._id,
@@ -77,19 +109,25 @@ const trackShareTask = async ({
 
         await progress.save();
 
-        console.log("✅ UserShareTask created:", progress._id);
+        console.log("✅ Progress created:", progress._id);
       }
 
-      if (progress.rewarded) continue;
+      if (progress.rewarded) {
+        console.log("Skipped: already rewarded");
+        continue;
+      }
 
-      /* ---------- Duplicate recipient ---------- */
-
+      // Prevent duplicate recipient
       const exists = progress.recipients.some(
-        (r) => r.user && r.user.toString() === recipientId.toString(),
+        (r) => String(r.user) === String(recipientId)
       );
 
-      if (exists) continue;
+      if (exists) {
+        console.log("Skipped: recipient already counted");
+        continue;
+      }
 
+      // Add recipient
       progress.recipients.push({
         user: recipientId,
         messageId,
@@ -98,33 +136,32 @@ const trackShareTask = async ({
 
       progress.messageCount = progress.recipients.length;
 
-      /* ---------- Complete task ---------- */
+      console.log(
+        `Progress: ${progress.messageCount}/${task.requiredMessages}`
+      );
 
+      // Complete task
       if (
         !progress.completed &&
         progress.messageCount >= task.requiredMessages
       ) {
         progress.completed = true;
         progress.completedAt = new Date();
-      }
 
-      /* ---------- Reward ---------- */
-
-      if (
-        !progress.completed &&
-        progress.messageCount >= task.requiredMessages
-      ) {
-        progress.completed = true;
-        progress.completedAt = new Date();
+        console.log("✅ Task completed");
       }
 
       await progress.save();
+
+      console.log("✅ Progress saved");
     }
+
+    console.log("========== trackShareTask END ==========");
   } catch (err) {
-    console.error("trackShareTask:", err);
+    console.error("trackShareTask ERROR");
+    console.error(err);
   }
 };
-
 /* =========================================
    CREATE TASK (ADMIN)
 ========================================= */

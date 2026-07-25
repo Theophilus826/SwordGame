@@ -2,13 +2,8 @@ const mongoose = require("mongoose");
 
 const ShareTask = require("../models/ShareTaskModel");
 const UserShareTask = require("../models/UserShareTaskModel");
-
-console.log("ShareTask =", ShareTask.modelName);
-console.log("UserShareTask =", UserShareTask.modelName);
-console.log("Same model =", ShareTask === UserShareTask);
-console.log("Registered models =", mongoose.modelNames());
-
 const User = require("../models/UserModels");
+const cloudinary = require("../config/Cloudinary");
 
 /*
  * Track a user's progress on active share tasks.
@@ -19,6 +14,7 @@ const trackShareTask = async ({
   messageId = null,
   type = "text",
   text = "",
+  image = "",
 }) => {
   try {
     console.log("========== trackShareTask ==========");
@@ -28,15 +24,11 @@ const trackShareTask = async ({
       messageId,
       type,
       text,
+      image,
     });
 
-    if (!userId) {
-      console.error("trackShareTask: Missing userId");
-      return;
-    }
-
-    if (!recipientId) {
-      console.error("trackShareTask: Missing recipientId");
+    if (!userId || !recipientId) {
+      console.error("trackShareTask: Missing required fields");
       return;
     }
 
@@ -59,56 +51,56 @@ const trackShareTask = async ({
       ],
     });
 
-    console.log("Active tasks:", tasks.length);
-
     if (!tasks.length) {
-      console.log("No active share tasks found.");
+      console.log("No active share tasks.");
       return;
     }
 
+    console.log(`Found ${tasks.length} active task(s)`);
+
     for (const task of tasks) {
       console.log("--------------------------------");
-      console.log("Checking task:", task._id.toString());
-      console.log("Title:", task.title);
+      console.log(`Checking: ${task.title}`);
 
-      // Message type check
+      /* ================= TYPE VALIDATION ================= */
+
       if (
         task.allowedTypes?.length &&
         !task.allowedTypes.includes(type)
       ) {
-        console.log(
-          `Skipped: type "${type}" not allowed (${task.allowedTypes.join(", ")})`
-        );
+        console.log(`Skipped: "${type}" not allowed`);
         continue;
       }
 
-      // Keyword check
+      /* ================= KEYWORD VALIDATION ================= */
+
       if (
+        type === "text" &&
         task.requiredKeyword &&
-        !text.toLowerCase().includes(task.requiredKeyword.toLowerCase())
+        !text
+          .toLowerCase()
+          .includes(task.requiredKeyword.toLowerCase())
       ) {
-        console.log(
-          `Skipped: keyword "${task.requiredKeyword}" not found`
-        );
+        console.log("Skipped: keyword missing");
         continue;
       }
 
-      // Find existing progress
+      /* ================= IMAGE VALIDATION ================= */
+
+      if (type === "image" && !image) {
+        console.log("Skipped: image missing");
+        continue;
+      }
+
+      /* ================= LOAD PROGRESS ================= */
+
       let progress = await UserShareTask.findOne({
         task: task._id,
         user: userId,
       });
 
-      console.log(
-        "Existing progress:",
-        progress ? progress._id.toString() : "NONE"
-      );
-
-      // Create progress if it doesn't exist
       if (!progress) {
-        console.log("Creating UserShareTask...");
-
-        progress = new UserShareTask({
+        progress = await UserShareTask.create({
           task: task._id,
           user: userId,
           recipients: [],
@@ -118,9 +110,7 @@ const trackShareTask = async ({
           status: "pending",
         });
 
-        await progress.save();
-
-        console.log("✅ Progress created:", progress._id);
+        console.log("Created progress:", progress._id);
       }
 
       if (progress.rewarded) {
@@ -128,30 +118,37 @@ const trackShareTask = async ({
         continue;
       }
 
-      // Prevent duplicate recipient
-      const exists = progress.recipients.some(
-        (r) => String(r.user) === String(recipientId)
+      /* ================= PREVENT DUPLICATES ================= */
+
+      const alreadyCounted = progress.recipients.some(
+        (recipient) =>
+          String(recipient.user) === String(recipientId)
       );
 
-      if (exists) {
-        console.log("Skipped: recipient already counted");
+      if (alreadyCounted) {
+        console.log("Recipient already counted");
         continue;
       }
 
-      // Add recipient
+      /* ================= SAVE RECIPIENT ================= */
+
       progress.recipients.push({
         user: recipientId,
         messageId,
+        type,
+        text,
+        image,
         sentAt: new Date(),
       });
 
       progress.messageCount = progress.recipients.length;
 
       console.log(
-        `Progress: ${progress.messageCount}/${task.requiredMessages}`
+        `${progress.messageCount}/${task.requiredMessages}`
       );
 
-      // Complete task
+      /* ================= COMPLETE TASK ================= */
+
       if (
         !progress.completed &&
         progress.messageCount >= task.requiredMessages
@@ -159,12 +156,12 @@ const trackShareTask = async ({
         progress.completed = true;
         progress.completedAt = new Date();
 
-        console.log("✅ Task completed");
+        console.log("Task completed");
       }
 
       await progress.save();
 
-      console.log("✅ Progress saved");
+      console.log("Progress updated");
     }
 
     console.log("========== trackShareTask END ==========");
@@ -181,47 +178,69 @@ const trackShareTask = async ({
 const createTask = async (req, res) => {
   try {
     console.log("===== CREATE TASK =====");
-    console.log("Model:", ShareTask.modelName);
     console.log("Body:", req.body);
-    console.log("User:", req.user);
+    console.log("File:", req.file);
 
-    const assignedUsers = req.body.assignedUsers;
+    const {
+      title,
+      description,
+      rewardCoins,
+      requiredMessages,
+      allowedTypes,
+      requiredKeyword,
+      expiresAt,
+      assignedUsers,
+    } = req.body;
+
+    if (!title || !description) {
+      return res.status(400).json({
+        success: false,
+        message: "Title and description are required.",
+      });
+    }
+
     const normalizedAssignedUsers = Array.isArray(assignedUsers)
       ? assignedUsers
       : typeof assignedUsers === "string"
-      ? [assignedUsers]
-      : [];
+        ? [assignedUsers]
+        : [];
 
-    const data = {
-      title: req.body.title,
-      description: req.body.description,
-      rewardCoins: req.body.rewardCoins,
-      requiredMessages: req.body.requiredMessages,
-      allowedTypes: req.body.allowedTypes || ["text"],
-      requiredKeyword: req.body.requiredKeyword || "",
-      expiresAt: req.body.expiresAt || null,
+    const normalizedAllowedTypes = Array.isArray(allowedTypes)
+      ? allowedTypes
+      : typeof allowedTypes === "string"
+        ? [allowedTypes]
+        : ["text"];
+
+    const task = await ShareTask.create({
+      title: title.trim(),
+      description: description.trim(),
+      rewardCoins: Number(rewardCoins) || 100,
+      requiredMessages: Number(requiredMessages) || 10,
+      allowedTypes: normalizedAllowedTypes,
+      requiredKeyword: requiredKeyword || "",
+      expiresAt: expiresAt || null,
       assignedUsers: normalizedAssignedUsers,
       createdBy: req.user._id,
-    };
 
-    console.log("Creating:", data);
+      image: req.file
+        ? `/uploads/shareTasks/${req.file.filename}`
+        : "",
+    });
 
-    const task = await ShareTask.create(data);
-
-    console.log("Created:", task);
+    console.log("Task created:", task._id);
 
     return res.status(201).json({
       success: true,
+      message: "Task created successfully.",
       task,
     });
   } catch (err) {
     console.error("CREATE TASK ERROR");
-    console.error("ShareTask model:", ShareTask.modelName);
     console.error(err);
 
     return res.status(500).json({
       success: false,
-      message: err.message,
+      message: err.message || "Unable to create task.",
     });
   }
 };
@@ -248,16 +267,24 @@ const getTasks = async (req, res) => {
           ],
         },
       ],
-    }).sort({ createdAt: -1 });
+    })
+      .populate("createdBy", "name avatar email")
+      .populate("assignedUsers", "name avatar")
+      .sort({
+        createdAt: -1,
+      });
 
-    res.json({
+    return res.status(200).json({
       success: true,
+      count: tasks.length,
       tasks,
     });
   } catch (err) {
-    res.status(500).json({
+    console.error("GET TASKS ERROR:", err);
+
+    return res.status(500).json({
       success: false,
-      message: err.message,
+      message: err.message || "Unable to load tasks.",
     });
   }
 };
@@ -290,21 +317,39 @@ const getMyTasks = async (req, res) => {
             },
           ],
         },
+        populate: [
+          {
+            path: "createdBy",
+            select: "name avatar",
+          },
+          {
+            path: "assignedUsers",
+            select: "name avatar",
+          },
+        ],
       })
       .populate("recipients.user", "name avatar")
       .sort({ updatedAt: -1 });
 
-    // Remove orphaned or hidden tasks
+    // Remove deleted, expired, or inaccessible tasks
     const tasks = progress.filter((item) => item.task);
 
-    res.json({
+    return res.status(200).json({
       success: true,
+      count: tasks.length,
       tasks,
+      summary: {
+        completed: tasks.filter((t) => t.completed).length,
+        pending: tasks.filter((t) => !t.completed).length,
+        rewarded: tasks.filter((t) => t.rewarded).length,
+      },
     });
   } catch (err) {
-    res.status(500).json({
+    console.error("GET MY TASKS ERROR:", err);
+
+    return res.status(500).json({
       success: false,
-      message: err.message,
+      message: err.message || "Unable to load your tasks.",
     });
   }
 };
@@ -313,30 +358,12 @@ const getMyTasks = async (req, res) => {
    UPDATE TASK
 ========================================= */
 
+const fs = require("fs");
+const path = require("path");
+
 const updateTask = async (req, res) => {
   try {
-    const assignedUsers = req.body.assignedUsers;
-    const normalizedAssignedUsers = Array.isArray(assignedUsers)
-      ? assignedUsers
-      : typeof assignedUsers === "string"
-      ? [assignedUsers]
-      : undefined;
-
-    const updateData = {
-      ...req.body,
-    };
-
-    if (normalizedAssignedUsers !== undefined) {
-      updateData.assignedUsers = normalizedAssignedUsers;
-    }
-
-    const task = await ShareTask.findByIdAndUpdate(
-      req.params.id,
-      updateData,
-      {
-        new: true,
-      }
-    );
+    const task = await ShareTask.findById(req.params.id);
 
     if (!task) {
       return res.status(404).json({
@@ -345,14 +372,74 @@ const updateTask = async (req, res) => {
       });
     }
 
-    res.json({
+    const assignedUsers = req.body.assignedUsers;
+    const allowedTypes = req.body.allowedTypes;
+
+    const normalizedAssignedUsers = Array.isArray(assignedUsers)
+      ? assignedUsers
+      : typeof assignedUsers === "string"
+        ? [assignedUsers]
+        : task.assignedUsers;
+
+    const normalizedAllowedTypes = Array.isArray(allowedTypes)
+      ? allowedTypes
+      : typeof allowedTypes === "string"
+        ? [allowedTypes]
+        : task.allowedTypes;
+
+    const updateData = {
+      title: req.body.title ?? task.title,
+      description: req.body.description ?? task.description,
+      rewardCoins: req.body.rewardCoins ?? task.rewardCoins,
+      requiredMessages:
+        req.body.requiredMessages ?? task.requiredMessages,
+      requiredKeyword:
+        req.body.requiredKeyword ?? task.requiredKeyword,
+      expiresAt: req.body.expiresAt || null,
+      status: req.body.status ?? task.status,
+      assignedUsers: normalizedAssignedUsers,
+      allowedTypes: normalizedAllowedTypes,
+    };
+
+    // Replace image if a new one was uploaded
+    if (req.file) {
+      if (task.image) {
+        const oldImage = path.join(
+          __dirname,
+          "..",
+          task.image.replace(/^\//, "")
+        );
+
+        if (fs.existsSync(oldImage)) {
+          fs.unlinkSync(oldImage);
+        }
+      }
+
+      updateData.image = `/uploads/shareTasks/${req.file.filename}`;
+    }
+
+    const updatedTask = await ShareTask.findByIdAndUpdate(
+      req.params.id,
+      updateData,
+      {
+        new: true,
+        runValidators: true,
+      }
+    )
+      .populate("createdBy", "name avatar")
+      .populate("assignedUsers", "name avatar");
+
+    return res.status(200).json({
       success: true,
-      task,
+      message: "Task updated successfully.",
+      task: updatedTask,
     });
   } catch (err) {
-    res.status(500).json({
+    console.error("UPDATE TASK ERROR:", err);
+
+    return res.status(500).json({
       success: false,
-      message: err.message,
+      message: err.message || "Unable to update task.",
     });
   }
 };
@@ -372,17 +459,29 @@ const deleteTask = async (req, res) => {
       });
     }
 
+    // Delete all user progress
     await UserShareTask.deleteMany({
       task: task._id,
     });
+
+    // Delete task image from Cloudinary
+    if (task.imagePublicId) {
+      try {
+        await cloudinary.uploader.destroy(task.imagePublicId);
+      } catch (err) {
+        console.error("Cloudinary delete failed:", err.message);
+      }
+    }
 
     await task.deleteOne();
 
     res.json({
       success: true,
-      message: "Task deleted",
+      message: "Task deleted successfully",
     });
   } catch (err) {
+    console.error("DELETE TASK ERROR:", err);
+
     res.status(500).json({
       success: false,
       message: err.message,

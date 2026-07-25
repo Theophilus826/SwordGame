@@ -15,14 +15,10 @@ const {
 } = require("../config/sse");
 
 // ✅ NEW (centralized notification system)
-const {
-  notifyChatMessage,
-} = require("../config/NotificationService");
+const { notifyChatMessage } = require("../config/NotificationService");
 
 // ✅ Track share task progress when messages are sent
-const {
-  trackShareTask,
-} = require("../controller/ShareTaskController");
+const { trackShareTask } = require("../controller/ShareTaskController");
 
 /* ================= HELPERS ================= */
 
@@ -87,7 +83,7 @@ const streamChat = async (req, res) => {
         type: "status",
         userId: otherUserId,
         status: isOnline(otherUserId) ? "online" : "offline",
-      })}\n\n`
+      })}\n\n`,
     );
 
     const keepAlive = setInterval(() => {
@@ -111,7 +107,7 @@ const streamChat = async (req, res) => {
 const sendMessage = async (req, res) => {
   try {
     const userId = req.user?._id;
-    const { toUserId, text } = req.body;
+    const { toUserId, text, image, type = "text" } = req.body;
 
     if (!req.user || !userId) {
       return res.status(401).json({
@@ -119,7 +115,7 @@ const sendMessage = async (req, res) => {
       });
     }
 
-    if (!toUserId || !text?.trim()) {
+    if (!toUserId || (!text?.trim() && !image)) {
       return res.status(400).json({
         error: "Missing fields",
       });
@@ -140,9 +136,7 @@ const sendMessage = async (req, res) => {
 
     const sender = await User.findById(userId);
 
-    const receiver = await User.findById(
-      toUserId
-    );
+    const receiver = await User.findById(toUserId);
 
     if (!sender || !receiver) {
       return res.status(404).json({
@@ -152,77 +146,52 @@ const sendMessage = async (req, res) => {
 
     // helper
     const hasContact = (contacts, id) => {
-      return contacts.some(
-        (c) => c.toString() === id.toString()
-      );
+      return contacts.some((c) => c.toString() === id.toString());
     };
 
     // allow admin OR existing contacts
-    const isAllowed =
-      sender.isAdmin ||
-      hasContact(sender.contacts, toUserId);
+    const isAllowed = sender.isAdmin || hasContact(sender.contacts, toUserId);
 
     if (!isAllowed) {
       return res.status(403).json({
-        error:
-          "User not in your contacts",
+        error: "User not in your contacts",
       });
     }
 
     // auto-add both users
-    if (
-      !hasContact(sender.contacts, toUserId)
-    ) {
+    if (!hasContact(sender.contacts, toUserId)) {
       sender.contacts.push(toUserId);
       await sender.save();
     }
 
-    if (
-      !hasContact(
-        receiver.contacts,
-        userId
-      )
-    ) {
+    if (!hasContact(receiver.contacts, userId)) {
       receiver.contacts.push(userId);
       await receiver.save();
     }
 
     // create message
-    const newMessage =
-      await Message.create({
-        fromUser: userId,
-        toUser: toUserId,
-        text: text.trim(),
-        type: "text",
-        status: "sent",
-      });
+    const newMessage = await Message.create({
+      fromUser: userId,
+      toUser: toUserId,
+      text: text?.trim() || "",
+      image: image || "",
+      type: image ? "image" : "text",
+      status: "sent",
+    });
 
     // populate sender/receiver
-    const populatedMessage =
-      await Message.findById(
-        newMessage._id
-      )
-        .populate(
-          "fromUser",
-          "_id name avatar"
-        )
-        .populate(
-          "toUser",
-          "_id name avatar"
-        );
+    const populatedMessage = await Message.findById(newMessage._id)
+      .populate("fromUser", "_id name avatar")
+      .populate("toUser", "_id name avatar");
 
     // realtime chat
-    pushMessage(
-      userId,
-      toUserId,
-      populatedMessage
-    );
+    pushMessage(userId, toUserId, populatedMessage);
 
     // notification
     await notifyChatMessage({
       receiverId: toUserId,
       sender: req.user,
-      messageType: "text",
+      messageType: image ? "image" : "text",
     });
 
     // ✅ Track share task progress
@@ -230,8 +199,8 @@ const sendMessage = async (req, res) => {
       userId: userId.toString(),
       recipientId: toUserId.toString(),
       messageId: newMessage._id.toString(),
-      type: "text",
-      text: text.trim(),
+      type: image ? "image" : "text",
+      text: text?.trim() || "",
     });
 
     res.json({
@@ -239,10 +208,7 @@ const sendMessage = async (req, res) => {
       message: populatedMessage,
     });
   } catch (err) {
-    console.error(
-      "SEND MESSAGE ERROR:",
-      err
-    );
+    console.error("SEND MESSAGE ERROR:", err);
 
     res.status(500).json({
       error: "Failed to send message",
@@ -271,7 +237,9 @@ const deleteMessage = async (req, res) => {
 
     // only sender can delete their message
     if (message.fromUser.toString() !== userId.toString()) {
-      return res.status(403).json({ error: "Not authorized to delete this message" });
+      return res
+        .status(403)
+        .json({ error: "Not authorized to delete this message" });
     }
 
     const fromUser = message.fromUser.toString();
@@ -331,8 +299,7 @@ const sendVoice = async (req, res) => {
   try {
     const userId = req.user?._id;
 
-    const { toUserId, duration } =
-      req.body;
+    const { toUserId, duration } = req.body;
 
     if (!req.user || !userId) {
       return res.status(401).json({
@@ -346,10 +313,7 @@ const sendVoice = async (req, res) => {
       });
     }
 
-    if (
-      !toUserId ||
-      !isValidId(toUserId)
-    ) {
+    if (!toUserId || !isValidId(toUserId)) {
       return res.status(400).json({
         error: "Invalid receiver",
       });
@@ -362,12 +326,9 @@ const sendVoice = async (req, res) => {
       });
     }
 
-    const sender = await User.findById(
-      userId
-    );
+    const sender = await User.findById(userId);
 
-    const receiver =
-      await User.findById(toUserId);
+    const receiver = await User.findById(toUserId);
 
     if (!sender || !receiver) {
       return res.status(404).json({
@@ -377,43 +338,25 @@ const sendVoice = async (req, res) => {
 
     // helper
     const hasContact = (contacts, id) => {
-      return contacts.some(
-        (c) => c.toString() === id.toString()
-      );
+      return contacts.some((c) => c.toString() === id.toString());
     };
 
     // allow admin OR contacts
-    const isAllowed =
-      sender.isAdmin ||
-      hasContact(
-        sender.contacts,
-        toUserId
-      );
+    const isAllowed = sender.isAdmin || hasContact(sender.contacts, toUserId);
 
     if (!isAllowed) {
       return res.status(403).json({
-        error:
-          "User not in your contacts",
+        error: "User not in your contacts",
       });
     }
 
     // auto-add both users
-    if (
-      !hasContact(
-        sender.contacts,
-        toUserId
-      )
-    ) {
+    if (!hasContact(sender.contacts, toUserId)) {
       sender.contacts.push(toUserId);
       await sender.save();
     }
 
-    if (
-      !hasContact(
-        receiver.contacts,
-        userId
-      )
-    ) {
+    if (!hasContact(receiver.contacts, userId)) {
       receiver.contacts.push(userId);
       await receiver.save();
     }
@@ -434,37 +377,22 @@ const sendVoice = async (req, res) => {
     }
 
     // create voice message
-    const newMessage =
-      await Message.create({
-        fromUser: userId,
-        toUser: toUserId,
-        audio: audioUrl,
-        duration:
-          Number(duration) || 0,
-        type: "voice",
-        status: "sent",
-      });
+    const newMessage = await Message.create({
+      fromUser: userId,
+      toUser: toUserId,
+      audio: audioUrl,
+      duration: Number(duration) || 0,
+      type: "voice",
+      status: "sent",
+    });
 
     // populate users
-    const populatedMessage =
-      await Message.findById(
-        newMessage._id
-      )
-        .populate(
-          "fromUser",
-          "_id name avatar"
-        )
-        .populate(
-          "toUser",
-          "_id name avatar"
-        );
+    const populatedMessage = await Message.findById(newMessage._id)
+      .populate("fromUser", "_id name avatar")
+      .populate("toUser", "_id name avatar");
 
     // realtime push
-    pushMessage(
-      userId,
-      toUserId,
-      populatedMessage
-    );
+    pushMessage(userId, toUserId, populatedMessage);
 
     // notification
     await notifyChatMessage({
@@ -487,10 +415,7 @@ const sendVoice = async (req, res) => {
       message: populatedMessage,
     });
   } catch (err) {
-    console.error(
-      "VOICE ERROR:",
-      err
-    );
+    console.error("VOICE ERROR:", err);
 
     res.status(500).json({
       error: "Voice upload failed",
@@ -549,9 +474,7 @@ const sendMedia = async (req, res) => {
     const hasContact = (contacts, id) =>
       contacts.some((c) => c.toString() === id.toString());
 
-    const isAllowed =
-      sender.isAdmin ||
-      hasContact(sender.contacts, toUserId);
+    const isAllowed = sender.isAdmin || hasContact(sender.contacts, toUserId);
 
     if (!isAllowed) {
       return res.status(403).json({

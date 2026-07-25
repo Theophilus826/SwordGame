@@ -17,7 +17,8 @@ const trackShareTask = async ({
   image = "",
 }) => {
   try {
-    console.log("========== trackShareTask ==========");
+    console.log("========== TRACK SHARE TASK ==========");
+
     console.log({
       userId,
       recipientId,
@@ -28,19 +29,17 @@ const trackShareTask = async ({
     });
 
     if (!userId || !recipientId) {
-      console.error("trackShareTask: Missing required fields");
+      console.log("Missing userId or recipientId");
       return;
     }
 
     const tasks = await ShareTask.find({
       status: "active",
+      $or: [
+        { expiresAt: null },
+        { expiresAt: { $gt: new Date() } },
+      ],
       $and: [
-        {
-          $or: [
-            { expiresAt: null },
-            { expiresAt: { $gt: new Date() } },
-          ],
-        },
         {
           $or: [
             { assignedUsers: { $in: [userId] } },
@@ -51,41 +50,38 @@ const trackShareTask = async ({
       ],
     });
 
-    if (!tasks.length) {
-      console.log("No active share tasks.");
-      return;
-    }
-
     console.log(`Found ${tasks.length} active task(s)`);
+
+    if (!tasks.length) return;
 
     for (const task of tasks) {
       console.log("--------------------------------");
-      console.log(`Checking: ${task.title}`);
+      console.log("Task:", task.title);
+      console.log("Allowed:", task.allowedTypes);
+      console.log("Incoming:", type);
 
-      /* ================= TYPE VALIDATION ================= */
+      /* ================= TYPE ================= */
 
       if (
         task.allowedTypes?.length &&
         !task.allowedTypes.includes(type)
       ) {
-        console.log(`Skipped: "${type}" not allowed`);
+        console.log("Skipped: invalid message type");
         continue;
       }
 
-      /* ================= KEYWORD VALIDATION ================= */
+      /* ================= KEYWORD ================= */
 
       if (
         type === "text" &&
         task.requiredKeyword &&
-        !text
-          .toLowerCase()
-          .includes(task.requiredKeyword.toLowerCase())
+        !text.toLowerCase().includes(task.requiredKeyword.toLowerCase())
       ) {
         console.log("Skipped: keyword missing");
         continue;
       }
 
-      /* ================= IMAGE VALIDATION ================= */
+      /* ================= IMAGE ================= */
 
       if (type === "image" && !image) {
         console.log("Skipped: image missing");
@@ -114,23 +110,24 @@ const trackShareTask = async ({
       }
 
       if (progress.rewarded) {
-        console.log("Skipped: already rewarded");
+        console.log("Already rewarded");
         continue;
       }
 
-      /* ================= PREVENT DUPLICATES ================= */
+      /* ================= PREVENT DUPLICATE MESSAGE ================= */
 
-      const alreadyCounted = progress.recipients.some(
-        (recipient) =>
-          String(recipient.user) === String(recipientId)
-      );
+      if (messageId) {
+        const exists = progress.recipients.some(
+          (r) => String(r.messageId) === String(messageId)
+        );
 
-      if (alreadyCounted) {
-        console.log("Recipient already counted");
-        continue;
+        if (exists) {
+          console.log("Message already counted");
+          continue;
+        }
       }
 
-      /* ================= SAVE RECIPIENT ================= */
+      /* ================= SAVE ================= */
 
       progress.recipients.push({
         user: recipientId,
@@ -144,10 +141,8 @@ const trackShareTask = async ({
       progress.messageCount = progress.recipients.length;
 
       console.log(
-        `${progress.messageCount}/${task.requiredMessages}`
+        `Progress: ${progress.messageCount}/${task.requiredMessages}`
       );
-
-      /* ================= COMPLETE TASK ================= */
 
       if (
         !progress.completed &&
@@ -161,13 +156,12 @@ const trackShareTask = async ({
 
       await progress.save();
 
-      console.log("Progress updated");
+      console.log("Progress saved");
     }
 
-    console.log("========== trackShareTask END ==========");
+    console.log("========== TRACK COMPLETE ==========");
   } catch (err) {
-    console.error("trackShareTask ERROR");
-    console.error(err);
+    console.error("trackShareTask ERROR:", err);
   }
 };
 

@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 
 const { protect, admin } = require("../middleware/AuthMiddleware");
+const upload = require("../middleware/Upload"); // multer middleware
 
 const {
   createTask,
@@ -27,8 +28,14 @@ router.get("/tasks/my", protect, getMyTasks);
    ADMIN ROUTES
 ========================================= */
 
-// Create task
-router.post("/tasks", protect, admin, createTask);
+// Create task with image upload
+router.post(
+  "/tasks",
+  protect,
+  admin,
+  upload.single("image"),
+  createTask
+);
 
 // Task progress
 router.get(
@@ -38,7 +45,7 @@ router.get(
   getTaskProgress
 );
 
-// Reward a completed task
+// Reward user
 router.post(
   "/tasks/:id/reward",
   protect,
@@ -46,11 +53,12 @@ router.post(
   rewardUser
 );
 
-// Update task
+// Update task (allow replacing image)
 router.put(
   "/tasks/:id",
   protect,
   admin,
+  upload.single("image"),
   updateTask
 );
 

@@ -43,15 +43,14 @@ async function processGameCoins({ gameId, action, amount = 0, playerId }) {
       if (!playerId) {
         throw new Error("Missing playerId for PLAYER_WIN");
       }
-
-      return updateCoins({
+      // Debit admin (payout) then credit the player
+      await updateCoins({
         userId: playerId,
-        amount,
-        type: "GAME_WIN",
-        description: `Won game ${gameId}`,
+        amount: -amount,
+        type: "GAME_PAYOUT",
+        description: `Paid winner for game ${gameId}`,
       });
 
-      // Credit player
       return updateCoins({
         userId: playerId,
         amount,
@@ -64,7 +63,7 @@ async function processGameCoins({ gameId, action, amount = 0, playerId }) {
         userId: admin._id,
         amount,
         type: "GAME_RETURN",
-        description: `Won game ${gameId}`,
+        description: `Player lost in game ${gameId}`,
       });
 
     case "GAME_CANCELLED":

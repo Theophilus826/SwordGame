@@ -396,6 +396,30 @@ function broadcastStatus(userId, status) {
 }
 
 /* =========================================================
+   🔵 CALL EVENTS
+========================================================= */
+
+function pushCallEvent(fromUser, toUser, payload) {
+  const keys = [
+    getKey(fromUser, toUser),
+    getKey(toUser, fromUser),
+  ];
+
+  keys.forEach((key) => {
+    clients[key]?.forEach((res) => {
+      const ok = safeWrite(res, {
+        scope: "call",
+        ...payload,
+      });
+
+      if (!ok) {
+        clients[key].delete(res);
+      }
+    });
+  });
+}
+
+/* =========================================================
    🔵 HEARTBEAT
 ========================================================= */
 
@@ -460,4 +484,5 @@ module.exports = {
   setOnline,
   setOffline,
   isOnline,
+  pushCallEvent,
 };

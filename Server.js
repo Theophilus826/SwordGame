@@ -23,7 +23,7 @@ const admin = require("./config/firebase");
 const { registerBubbleSockets } = require("./games/BubbleSocket");
 const shareRoutes = require("./routes/ShareRoute");
 const shareTaskRoutes = require("./routes/ShareTaskRoutes");
-
+const callRoutes = require("./routes/callRoutes");
 // ==========================
 // LOAD ENV
 // ==========================
@@ -211,7 +211,7 @@ app.use("/api/chat", ChatRoutes);
 app.use("/api/withdrawals", WithdrawalRoutes);
 app.use("/api/group", GroupRoute);
 app.use("/api/bubble", require("./routes/BubbleRoutes"));
-
+app.use("/api/call", require("./routes/callRoutes"));
 // Route to get posts by a specific user
 
 // ==========================

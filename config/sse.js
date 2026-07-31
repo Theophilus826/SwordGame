@@ -1,8 +1,7 @@
-const clients = {};
+const clients = new Map();
 const notificationClients = {};
 const groupClients = {};
 const onlineUsers = new Set();
-const clients = new Map();
 
 const User = require("../models/UserModels");
 

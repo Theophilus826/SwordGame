@@ -1,17 +1,16 @@
 const {
   createCall,
-    getCall,
-    updateCall,
-    removeCall,
-    setCallTimeout,
-    clearCallTimeout,
-    userInCall,
-    getActiveCalls,
+  getCall,
+  updateCall,
+  removeCall,
+  setCallTimeout,
+  clearCallTimeout,
+  userInCall,
+  getActiveCalls,
 } = require("../config/CallManager");
-const {
-  sendIncomingCall,
-} = require("../config/CallNotificationService");
+const { sendIncomingCall } = require("../config/CallNotificationService");
 const { pushCallEvent } = require("../config/sse");
+
 const User = require("../models/UserModels");
 /* =========================================================
    START CALL
@@ -75,42 +74,33 @@ const startCall = async (req, res) => {
 
     /* ================= RING TIMEOUT ================= */
 
-   const timeout = setTimeout(() => {
-  const active = getCall(call.id);
+    const timeout = setTimeout(() => {
+      const active = getCall(call.id);
 
-  // Call already removed
-  if (!active) {
-    return;
-  }
+      if (!active) return;
 
-  // Call already answered/rejected/ended
-  if (active.status !== "ringing") {
-    return;
-  }
+      if (active.status !== "ringing") return;
 
-  // Mark as timed out
-  updateCall(call.id, {
-    status: "timeout",
-    endedAt: Date.now(),
-  });
+      updateCall(active.id, {
+        status: "timeout",
+        endedAt: Date.now(),
+      });
 
-  // Notify both users
-  pushCallEvent(active.callerId, active.receiverId, {
-    type: "call_timeout",
-    callId: active.id,
-  });
+      pushCallEvent(active.callerId, active.receiverId, {
+        type: "call_timeout",
+        callId: active.id,
+      });
 
-  pushCallEvent(active.receiverId, active.callerId, {
-    type: "call_timeout",
-    callId: active.id,
-  });
+      pushCallEvent(active.receiverId, active.callerId, {
+        type: "call_timeout",
+        callId: active.id,
+      });
 
-  // Remove active call
-  removeCall(active.id);
-}, 30000);
+      removeCall(active.id);
+    }, 30000);
 
-// Store timeout so it can be cleared later
-setCallTimeout(call.id, timeout);
+    // Stores timeout in a separate Map inside CallManager
+    setCallTimeout(call.id, timeout);
 
     /* ================= RESPONSE ================= */
 
@@ -287,10 +277,9 @@ const endCall = (req, res) => {
 
     const endedAt = Date.now();
 
-    const duration =
-      call.acceptedAt
-        ? Math.floor((endedAt - call.acceptedAt) / 1000)
-        : 0;
+    const duration = call.acceptedAt
+      ? Math.floor((endedAt - call.acceptedAt) / 1000)
+      : 0;
 
     const updatedCall = updateCall(callId, {
       status: "ended",
@@ -331,7 +320,6 @@ const endCall = (req, res) => {
     });
   }
 };
-
 /* =========================================================
    CANCEL CALL (Caller cancels before answer)
 ========================================================= */
@@ -400,7 +388,6 @@ const cancelCall = (req, res) => {
     });
   }
 };
-
 /* =========================================================
    WEBRTC OFFER
 ========================================================= */
@@ -430,10 +417,7 @@ const offer = (req, res) => {
     }
 
     // Offer can only be exchanged after the call is accepted
-    if (
-      call.status !== "accepted" &&
-      call.status !== "connecting"
-    ) {
+    if (call.status !== "accepted" && call.status !== "connecting") {
       return res.status(409).json({
         error: `Cannot send offer while call is ${call.status}.`,
       });
@@ -494,10 +478,7 @@ const answer = (req, res) => {
     }
 
     // Answer is only valid after an offer has been sent
-    if (
-      call.status !== "connecting" &&
-      call.status !== "accepted"
-    ) {
+    if (call.status !== "connecting" && call.status !== "accepted") {
       return res.status(409).json({
         error: `Cannot send answer while call is ${call.status}.`,
       });
@@ -531,32 +512,26 @@ const answer = (req, res) => {
 };
 
 const getRecentCalls = async (req, res) => {
+  const userId = req.user._id;
 
-    const userId = req.user._id;
+  const calls = await Call.find({
+    $or: [
+      {
+        caller: userId,
+      },
 
-    const calls = await Call.find({
-
-        $or: [
-
-            {
-                caller: userId,
-            },
-
-            {
-                receiver: userId,
-            },
-
-        ],
-
-    })
+      {
+        receiver: userId,
+      },
+    ],
+  })
     .populate("caller", "name avatar")
     .populate("receiver", "name avatar")
     .sort({
-        createdAt: -1,
+      createdAt: -1,
     });
 
-    res.json(calls);
-
+  res.json(calls);
 };
 
 /* =========================================================
@@ -588,9 +563,7 @@ const ice = (req, res) => {
     }
 
     // ICE candidates are only valid while the call is active
-    if (
-      !["connecting", "connected"].includes(call.status)
-    ) {
+    if (!["connecting", "connected"].includes(call.status)) {
       return res.status(409).json({
         error: `Cannot exchange ICE while call is ${call.status}.`,
       });

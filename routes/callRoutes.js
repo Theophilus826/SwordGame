@@ -4,18 +4,19 @@ const router = express.Router();
 
 const { protect } = require("../middleware/AuthMiddleware");
 
+const { subscribe } = require("../config/sse");
+
 const {
   startCall,
   acceptCall,
   rejectCall,
+  cancelCall,
   endCall,
   offer,
   answer,
   ice,
-  cancelCall,
   getCallStatus,
   getRecentCalls,
-  
 } = require("../controller/CallController");
 
 /* =========================================================
@@ -37,8 +38,19 @@ router.post("/cancel", protect, cancelCall);
 // End an active call
 router.post("/end", protect, endCall);
 
-// Get current call information
-router.get("/:callId", protect, getCallStatus);
+/* =========================================================
+   SERVER-SENT EVENTS (SSE)
+========================================================= */
+
+// Subscribe to real-time call events
+router.get("/events", protect, subscribe);
+
+/* =========================================================
+   CALL HISTORY
+========================================================= */
+
+// Get recent calls
+router.get("/history", protect, getRecentCalls);
 
 /* =========================================================
    WEBRTC SIGNALING
@@ -52,6 +64,13 @@ router.post("/answer", protect, answer);
 
 // ICE Candidate
 router.post("/ice", protect, ice);
-router.get("/history", protect, getRecentCalls);
+
+/* =========================================================
+   CALL STATUS
+   KEEP THIS LAST!
+========================================================= */
+
+// Get a specific call
+router.get("/:callId", protect, getCallStatus);
 
 module.exports = router;

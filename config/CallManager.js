@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 
 const activeCalls = new Map();
+const callTimeouts = new Map();
 
 /* =========================================================
    CREATE CALL
@@ -21,8 +22,6 @@ function createCall(callerId, receiverId, type = "voice") {
     createdAt: Date.now(),
     acceptedAt: null,
     endedAt: null,
-
-    timeout: null,
   };
 
   activeCalls.set(callId, call);
@@ -57,14 +56,7 @@ function updateCall(callId, data) {
 ========================================================= */
 
 function removeCall(callId) {
-  const call = activeCalls.get(callId);
-
-  if (!call) return;
-
-  if (call.timeout) {
-    clearTimeout(call.timeout);
-  }
-
+  clearCallTimeout(callId);
   activeCalls.delete(callId);
 }
 
@@ -73,11 +65,7 @@ function removeCall(callId) {
 ========================================================= */
 
 function setCallTimeout(callId, timeout) {
-  const call = activeCalls.get(callId);
-
-  if (!call) return;
-
-  call.timeout = timeout;
+  callTimeouts.set(callId, timeout);
 }
 
 /* =========================================================
@@ -85,13 +73,11 @@ function setCallTimeout(callId, timeout) {
 ========================================================= */
 
 function clearCallTimeout(callId) {
-  const call = activeCalls.get(callId);
+  const timeout = callTimeouts.get(callId);
 
-  if (!call) return;
-
-  if (call.timeout) {
-    clearTimeout(call.timeout);
-    call.timeout = null;
+  if (timeout) {
+    clearTimeout(timeout);
+    callTimeouts.delete(callId);
   }
 }
 
@@ -104,10 +90,12 @@ function userInCall(userId) {
 
   for (const call of activeCalls.values()) {
     if (
-      (call.status === "ringing" ||
-        call.status === "connecting" ||
-        call.status === "accepted" ||
-        call.status === "connected") &&
+      [
+        "ringing",
+        "accepted",
+        "connecting",
+        "connected",
+      ].includes(call.status) &&
       (call.callerId === id || call.receiverId === id)
     ) {
       return true;
@@ -134,10 +122,8 @@ module.exports = {
   getCall,
   updateCall,
   removeCall,
-
   setCallTimeout,
   clearCallTimeout,
-
   userInCall,
   getActiveCalls,
 };

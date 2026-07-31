@@ -333,6 +333,75 @@ const endCall = (req, res) => {
 };
 
 /* =========================================================
+   CANCEL CALL (Caller cancels before answer)
+========================================================= */
+
+const cancelCall = (req, res) => {
+  try {
+    const { callId } = req.body;
+
+    if (!callId) {
+      return res.status(400).json({
+        error: "Call ID is required",
+      });
+    }
+
+    const call = getCall(callId);
+
+    if (!call) {
+      return res.status(404).json({
+        error: "Call not found",
+      });
+    }
+
+    // Only ringing calls can be cancelled
+    if (call.status !== "ringing") {
+      return res.status(409).json({
+        error: `Cannot cancel a ${call.status} call.`,
+      });
+    }
+
+    // Stop auto-timeout
+    clearCallTimeout(callId);
+
+    // Update status
+    const updatedCall = updateCall(callId, {
+      status: "cancelled",
+      endedAt: Date.now(),
+    });
+
+    // Notify receiver to close incoming call UI
+    pushCallEvent(call.callerId, call.receiverId, {
+      type: "call_cancelled",
+      callId,
+      call: updatedCall,
+    });
+
+    // Notify caller to close outgoing UI
+    pushCallEvent(call.receiverId, call.callerId, {
+      type: "call_cancelled",
+      callId,
+      call: updatedCall,
+    });
+
+    // Remove from active calls
+    removeCall(callId);
+
+    return res.json({
+      success: true,
+      message: "Call cancelled.",
+      call: updatedCall,
+    });
+  } catch (err) {
+    console.error("CANCEL CALL ERROR:", err);
+
+    return res.status(500).json({
+      error: "Failed to cancel call",
+    });
+  }
+};
+
+/* =========================================================
    WEBRTC OFFER
 ========================================================= */
 
@@ -605,6 +674,7 @@ module.exports = {
   acceptCall,
   rejectCall,
   endCall,
+  cancelCall,
   offer,
   answer,
   ice,

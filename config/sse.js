@@ -2,6 +2,7 @@ const clients = {};
 const notificationClients = {};
 const groupClients = {};
 const onlineUsers = new Set();
+const clients = new Map();
 
 const User = require("../models/UserModels");
 
@@ -395,29 +396,6 @@ function broadcastStatus(userId, status) {
   });
 }
 
-/* =========================================================
-   🔵 CALL EVENTS
-========================================================= */
-
-function pushCallEvent(fromUser, toUser, payload) {
-  const keys = [
-    getKey(fromUser, toUser),
-    getKey(toUser, fromUser),
-  ];
-
-  keys.forEach((key) => {
-    clients[key]?.forEach((res) => {
-      const ok = safeWrite(res, {
-        scope: "call",
-        ...payload,
-      });
-
-      if (!ok) {
-        clients[key].delete(res);
-      }
-    });
-  });
-}
 
 /* =========================================================
    🔵 HEARTBEAT
@@ -455,6 +433,98 @@ setInterval(() => {
 }, 25000);
 
 /* =========================================================
+   SUBSCRIBE
+========================================================= */
+
+const subscribe = (req, res) => {
+  const userId = req.user._id.toString();
+
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no", // Nginx/Render
+    "Access-Control-Allow-Origin": "*",
+  });
+
+  if (typeof res.flushHeaders === "function") {
+    res.flushHeaders();
+  }
+
+  clients.set(userId, res);
+
+  console.log(`SSE Connected: ${userId}`);
+
+  // Initial event
+  res.write(
+    `data: ${JSON.stringify({
+      type: "connected",
+    })}\n\n`
+  );
+
+  // Keep connection alive
+  const heartbeat = setInterval(() => {
+    if (!res.writableEnded) {
+      res.write(": ping\n\n");
+    }
+  }, 25000);
+
+  req.on("close", () => {
+    clearInterval(heartbeat);
+
+    clients.delete(userId);
+
+    console.log(`SSE Disconnected: ${userId}`);
+
+    res.end();
+  });
+};
+
+/* =========================================================
+   PUSH EVENT
+========================================================= */
+
+const pushCallEvent = (from, to, event) => {
+  const client = clients.get(String(to));
+
+  if (!client || client.writableEnded) {
+    return false;
+  }
+
+  try {
+    client.write(
+      `data: ${JSON.stringify(event)}\n\n`
+    );
+
+    return true;
+  } catch (err) {
+    console.error("SSE Push Error:", err);
+
+    clients.delete(String(to));
+
+    return false;
+  }
+};
+
+/* =========================================================
+   OPTIONAL HELPERS
+========================================================= */
+
+const isConnected = (userId) => {
+  return clients.has(String(userId));
+};
+
+const disconnect = (userId) => {
+  const client = clients.get(String(userId));
+
+  if (client) {
+    client.end();
+    clients.delete(String(userId));
+  }
+};
+
+
+/* =========================================================
    🔵 EXPORTS
 ========================================================= */
 
@@ -484,5 +554,8 @@ module.exports = {
   setOnline,
   setOffline,
   isOnline,
+  subscribe,
   pushCallEvent,
+  isConnected,
+  disconnect,
 };

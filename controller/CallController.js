@@ -461,14 +461,21 @@ const offer = (req, res) => {
   try {
     const { callId, offer } = req.body;
 
+    console.log("========== OFFER ==========");
+    console.log("Body:", req.body);
+
+    /* ================= VALIDATION ================= */
+
     if (!callId) {
       return res.status(400).json({
+        success: false,
         error: "Call ID is required",
       });
     }
 
     if (!offer) {
       return res.status(400).json({
+        success: false,
         error: "SDP offer is required",
       });
     }
@@ -477,30 +484,50 @@ const offer = (req, res) => {
 
     if (!call) {
       return res.status(404).json({
+        success: false,
         error: "Call not found",
       });
     }
 
-    // Offer can only be exchanged after the call is accepted
-    if (call.status !== "accepted" && call.status !== "connecting") {
+    console.log("Current status:", call.status);
+
+    /* ================= STATE CHECK ================= */
+
+    if (!["accepted", "connecting"].includes(call.status)) {
       return res.status(409).json({
+        success: false,
         error: `Cannot send offer while call is ${call.status}.`,
       });
     }
 
+    // Ignore duplicate offer submissions
+    if (call.offer) {
+      return res.status(200).json({
+        success: true,
+        message: "Offer already received.",
+        call,
+      });
+    }
+
+    /* ================= UPDATE ================= */
+
     const updatedCall = updateCall(callId, {
       status: "connecting",
       offer,
+      offerAt: Date.now(),
     });
 
-    // Send SDP offer to receiver
+    console.log("Updated status:", updatedCall.status);
+
+    /* ================= RELAY ================= */
+
     pushCallEvent(call.callerId, call.receiverId, {
       type: "offer",
       callId,
       offer,
     });
 
-    return res.json({
+    return res.status(200).json({
       success: true,
       message: "Offer sent successfully.",
       call: updatedCall,
@@ -509,7 +536,9 @@ const offer = (req, res) => {
     console.error("OFFER ERROR:", err);
 
     return res.status(500).json({
+      success: false,
       error: "Failed to send offer",
+      details: err.message,
     });
   }
 };
@@ -522,14 +551,19 @@ const answer = (req, res) => {
   try {
     const { callId, answer } = req.body;
 
+    console.log("========== ANSWER ==========");
+    console.log("Body:", req.body);
+
     if (!callId) {
       return res.status(400).json({
+        success: false,
         error: "Call ID is required",
       });
     }
 
     if (!answer) {
       return res.status(400).json({
+        success: false,
         error: "SDP answer is required",
       });
     }
@@ -538,13 +572,16 @@ const answer = (req, res) => {
 
     if (!call) {
       return res.status(404).json({
+        success: false,
         error: "Call not found",
       });
     }
 
-    // Answer is only valid after an offer has been sent
-    if (call.status !== "connecting" && call.status !== "accepted") {
+    console.log("Current status:", call.status);
+
+    if (!["accepted", "connecting"].includes(call.status)) {
       return res.status(409).json({
+        success: false,
         error: `Cannot send answer while call is ${call.status}.`,
       });
     }
@@ -555,14 +592,15 @@ const answer = (req, res) => {
       connectedAt: Date.now(),
     });
 
-    // Send SDP answer back to caller
+    console.log("Updated status:", updatedCall.status);
+
     pushCallEvent(call.receiverId, call.callerId, {
       type: "answer",
       callId,
       answer,
     });
 
-    return res.json({
+    return res.status(200).json({
       success: true,
       message: "Answer sent successfully.",
       call: updatedCall,
@@ -571,7 +609,9 @@ const answer = (req, res) => {
     console.error("ANSWER ERROR:", err);
 
     return res.status(500).json({
+      success: false,
       error: "Failed to send answer",
+      details: err.message,
     });
   }
 };

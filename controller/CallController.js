@@ -151,6 +151,7 @@ const startCall = async (req, res) => {
     });
   }
 };
+
 /* =========================================================
    ACCEPT CALL
 ========================================================= */
@@ -286,6 +287,7 @@ const endCall = (req, res) => {
 
     if (!callId) {
       return res.status(400).json({
+        success: false,
         error: "Call ID is required",
       });
     }
@@ -293,20 +295,19 @@ const endCall = (req, res) => {
     const call = getCall(callId);
 
     if (!call) {
-      return res.status(404).json({
-        error: "Call not found",
+      // Treat as already cleaned up
+      return res.status(200).json({
+        success: true,
+        message: "Call already ended.",
       });
     }
 
-    // Stop timeout if still running
+    console.log("========== END CALL ==========");
+    console.log("Call ID:", callId);
+    console.log("Status:", call.status);
+
+    // Always stop timeout
     clearCallTimeout(callId);
-
-    // Prevent duplicate end requests
-    if (call.status === "ended") {
-      return res.status(409).json({
-        error: "Call already ended.",
-      });
-    }
 
     const endedAt = Date.now();
 
@@ -314,32 +315,40 @@ const endCall = (req, res) => {
       ? Math.floor((endedAt - call.acceptedAt) / 1000)
       : 0;
 
-    const updatedCall = updateCall(callId, {
-      status: "ended",
-      endedAt,
-      duration,
-    });
+    // Only update if not already ended
+    let updatedCall = call;
 
-    // Notify caller
-    pushCallEvent(call.callerId, call.receiverId, {
-      type: "call_ended",
-      callId,
-      duration,
-      call: updatedCall,
-    });
+    if (call.status !== "ended") {
+      updatedCall = updateCall(callId, {
+        status: "ended",
+        endedAt,
+        duration,
+      });
 
-    // Notify receiver
-    pushCallEvent(call.receiverId, call.callerId, {
-      type: "call_ended",
-      callId,
-      duration,
-      call: updatedCall,
-    });
+      // Notify caller
+      pushCallEvent(call.callerId, call.receiverId, {
+        type: "call_ended",
+        callId,
+        duration,
+        call: updatedCall,
+      });
 
-    // Remove active call
+      // Notify receiver
+      pushCallEvent(call.receiverId, call.callerId, {
+        type: "call_ended",
+        callId,
+        duration,
+        call: updatedCall,
+      });
+    }
+
+    // Always remove the call
     removeCall(callId);
 
-    return res.json({
+    console.log("Call removed:", callId);
+    console.log("Remaining active calls:", getActiveCalls());
+
+    return res.status(200).json({
       success: true,
       message: "Call ended successfully.",
       duration,
@@ -349,7 +358,9 @@ const endCall = (req, res) => {
     console.error("END CALL ERROR:", err);
 
     return res.status(500).json({
+      success: false,
       error: "Failed to end call",
+      details: err.message,
     });
   }
 };
@@ -363,61 +374,82 @@ const cancelCall = (req, res) => {
 
     if (!callId) {
       return res.status(400).json({
+        success: false,
         error: "Call ID is required",
       });
     }
 
     const call = getCall(callId);
 
+    // Already cleaned up
     if (!call) {
-      return res.status(404).json({
-        error: "Call not found",
+      return res.status(200).json({
+        success: true,
+        message: "Call already cancelled.",
       });
     }
 
-    // Only ringing calls can be cancelled
-    if (call.status !== "ringing") {
-      return res.status(409).json({
-        error: `Cannot cancel a ${call.status} call.`,
-      });
-    }
+    console.log("========== CANCEL CALL ==========");
+    console.log("Call ID:", callId);
+    console.log("Status:", call.status);
 
-    // Stop auto-timeout
+    // Always clear timeout
     clearCallTimeout(callId);
 
-    // Update status
-    const updatedCall = updateCall(callId, {
-      status: "cancelled",
-      endedAt: Date.now(),
-    });
+    let updatedCall = call;
 
-    // Notify receiver to close incoming call UI
-    pushCallEvent(call.callerId, call.receiverId, {
-      type: "call_cancelled",
-      callId,
-      call: updatedCall,
-    });
+    // Only notify if the call was still ringing
+    if (call.status === "ringing") {
+      updatedCall = updateCall(callId, {
+        status: "cancelled",
+        endedAt: Date.now(),
+      });
 
-    // Notify caller to close outgoing UI
-    pushCallEvent(call.receiverId, call.callerId, {
-      type: "call_cancelled",
-      callId,
-      call: updatedCall,
-    });
+      // Notify receiver
+      pushCallEvent(call.callerId, call.receiverId, {
+        type: "call_cancelled",
+        callId,
+        call: updatedCall,
+      });
 
-    // Remove from active calls
+      // Notify caller
+      pushCallEvent(call.receiverId, call.callerId, {
+        type: "call_cancelled",
+        callId,
+        call: updatedCall,
+      });
+    } else {
+      console.log(
+        `Cancel requested for ${call.status} call. Cleaning up anyway.`
+      );
+    }
+
+    // Always remove the call
     removeCall(callId);
 
-    return res.json({
+    console.log("Call removed:", callId);
+    console.log(
+      "Remaining active calls:",
+      getActiveCalls().map((c) => ({
+        id: c.id,
+        callerId: c.callerId,
+        receiverId: c.receiverId,
+        status: c.status,
+      }))
+    );
+
+    return res.status(200).json({
       success: true,
-      message: "Call cancelled.",
+      message: "Call cancelled successfully.",
       call: updatedCall,
     });
   } catch (err) {
     console.error("CANCEL CALL ERROR:", err);
 
     return res.status(500).json({
+      success: false,
       error: "Failed to cancel call",
+      details: err.message,
     });
   }
 };
@@ -575,15 +607,24 @@ const ice = (req, res) => {
   try {
     const { callId, candidate } = req.body;
 
+    console.log("========== ICE ==========");
+    console.log("Request Body:", req.body);
+
+    /* ================= VALIDATION ================= */
+
     if (!callId) {
       return res.status(400).json({
+        success: false,
         error: "Call ID is required",
       });
     }
 
-    if (!candidate) {
-      return res.status(400).json({
-        error: "ICE candidate is required",
+    // WebRTC fires one final event with candidate === null.
+    // This is not an error.
+    if (candidate == null) {
+      return res.status(200).json({
+        success: true,
+        message: "ICE gathering complete.",
       });
     }
 
@@ -591,18 +632,22 @@ const ice = (req, res) => {
 
     if (!call) {
       return res.status(404).json({
+        success: false,
         error: "Call not found",
       });
     }
 
-    // ICE candidates are only valid while the call is active
+    /* ================= STATE CHECK ================= */
+
     if (!["connecting", "connected"].includes(call.status)) {
       return res.status(409).json({
+        success: false,
         error: `Cannot exchange ICE while call is ${call.status}.`,
       });
     }
 
-    // Store ICE candidate for debugging/reconnect
+    /* ================= STORE ICE ================= */
+
     if (!Array.isArray(call.iceCandidates)) {
       call.iceCandidates = [];
     }
@@ -614,7 +659,12 @@ const ice = (req, res) => {
       call.iceCandidates.shift();
     }
 
-    // Relay ICE candidate to the other participant
+    console.log(
+      `ICE candidate received (${call.iceCandidates.length} stored)`
+    );
+
+    /* ================= RELAY ICE ================= */
+
     pushCallEvent(call.callerId, call.receiverId, {
       type: "ice",
       callId,
@@ -627,7 +677,7 @@ const ice = (req, res) => {
       candidate,
     });
 
-    return res.json({
+    return res.status(200).json({
       success: true,
       message: "ICE candidate sent.",
     });
@@ -635,7 +685,9 @@ const ice = (req, res) => {
     console.error("ICE ERROR:", err);
 
     return res.status(500).json({
+      success: false,
       error: "Failed to exchange ICE candidate",
+      details: err.message,
     });
   }
 };

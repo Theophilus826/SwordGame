@@ -194,20 +194,20 @@ const acceptCall = (req, res) => {
     pushCallEvent(call.receiverId, call.callerId, {
       type: "call_accepted",
       callId,
-      call: updatedCall,
+      call,
     });
 
     // Notify receiver
     pushCallEvent(call.callerId, call.receiverId, {
       type: "call_accepted",
       callId,
-      call: updatedCall,
+      call,
     });
 
     return res.json({
       success: true,
       message: "Call accepted.",
-      call: updatedCall,
+      call,
     });
   } catch (err) {
     console.error("ACCEPT CALL ERROR:", err);
@@ -330,7 +330,7 @@ const endCall = (req, res) => {
         type: "call_ended",
         callId,
         duration,
-        call: updatedCall,
+        call,
       });
 
       // Notify receiver
@@ -338,7 +338,7 @@ const endCall = (req, res) => {
         type: "call_ended",
         callId,
         duration,
-        call: updatedCall,
+        call,
       });
     }
 
@@ -352,7 +352,7 @@ const endCall = (req, res) => {
       success: true,
       message: "Call ended successfully.",
       duration,
-      call: updatedCall,
+      call,
     });
   } catch (err) {
     console.error("END CALL ERROR:", err);
@@ -409,14 +409,14 @@ const cancelCall = (req, res) => {
       pushCallEvent(call.callerId, call.receiverId, {
         type: "call_cancelled",
         callId,
-        call: updatedCall,
+        call,
       });
 
       // Notify caller
       pushCallEvent(call.receiverId, call.callerId, {
         type: "call_cancelled",
         callId,
-        call: updatedCall,
+        call,
       });
     } else {
       console.log(
@@ -441,7 +441,7 @@ const cancelCall = (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Call cancelled successfully.",
-      call: updatedCall,
+      call,
     });
   } catch (err) {
     console.error("CANCEL CALL ERROR:", err);
@@ -523,7 +523,7 @@ const offer = (req, res) => {
 
     pushCallEvent(call.callerId, call.receiverId, {
       type: "offer",
-      call: updatedCall,
+      call,
       callId,
       offer,
     });
@@ -531,7 +531,7 @@ const offer = (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Offer sent successfully.",
-      call: updatedCall,
+      call,
     });
   } catch (err) {
     console.error("OFFER ERROR:", err);
@@ -599,13 +599,13 @@ const answer = (req, res) => {
       type: "answer",
       callId,
       answer,
-      call: updatedCall,
+      call,
     });
 
     return res.status(200).json({
       success: true,
       message: "Answer sent successfully.",
-      call: updatedCall,
+      call,
     });
   } catch (err) {
     console.error("ANSWER ERROR:", err);
@@ -711,14 +711,14 @@ const ice = (req, res) => {
       type: "ice_candidate",
       callId,
       candidate,
-      call: updatedCall,
+      call,
     });
 
     pushCallEvent(call.receiverId, call.callerId, {
       type: "ice_candidate",
       callId,
       candidate,
-      call: updatedCall,
+      call,
     });
 
     return res.status(200).json({

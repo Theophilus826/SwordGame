@@ -18,19 +18,21 @@ const User = require("../models/UserModels");
 
 const startCall = async (req, res) => {
   try {
-    const callerId = req.user._id;
+    const callerId = String(req.user._id);
     const { receiverId, type = "voice" } = req.body;
 
     /* ================= VALIDATION ================= */
 
     if (!receiverId) {
       return res.status(400).json({
+        success: false,
         error: "Receiver ID is required",
       });
     }
 
-    if (String(callerId) === String(receiverId)) {
+    if (callerId === String(receiverId)) {
       return res.status(400).json({
+        success: false,
         error: "You cannot call yourself.",
       });
     }
@@ -39,9 +41,36 @@ const startCall = async (req, res) => {
 
     if (!receiver) {
       return res.status(404).json({
+        success: false,
         error: "Receiver not found.",
       });
     }
+
+    /* ================= CLEANUP STALE CALLS ================= */
+
+    for (const active of getActiveCalls()) {
+      if (
+        ["ended", "cancelled", "rejected", "timeout"].includes(active.status)
+      ) {
+        console.log("Removing stale call:", active.id);
+        removeCall(active.id);
+      }
+    }
+
+    /* ================= DEBUG ================= */
+
+    console.log("========== START CALL ==========");
+    console.log("Caller:", callerId);
+    console.log("Receiver:", String(receiverId));
+    console.log(
+      "Active Calls:",
+      getActiveCalls().map((c) => ({
+        id: c.id,
+        callerId: c.callerId,
+        receiverId: c.receiverId,
+        status: c.status,
+      }))
+    );
 
     /* ================= BUSY CHECK ================= */
 
@@ -50,6 +79,7 @@ const startCall = async (req, res) => {
         success: false,
         status: "busy",
         message: "You are already in another call.",
+        activeCalls: getActiveCalls(),
       });
     }
 
@@ -58,12 +88,15 @@ const startCall = async (req, res) => {
         success: false,
         status: "busy",
         message: "User is already in another call.",
+        activeCalls: getActiveCalls(),
       });
     }
 
     /* ================= CREATE CALL ================= */
 
     const call = createCall(callerId, receiverId, type);
+
+    console.log("Call created:", call.id);
 
     /* ================= SEND RINGING ================= */
 
@@ -77,9 +110,9 @@ const startCall = async (req, res) => {
     const timeout = setTimeout(() => {
       const active = getCall(call.id);
 
-      if (!active) return;
+      if (!active || active.status !== "ringing") return;
 
-      if (active.status !== "ringing") return;
+      console.log("Call timed out:", active.id);
 
       updateCall(active.id, {
         status: "timeout",
@@ -99,12 +132,11 @@ const startCall = async (req, res) => {
       removeCall(active.id);
     }, 30000);
 
-    // Stores timeout in a separate Map inside CallManager
     setCallTimeout(call.id, timeout);
 
     /* ================= RESPONSE ================= */
 
-    return res.json({
+    return res.status(200).json({
       success: true,
       message: "Calling...",
       call,
@@ -113,11 +145,12 @@ const startCall = async (req, res) => {
     console.error("START CALL ERROR:", err);
 
     return res.status(500).json({
+      success: false,
       error: "Failed to start call",
+      details: err.message,
     });
   }
 };
-
 /* =========================================================
    ACCEPT CALL
 ========================================================= */

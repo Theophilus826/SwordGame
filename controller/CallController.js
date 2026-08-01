@@ -523,6 +523,7 @@ const offer = (req, res) => {
 
     pushCallEvent(call.callerId, call.receiverId, {
       type: "offer",
+      call: updatedCall,
       callId,
       offer,
     });
@@ -598,6 +599,7 @@ const answer = (req, res) => {
       type: "answer",
       callId,
       answer,
+      call: updatedCall,
     });
 
     return res.status(200).json({
@@ -706,15 +708,17 @@ const ice = (req, res) => {
     /* ================= RELAY ICE ================= */
 
     pushCallEvent(call.callerId, call.receiverId, {
-      type: "ice",
+      type: "ice_candidate",
       callId,
       candidate,
+      call: updatedCall,
     });
 
     pushCallEvent(call.receiverId, call.callerId, {
-      type: "ice",
+      type: "ice_candidate",
       callId,
       candidate,
+      call: updatedCall,
     });
 
     return res.status(200).json({

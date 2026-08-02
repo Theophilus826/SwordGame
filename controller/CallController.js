@@ -106,34 +106,47 @@ const startCall = async (req, res) => {
     });
 
     /* ================= RING TIMEOUT ================= */
+const timeout = setTimeout(() => {
+  clearCallTimeout(call.id);
 
-    const timeout = setTimeout(() => {
-      const active = getCall(call.id);
+  const active = getCall(call.id);
 
-      if (!active || active.status !== "ringing") return;
+  if (!active) {
+    console.log("Call already removed:", call.id);
+    return;
+  }
 
-      console.log("Call timed out:", active.id);
+  console.log("========== CALL TIMEOUT ==========");
+  console.log("Call ID:", active.id);
+  console.log("Current Status:", active.status);
 
-      updateCall(active.id, {
-        status: "timeout",
-        endedAt: Date.now(),
-      });
+  // Only timeout calls that are still ringing
+  if (active.status !== "ringing") {
+    console.log("Skipping timeout. Call is already", active.status);
+    return;
+  }
 
-      pushCallEvent(active.callerId, active.receiverId, {
-        type: "call_timeout",
-        callId: active.id,
-      });
+  console.warn("Call timed out:", active.id);
 
-      pushCallEvent(active.receiverId, active.callerId, {
-        type: "call_timeout",
-        callId: active.id,
-      });
+  updateCall(active.id, {
+    status: "timeout",
+    endedAt: Date.now(),
+  });
 
-      removeCall(active.id);
-    }, 30000);
+  pushCallEvent(active.callerId, active.receiverId, {
+    type: "call_timeout",
+    callId: active.id,
+  });
 
-    setCallTimeout(call.id, timeout);
+  pushCallEvent(active.receiverId, active.callerId, {
+    type: "call_timeout",
+    callId: active.id,
+  });
 
+  removeCall(active.id);
+}, 30000);
+
+setCallTimeout(call.id, timeout);
     /* ================= RESPONSE ================= */
 
     return res.status(200).json({

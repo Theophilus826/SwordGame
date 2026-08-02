@@ -24,6 +24,7 @@ const { registerBubbleSockets } = require("./games/BubbleSocket");
 const shareRoutes = require("./routes/ShareRoute");
 const shareTaskRoutes = require("./routes/ShareTaskRoutes");
 const callRoutes = require("./routes/callRoutes");
+const IceServerRoutes = require("./routes/IceServerRoutes");
 // ==========================
 // LOAD ENV
 // ==========================
@@ -212,6 +213,7 @@ app.use("/api/withdrawals", WithdrawalRoutes);
 app.use("/api/group", GroupRoute);
 app.use("/api/bubble", require("./routes/BubbleRoutes"));
 app.use("/api/call", require("./routes/callRoutes"));
+app.use("/api/ice", IceServerRoutes);
 // Route to get posts by a specific user
 
 // ==========================

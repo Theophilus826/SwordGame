@@ -45,7 +45,7 @@ async function processGameCoins({ gameId, action, amount = 0, playerId }) {
       }
       // Debit admin (payout) then credit the player
       await updateCoins({
-        userId: playerId,
+        userId: admin._id,
         amount: -amount,
         type: "GAME_PAYOUT",
         description: `Paid winner for game ${gameId}`,

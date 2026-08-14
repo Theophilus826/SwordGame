@@ -32,7 +32,7 @@ router.get("/referral-stats", protect, async (req, res) => {
       });
     }
 
-    const user = await User.findById(req.user._id);
+    const user = await User.findById(req.user._id).select("coins referralCode");
 
     const referrals = await Referral.countDocuments({
       referrer: req.user._id,
@@ -54,6 +54,12 @@ router.get("/referral-stats", protect, async (req, res) => {
       success: true,
 
       cash: user?.coins || 0,
+      referralCode: user?.referralCode || "",
+      referral_code: user?.referralCode || "",
+      user: {
+        referralCode: user?.referralCode || "",
+        referral_code: user?.referralCode || "",
+      },
 
       referrals,
 
@@ -170,7 +176,6 @@ router.post("/withdraw", protect, async (req, res) => {
     });
   }
 });
-
 router.get("/admin/settings", protect, admin, getSettings);
 
 router.put("/admin/settings", protect, admin, updateSettings);

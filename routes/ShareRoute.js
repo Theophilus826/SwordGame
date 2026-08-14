@@ -32,7 +32,27 @@ router.get("/referral-stats", protect, async (req, res) => {
       });
     }
 
-    const user = await User.findById(req.user._id).select("coins referralCode");
+    let user = await User.findById(req.user._id).select("coins referralCode");
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    if (!user.referralCode) {
+      let referralCode = "";
+      let exists = true;
+
+      while (exists) {
+        referralCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+        exists = await User.exists({ referralCode });
+      }
+
+      user.referralCode = referralCode;
+      await user.save();
+    }
 
     const referrals = await Referral.countDocuments({
       referrer: req.user._id,

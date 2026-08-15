@@ -172,22 +172,6 @@ const generateDepositAccount = asyncHandler(async (req, res) => {
     // VALIDATE ADMIN SETTINGS
     // ============================================================
 
-    if (!bankName) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Payment bank name has not been configured",
-      });
-    }
-
-    if (!accountName) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Payment account name has not been configured",
-      });
-    }
-
     if (!accountNumber && !paymentLink) {
       return res.status(400).json({
         success: false,
@@ -195,6 +179,19 @@ const generateDepositAccount = asyncHandler(async (req, res) => {
           "Payment account number or payment link has not been configured",
       });
     }
+
+    if (accountNumber && (!bankName || !accountName)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Payment bank name and account name are required when using an account number",
+      });
+    }
+
+    const safeBankName =
+      bankName || (paymentLink ? "Payment Link" : "");
+    const safeAccountName =
+      accountName || (paymentLink ? "Payment Link" : "");
 
     // ============================================================
     // CREATE REFERENCE
@@ -210,10 +207,10 @@ const generateDepositAccount = asyncHandler(async (req, res) => {
     const depositData = {
       user: userId,
 
-      bankName,
-      accountName,
-      accountNumber,
-      paymentLink,
+      bankName: safeBankName,
+      accountName: safeAccountName,
+      accountNumber: accountNumber || "",
+      paymentLink: paymentLink || "",
 
       expectedAmount: numericAmount,
 
@@ -223,7 +220,7 @@ const generateDepositAccount = asyncHandler(async (req, res) => {
 
       status: "PENDING",
 
-      reviewStatus: "PENDING",
+      reviewStatus: "NONE",
     };
 
     console.log(

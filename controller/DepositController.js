@@ -1,11 +1,13 @@
-const axios = require("axios");
 const asyncHandler = require("express-async-handler");
+
 const Deposit = require("../models/DepositModel");
+const Payment = require("../models/PaymentModel");
+
 const { updateCoins } = require("./AccountController");
 
-// ==========================
+// ============================================================
 // AUTH HELPER
-// ==========================
+// ============================================================
 const getUserFromRequest = (req) => {
   if (!req.user) {
     throw new Error("User not authenticated");
@@ -18,236 +20,910 @@ const getUserFromRequest = (req) => {
   };
 };
 
-// ==========================
-// GENERATE DEPOSIT ACCOUNT (OPAY / PALMPAY ONLY)
-// ==========================
-const generateDepositAccount = asyncHandler(async (req, res) => {
-  try {
-    if (!req.user) {
-      return res.status(401).json({ message: "Not authenticated" });
-    }
+// ============================================================
+// GENERATE DEPOSIT ACCOUNT
+// ============================================================
+// USER ONLY SENDS:
+//
+// {
+//   amount: 5000,
+//   method: "bank"
+// }
+//
+// Payment details come ONLY from PaymentModel.
+//
+// This means a user cannot submit:
+//
+// bankName
+// accountName
+// accountNumber
+// paymentLink
+//
+// from the frontend and change the admin's payment account.
+// ============================================================
+const generateDepositAccount = asyncHandler(
+  async (req, res) => {
+    try {
+      // ========================================================
+      // AUTHENTICATION
+      // ========================================================
+      if (!req.user) {
+        return res.status(401).json({
+          success: false,
+          message: "Not authenticated",
+        });
+      }
 
-    const userId = req.user.id || req.user._id;
-    const { name = "User", email = "" } = req.user || {};
-    const { amount, method } = req.body;
+      const userId =
+        req.user.id || req.user._id;
 
-    // VALIDATION
-    if (!amount || amount < 500) {
-      return res.status(400).json({ message: "Minimum deposit is ₦500" });
-    }
+      // ========================================================
+      // USER INPUT
+      // ========================================================
+      const {
+        amount,
+        method = "bank",
+      } = req.body;
 
-    const allowed = ["opay", "palmpay"];
-    if (!allowed.includes(method)) {
-      return res.status(400).json({ message: "Invalid method" });
-    }
+      // ========================================================
+      // VALIDATE AMOUNT
+      // ========================================================
+      const numericAmount = Number(amount);
 
-    let accountDetails = null;
+      if (
+        !Number.isFinite(numericAmount) ||
+        numericAmount < 500
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Minimum deposit is ₦500",
+        });
+      }
 
-    if (method === "opay") {
-      accountDetails = {
-        accountNumber: "6119948718",
-        bankName: "OPay",
-        accountName: "Theophilus Telecom",
-      };
-    }
+      // ========================================================
+      // NORMALIZE METHOD
+      // ========================================================
+      const normalizedMethod = String(
+        method || "bank",
+      )
+        .trim()
+        .toLowerCase();
 
-    if (method === "palmpay") {
-      accountDetails = {
-        accountNumber: "8902710561",
-        bankName: "PalmPay",
-        accountName: "Theophilus Telecom",
-      };
-    }
+      const allowedMethods = [
+        "bank",
+        "custom",
+        "manual",
+        "link",
+        "opay",
+        "palmpay",
+      ];
 
-    if (!accountDetails) {
-      return res.status(400).json({ message: "Account not configured" });
-    }
+      if (
+        !allowedMethods.includes(
+          normalizedMethod,
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid payment method",
+        });
+      }
 
-    const deposit = await Deposit.create({
-      user: userId,
-      ...accountDetails,
-      expectedAmount: amount,
-      method,
-      reference: `${method}-${userId}-${Date.now()}`,
-      status: "PENDING",
-    });
+      // ========================================================
+      // GET ADMIN PAYMENT SETTINGS
+      // ========================================================
+      const payment =
+        await Payment.findOne().sort({
+          updatedAt: -1,
+        });
 
-    return res.json(deposit);
-  } catch (err) {
-    console.error("DEPOSIT ERROR:", err); // 🔥 THIS IS KEY
-    return res.status(500).json({
-      message: "Server error creating deposit",
-      error: err.message,
-    });
-  }
-});
+      if (!payment) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Payment account has not been configured by admin",
+        });
+      }
 
-// ==========================
-// CONFIRM DEPOSIT (MANUAL)
-// ==========================
-const confirmDeposit = asyncHandler(async (req, res) => {
-  const { id: userId } = getUserFromRequest(req);
-  const { depositId } = req.body;
+      // ========================================================
+      // READ ADMIN SETTINGS
+      // ========================================================
+      const bankName =
+        payment.bankName?.trim() || "";
 
-  if (!depositId) {
-    return res.status(400).json({ message: "Deposit ID is required" });
-  }
+      const accountName =
+        payment.accountName?.trim() || "";
 
-  const deposit = await Deposit.findById(depositId);
+      const accountNumber =
+        payment.accountNumber?.trim() || "";
 
-  if (!deposit) {
-    return res.status(404).json({ message: "Deposit not found" });
-  }
+      const paymentLink =
+        payment.paymentLink?.trim() || "";
 
-  if (deposit.status !== "PENDING") {
-    return res.status(400).json({ message: "Deposit already processed" });
-  }
+      // ========================================================
+      // VALIDATE ADMIN SETTINGS
+      // ========================================================
+      if (
+        !accountNumber &&
+        !paymentLink
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Payment account number or payment link is not configured",
+        });
+      }
 
-  // ✅ USE SERVER VALUE (NO USER INPUT)
-  const amount = deposit.expectedAmount;
+      const safeBankName =
+        bankName || (paymentLink ? "Payment Link" : "");
+      const safeAccountName =
+        accountName || (paymentLink ? "Payment Link" : "");
 
-  deposit.amount = amount;
-  deposit.status = "COMPLETED";
-  await deposit.save();
+      // ========================================================
+      // CREATE UNIQUE REFERENCE
+      // ========================================================
+      const reference = `${normalizedMethod}-${userId}-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2, 8)}`;
 
-  const result = await updateCoins({
-    userId,
-    amount,
-    type: "DEPOSIT",
-    description: `Deposit (${deposit.method})`,
-  });
+      // ========================================================
+      // CREATE DEPOSIT
+      // ========================================================
+      // IMPORTANT:
+      //
+      // We copy the payment details into the deposit.
+      //
+      // If admin changes the account later, this deposit still
+      // contains the exact account the user was instructed to
+      // pay.
+      // ========================================================
+      const deposit =
+        await Deposit.create({
+          user: userId,
 
-  // ✅ CORRECT BALANCE EMIT
-  if (req.io) {
-    req.io.to(userId).emit("wallet:update", {
-      coins: result.coins,
-      depositId: deposit._id,
-    });
-  }
+          bankName: safeBankName,
+          accountName: safeAccountName,
+          accountNumber: accountNumber || "",
+          paymentLink: paymentLink || "",
 
-  res.json({
-    message: "Deposit successful",
-    coins: result.coins,
-    deposit,
-  });
-});
+          expectedAmount:
+            numericAmount,
 
-// ==========================
-// DEPOSIT HISTORY
-// ==========================
-const getDepositHistory = asyncHandler(async (req, res) => {
-  const { id: userId } = getUserFromRequest(req);
+          method: normalizedMethod,
 
-  const history = await Deposit.find({ user: userId })
-    .sort({ createdAt: -1 });
+          reference,
 
-  res.json(history);
-});
+          status: "PENDING",
 
-// ==========================
-// MONNIFY WEBHOOK
-// ==========================
-const virtualAccountWebhook = asyncHandler(async (req, res) => {
-  try {
-    const { eventType, eventData } = req.body;
+          reviewStatus:
+            "PENDING",
+        });
 
-    if (eventType === "SUCCESSFUL_TRANSACTION") {
-      const { accountReference, amountPaid, paymentReference } = eventData;
-
-      const deposit = await Deposit.findOne({
-        reference: accountReference,
+      // ========================================================
+      // RESPONSE
+      // ========================================================
+      return res.status(201).json({
+        success: true,
+        message:
+          "Deposit account generated successfully",
+        deposit,
       });
+    } catch (err) {
+      console.error(
+        "GENERATE DEPOSIT ERROR:",
+        err,
+      );
 
-      if (!deposit) return res.sendStatus(200);
+      return res.status(500).json({
+        success: false,
+        message:
+          "Server error creating deposit",
+        error: err.message,
+      });
+    }
+  },
+);
 
-      // ✅ PREVENT DOUBLE CREDIT
-      if (deposit.status === "COMPLETED") {
+
+// ============================================================
+const confirmDeposit = asyncHandler(
+  async (req, res) => {
+    try {
+      const { id: userId } =
+        getUserFromRequest(req);
+
+      const { depositId } = req.body;
+
+      if (!depositId) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Deposit ID is required",
+        });
+      }
+
+      const deposit =
+        await Deposit.findById(
+          depositId,
+        );
+
+      if (!deposit) {
+        return res.status(404).json({
+          success: false,
+          message: "Deposit not found",
+        });
+      }
+
+      // ========================================================
+      // SECURITY
+      // ========================================================
+      if (
+        deposit.user.toString() !==
+        userId.toString()
+      ) {
+        return res.status(403).json({
+          success: false,
+          message: "Unauthorized",
+        });
+      }
+
+      // ========================================================
+      // ALREADY COMPLETED
+      // ========================================================
+      if (
+        deposit.status === "COMPLETED"
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Deposit already completed",
+        });
+      }
+
+      // ========================================================
+      // ALREADY REJECTED
+      // ========================================================
+      if (
+        deposit.status === "FAILED"
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Deposit has been rejected",
+        });
+      }
+
+      // ========================================================
+      // DO NOT CREDIT HERE
+      // ========================================================
+      //
+      // The user is only informing the system that they have
+      // supposedly made the payment.
+      //
+      // Admin must verify the receipt and approve it.
+      // ========================================================
+      deposit.reviewStatus =
+        "PENDING_REVIEW";
+
+      await deposit.save();
+
+      // ========================================================
+      // NOTIFY ADMIN
+      // ========================================================
+      if (req.io) {
+        req.io.emit(
+          "admin:deposit-review",
+          {
+            depositId:
+              deposit._id,
+            userId:
+              userId.toString(),
+          },
+        );
+      }
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "Payment submitted for admin review",
+        deposit,
+      });
+    } catch (err) {
+      console.error(
+        "CONFIRM DEPOSIT ERROR:",
+        err,
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "Failed to submit deposit for review",
+        error: err.message,
+      });
+    }
+  },
+);
+
+// ============================================================
+// GET DEPOSIT HISTORY
+// ============================================================
+const getDepositHistory = asyncHandler(
+  async (req, res) => {
+    try {
+      const { id: userId } =
+        getUserFromRequest(req);
+
+      const history =
+        await Deposit.find({
+          user: userId,
+        }).sort({
+          createdAt: -1,
+        });
+
+      return res.status(200).json({
+        success: true,
+        deposits: history,
+      });
+    } catch (err) {
+      console.error(
+        "GET DEPOSIT HISTORY ERROR:",
+        err,
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "Failed to get deposit history",
+        error: err.message,
+      });
+    }
+  },
+);
+
+// ============================================================
+// MONNIFY WEBHOOK
+// ============================================================
+// This is separate from manual receipt approval.
+//
+// If you use Monnify virtual accounts, Monnify can automatically
+// confirm the payment.
+//
+// IMPORTANT:
+//
+// The webhook should be protected using Monnify's recommended
+// signature/authentication verification in production.
+// ============================================================
+const virtualAccountWebhook =
+  asyncHandler(async (req, res) => {
+    try {
+      const {
+        eventType,
+        eventData,
+      } = req.body;
+
+      // ========================================================
+      // IGNORE OTHER EVENTS
+      // ========================================================
+      if (
+        eventType !==
+        "SUCCESSFUL_TRANSACTION"
+      ) {
         return res.sendStatus(200);
       }
 
+      if (!eventData) {
+        return res.sendStatus(200);
+      }
+
+      const {
+        accountReference,
+        amountPaid,
+        paymentReference,
+      } = eventData;
+
+      // ========================================================
+      // VALIDATE REFERENCE
+      // ========================================================
+      if (!accountReference) {
+        console.error(
+          "MONNIFY WEBHOOK: Missing accountReference",
+        );
+
+        return res.sendStatus(200);
+      }
+
+      // ========================================================
+      // VALIDATE AMOUNT
+      // ========================================================
+      const paidAmount =
+        Number(amountPaid);
+
+      if (
+        !Number.isFinite(paidAmount) ||
+        paidAmount <= 0
+      ) {
+        console.error(
+          "MONNIFY WEBHOOK: Invalid amount:",
+          amountPaid,
+        );
+
+        return res.sendStatus(200);
+      }
+
+      // ========================================================
+      // FIND DEPOSIT
+      // ========================================================
+      const deposit =
+        await Deposit.findOne({
+          reference:
+            accountReference,
+        });
+
+      if (!deposit) {
+        console.warn(
+          "MONNIFY WEBHOOK: Deposit not found:",
+          accountReference,
+        );
+
+        return res.sendStatus(200);
+      }
+
+      // ========================================================
+      // PREVENT DOUBLE CREDIT
+      // ========================================================
+      if (
+        deposit.status ===
+        "COMPLETED"
+      ) {
+        return res.sendStatus(200);
+      }
+
+      // ========================================================
+      // EXPECTED AMOUNT
+      // ========================================================
+      const expectedAmount =
+        Number(
+          deposit.expectedAmount,
+        );
+
+      // ========================================================
+      // AMOUNT MISMATCH
+      // ========================================================
+      if (
+        Number.isFinite(
+          expectedAmount,
+        ) &&
+        paidAmount !== expectedAmount
+      ) {
+        console.warn(
+          "MONNIFY WEBHOOK: Amount mismatch",
+          {
+            depositId:
+              deposit._id,
+            expectedAmount,
+            paidAmount,
+          },
+        );
+
+        deposit.paymentReference =
+          paymentReference || "";
+
+        deposit.reviewStatus =
+          "PENDING_REVIEW";
+
+        await deposit.save();
+
+        return res.sendStatus(200);
+      }
+
+      // ========================================================
+      // COMPLETE DEPOSIT
+      // ========================================================
       deposit.status = "COMPLETED";
-      deposit.amount = amountPaid;
-      deposit.paymentReference = paymentReference;
+
+      deposit.amount =
+        paidAmount;
+
+      deposit.paymentReference =
+        paymentReference || "";
+
+      deposit.reviewStatus =
+        "APPROVED";
+
       await deposit.save();
 
-      const result = await updateCoins({
-        userId: deposit.user.toString(),
-        amount: amountPaid,
-        type: "DEPOSIT",
-        description: `Monnify deposit (${paymentReference})`,
-      });
+      // ========================================================
+      // CREDIT WALLET
+      // ========================================================
+      const result =
+        await updateCoins({
+          userId:
+            deposit.user.toString(),
+          amount:
+            paidAmount,
+          type: "DEPOSIT",
+          description: `Monnify deposit (${
+            paymentReference ||
+            "N/A"
+          })`,
+        });
 
+      // ========================================================
+      // SOCKET UPDATE
+      // ========================================================
       if (req.io) {
-        req.io.to(deposit.user.toString()).emit("wallet:update", {
-          coins: result.coins,
-          depositId: deposit._id,
+        req.io
+          .to(
+            deposit.user.toString(),
+          )
+          .emit(
+            "wallet:update",
+            {
+              coins:
+                result.coins,
+              depositId:
+                deposit._id,
+            },
+          );
+      }
+
+      return res.sendStatus(200);
+    } catch (err) {
+      console.error(
+        "MONNIFY WEBHOOK ERROR:",
+        err,
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "Webhook failed",
+      });
+    }
+  });
+
+// ============================================================
+// UPLOAD RECEIPT
+// ============================================================
+const uploadReceipt = asyncHandler(
+  async (req, res) => {
+    try {
+      const { id: userId } =
+        getUserFromRequest(req);
+
+      const { depositId } = req.body;
+
+      // ========================================================
+      // VALIDATE DEPOSIT ID
+      // ========================================================
+      if (!depositId) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Deposit ID required",
         });
       }
+
+      // ========================================================
+      // VALIDATE FILE
+      // ========================================================
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "No receipt file uploaded",
+        });
+      }
+
+      // ========================================================
+      // FIND DEPOSIT
+      // ========================================================
+      const deposit =
+        await Deposit.findById(
+          depositId,
+        );
+
+      if (!deposit) {
+        return res.status(404).json({
+          success: false,
+          message:
+            "Deposit not found",
+        });
+      }
+
+      // ========================================================
+      // SECURITY
+      // ========================================================
+      if (
+        deposit.user.toString() !==
+        userId.toString()
+      ) {
+        return res.status(403).json({
+          success: false,
+          message: "Unauthorized",
+        });
+      }
+
+      // ========================================================
+      // PREVENT UPLOAD AFTER COMPLETION
+      // ========================================================
+      if (
+        deposit.status ===
+        "COMPLETED"
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "This deposit has already been completed",
+        });
+      }
+
+      // ========================================================
+      // PREVENT UPLOAD AFTER REJECTION
+      // ========================================================
+      if (
+        deposit.status ===
+        "FAILED"
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "This deposit has been rejected",
+        });
+      }
+
+      // ========================================================
+      // PREVENT DUPLICATE RECEIPT
+      // ========================================================
+      if (deposit.receipt) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Receipt already uploaded",
+        });
+      }
+
+      // ========================================================
+      // SAVE RECEIPT
+      // ========================================================
+      deposit.receipt =
+        req.file.path;
+
+      deposit.reviewStatus =
+        "PENDING_REVIEW";
+
+      await deposit.save();
+
+      // ========================================================
+      // NOTIFY ADMIN
+      // ========================================================
+      if (req.io) {
+        req.io.emit(
+          "admin:new-receipt",
+          {
+            depositId:
+              deposit._id,
+            userId:
+              userId.toString(),
+          },
+        );
+      }
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "Receipt uploaded successfully",
+        deposit,
+      });
+    } catch (err) {
+      console.error(
+        "UPLOAD RECEIPT ERROR:",
+        err,
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "Failed to upload receipt",
+        error: err.message,
+      });
     }
+  },
+);
 
-    res.sendStatus(200);
-  } catch (err) {
-    console.error("Webhook error:", err.message);
-    res.status(500).json({ message: "Webhook failed" });
-  }
-});
-// ==========================
-// UPLOAD RECEIPT
-// ==========================
-const uploadReceipt = asyncHandler(async (req, res) => {
-  const { id: userId } = getUserFromRequest(req);
-  const { depositId } = req.body;
+// ============================================================
+// ADMIN: GET PAYMENT SETTINGS
+// ============================================================
+const getPaymentSettings =
+  asyncHandler(async (req, res) => {
+    try {
+      const payment =
+        await Payment.findOne().sort({
+          updatedAt: -1,
+        });
 
-  if (!depositId) {
-    return res.status(400).json({ message: "Deposit ID required" });
-  }
+      if (!payment) {
+        return res.status(200).json({
+          success: true,
+          data: {
+            bankName: "",
+            accountName: "",
+            accountNumber: "",
+            paymentLink: "",
+          },
+        });
+      }
 
-  if (!req.file) {
-    return res.status(400).json({ message: "No receipt file uploaded" });
-  }
+      return res.status(200).json({
+        success: true,
+        data: {
+          bankName:
+            payment.bankName || "",
+          accountName:
+            payment.accountName || "",
+          accountNumber:
+            payment.accountNumber ||
+            "",
+          paymentLink:
+            payment.paymentLink || "",
+        },
+      });
+    } catch (err) {
+      console.error(
+        "GET PAYMENT SETTINGS ERROR:",
+        err,
+      );
 
-  const deposit = await Deposit.findById(depositId);
-
-  if (!deposit) {
-    return res.status(404).json({ message: "Deposit not found" });
-  }
-
-  // 🔒 Ensure user owns deposit
-  if (deposit.user.toString() !== userId.toString()) {
-    return res.status(403).json({ message: "Unauthorized" });
-  }
-
-  // ❌ Prevent duplicate uploads
-  if (deposit.receipt) {
-    return res.status(400).json({ message: "Receipt already uploaded" });
-  }
-
-  // ✅ SAVE RECEIPT
-  deposit.receipt = req.file.path;
-
-  // ✅ MARK FOR ADMIN REVIEW
-  deposit.reviewStatus = "PENDING_REVIEW";
-
-  await deposit.save();
-
-  // 🔔 Notify admin (optional but powerful)
-  if (req.io) {
-    req.io.emit("admin:new-receipt", {
-      depositId: deposit._id,
-      userId,
-    });
-  }
-
-  res.json({
-    message: "Receipt uploaded successfully",
-    deposit,
+      return res.status(500).json({
+        success: false,
+        message:
+          "Failed to get payment settings",
+      });
+    }
   });
-});
 
+// ============================================================
+// ADMIN: UPDATE PAYMENT SETTINGS
+// ============================================================
+// This is where the admin enters:
+//
+// Bank Name
+// Account Name
+// Account Number
+// Payment Link
+//
+// Example:
+//
+// PUT /admin/payment-settings
+//
+// {
+//   "bankName": "OPay",
+//   "accountName": "Theophilus Telecom",
+//   "accountNumber": "1234567890",
+//   "paymentLink": "https://..."
+// }
+// ============================================================
+const updatePaymentSettings =
+  asyncHandler(async (req, res) => {
+    try {
+      const {
+        bankName,
+        accountName,
+        accountNumber,
+        paymentLink,
+      } = req.body;
+
+      // ========================================================
+      // VALIDATION
+      // ========================================================
+      if (
+        !bankName ||
+        !bankName.trim()
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Bank name is required",
+        });
+      }
+
+      if (
+        !accountName ||
+        !accountName.trim()
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Account name is required",
+        });
+      }
+
+      if (
+        !accountNumber ||
+        !accountNumber.trim()
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Account number is required",
+        });
+      }
+
+      // ========================================================
+      // FIND EXISTING SETTINGS
+      // ========================================================
+      let payment =
+        await Payment.findOne();
+
+      // ========================================================
+      // CREATE IF NOT FOUND
+      // ========================================================
+      if (!payment) {
+        payment =
+          new Payment();
+      }
+
+      // ========================================================
+      // SAVE SETTINGS
+      // ========================================================
+      payment.bankName =
+        bankName.trim();
+
+      payment.accountName =
+        accountName.trim();
+
+      payment.accountNumber =
+        accountNumber.trim();
+
+      payment.paymentLink =
+        paymentLink?.trim() || "";
+
+      await payment.save();
+
+      // ========================================================
+      // RESPONSE
+      // ========================================================
+      return res.status(200).json({
+        success: true,
+        message:
+          "Payment settings saved successfully",
+        data: {
+          bankName:
+            payment.bankName,
+          accountName:
+            payment.accountName,
+          accountNumber:
+            payment.accountNumber,
+          paymentLink:
+            payment.paymentLink ||
+            "",
+        },
+      });
+    } catch (err) {
+      console.error(
+        "UPDATE PAYMENT SETTINGS ERROR:",
+        err,
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "Failed to save payment settings",
+      });
+    }
+  });
+
+// ============================================================
+// EXPORT
+// ============================================================
 module.exports = {
   generateDepositAccount,
   confirmDeposit,
   getDepositHistory,
   virtualAccountWebhook,
   uploadReceipt,
+
+  // ADMIN PAYMENT SETTINGS
+  getPaymentSettings,
+  updatePaymentSettings,
 };

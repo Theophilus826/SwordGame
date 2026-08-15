@@ -23,6 +23,8 @@ const {
   getLatestAppVersion,
   getApks,
   deleteApk,
+  getPaymentSettings,
+  updatePaymentSettings,
 } = require("../controller/AdminController");
 
 // ================= COINS =================
@@ -48,6 +50,19 @@ router.put(
   uploadReceipt
 );
 
+router.get(
+  "/payment-settings",
+  protect,
+  admin,
+  getPaymentSettings
+);
+
+router.put(
+  "/payment-settings",
+  protect,
+  admin,
+  updatePaymentSettings
+);
 // ================= WITHDRAWALS (🔥 FIXED) =================
 
 // ✅ FETCH withdrawals (THIS WAS MISSING)

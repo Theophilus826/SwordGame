@@ -9,10 +9,12 @@ const Deposit = require("../models/DepositModel");
 const CoinTransaction = require("../models/CoinTransaction");
 const Slide = require("../models/Slide");
 const Withdrawal = require("../models/Withdrawal");
-const AppVersion = require("../models/AppVersion");
+const {AppVersion} = require("../models/AppVersion");
   // UTILS
 const cloudinary = require("../config/Cloudinary");
 const { playersByUser } = require("../games/gameState");
+const Payment = require("../models/PaymentModel");
+
 // ===============================
 // COINS
 // ===============================
@@ -183,6 +185,164 @@ const markDepositAsRead = asyncHandler(async (req, res) => {
 
   res.json({ message: "Marked as read" });
 });
+
+// ============================================================
+// ADMIN: GET PAYMENT SETTINGS
+// ============================================================
+const getPaymentSettings =
+  asyncHandler(async (req, res) => {
+    try {
+      const payment =
+        await Payment.findOne().sort({
+          updatedAt: -1,
+        });
+
+      if (!payment) {
+        return res.status(200).json({
+          success: true,
+          data: {
+            bankName: "",
+            accountName: "",
+            accountNumber: "",
+            paymentLink: "",
+          },
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          bankName:
+            payment.bankName || "",
+          accountName:
+            payment.accountName || "",
+          accountNumber:
+            payment.accountNumber ||
+            "",
+          paymentLink:
+            payment.paymentLink || "",
+        },
+      });
+    } catch (err) {
+      console.error(
+        "GET PAYMENT SETTINGS ERROR:",
+        err,
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "Failed to get payment settings",
+      });
+    }
+  });
+
+// ============================================================
+const updatePaymentSettings =
+  asyncHandler(async (req, res) => {
+    try {
+      const {
+        bankName,
+        accountName,
+        accountNumber,
+        paymentLink,
+      } = req.body;
+
+      const cleanBankName =
+        bankName?.trim() || "";
+      const cleanAccountName =
+        accountName?.trim() || "";
+      const cleanAccountNumber =
+        accountNumber?.trim() || "";
+      const cleanPaymentLink =
+        paymentLink?.trim() || "";
+
+      const hasAccount =
+        Boolean(cleanAccountNumber);
+      const hasPaymentLink =
+        Boolean(cleanPaymentLink);
+
+      // ========================================================
+      // VALIDATION
+      // ========================================================
+      if (!hasAccount && !hasPaymentLink) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Enter an account number or payment link",
+        });
+      }
+
+      if (
+        hasAccount &&
+        (!cleanBankName || !cleanAccountName)
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Bank name and account name are required when using an account number",
+        });
+      }
+
+      // ========================================================
+      // FIND EXISTING SETTINGS
+      // ========================================================
+      let payment =
+        await Payment.findOne();
+
+      // ========================================================
+      // CREATE IF NOT FOUND
+      // ========================================================
+      if (!payment) {
+        payment =
+          new Payment();
+      }
+
+      // ========================================================
+      // SAVE SETTINGS
+      // ========================================================
+      payment.bankName = cleanBankName;
+
+      payment.accountName = cleanAccountName;
+
+      payment.accountNumber = cleanAccountNumber;
+
+      payment.paymentLink = cleanPaymentLink;
+
+      await payment.save();
+
+      // ========================================================
+      // RESPONSE
+      // ========================================================
+      return res.status(200).json({
+        success: true,
+        message:
+          "Payment settings saved successfully",
+        data: {
+          bankName:
+            payment.bankName,
+          accountName:
+            payment.accountName,
+          accountNumber:
+            payment.accountNumber,
+          paymentLink:
+            payment.paymentLink ||
+            "",
+        },
+      });
+    } catch (err) {
+      console.error(
+        "UPDATE PAYMENT SETTINGS ERROR:",
+        err,
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "Failed to save payment settings",
+      });
+    }
+  });
 
 const getTactical = asyncHandler(async (req, res) => {
   const players = [];
@@ -518,6 +678,7 @@ const deleteApk = asyncHandler(async (req, res) => {
     message: "Version deleted",
   });
 });
+
 module.exports = {
   getPendingDeposits,
   approveDeposit,
@@ -525,6 +686,8 @@ module.exports = {
   markDepositAsRead,
   uploadReceipt,
   adminCreditCoins,
+  getPaymentSettings,
+  updatePaymentSettings,
   uploadCarousel,
   getSlides,
   deleteSlide,

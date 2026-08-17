@@ -15,27 +15,17 @@ const depositSchema = new mongoose.Schema(
     // =========================
     // ACCOUNT DETAILS
     // =========================
-    accountNumber: {
-      type: String,
-      default: null,
-    },
-
-    bankName: {
-      type: String,
-      default: null,
-    },
-
-    accountName: {
-      type: String,
-      default: null,
-    },
+    accountNumber: String,
+    bankName: String,
+    accountName: String,
+    paymentLink: String,
 
     // =========================
     // AMOUNTS
     // =========================
     amount: {
       type: Number,
-      default: 0,
+      default: 0, // actual paid
     },
 
     expectedAmount: {
@@ -48,9 +38,8 @@ const depositSchema = new mongoose.Schema(
     // =========================
     method: {
       type: String,
-      enum: ["ngn", "opay", "palmpay"],
+      enum: ["ngn", "opay", "palmpay", "bank", "custom", "manual", "link"],
       required: true,
-      index: true,
     },
 
     provider: {
@@ -77,21 +66,15 @@ const depositSchema = new mongoose.Schema(
     },
 
     // =========================
-    // RECEIPT
+    // RECEIPT (MANUAL FLOW)
     // =========================
     receipt: {
-      type: String,
-      default: null,
-      trim: true,
+      type: String, // URL or file path
     },
 
-    // =========================
-    // READ STATUS (ADMIN INBOX)
-    // =========================
     isRead: {
       type: Boolean,
       default: false,
-      index: true,
     },
 
     // =========================
@@ -100,19 +83,14 @@ const depositSchema = new mongoose.Schema(
     approvedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      default: null,
     },
 
     reviewedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      default: null,
     },
 
-    rejectionReason: {
-      type: String,
-      default: null,
-    },
+    rejectionReason: String,
 
     // =========================
     // REFERENCES
@@ -123,25 +101,20 @@ const depositSchema = new mongoose.Schema(
       index: true,
     },
 
-    transactionReference: {
-      type: String,
-      default: null,
-    },
+    transactionReference: String,
 
     // =========================
-    // PAYMENT WEBHOOK DATA
+    // PAYMENT DATA (WEBHOOK)
     // =========================
     paymentData: {
-      type: mongoose.Schema.Types.Mixed,
-      default: {},
+      type: Object,
     },
 
     // =========================
-    // EXPIRY
+    // TIMING CONTROL
     // =========================
     expiresAt: {
       type: Date,
-      default: null,
       index: true,
     },
   },
@@ -149,18 +122,7 @@ const depositSchema = new mongoose.Schema(
 );
 
 // =========================
-// VIRTUAL: HAS RECEIPT
-// =========================
-depositSchema.virtual("hasReceipt").get(function () {
-  return Boolean(this.receipt);
-});
-
-// Enable virtuals in API responses
-depositSchema.set("toJSON", { virtuals: true });
-depositSchema.set("toObject", { virtuals: true });
-
-// =========================
-// HELPER METHOD
+// AUTO EXPIRE HELPER
 // =========================
 depositSchema.methods.isExpired = function () {
   return this.expiresAt && new Date() > this.expiresAt;

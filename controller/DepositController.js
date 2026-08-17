@@ -20,6 +20,7 @@ const getUserFromRequest = (req) => {
 };
 
 // ============================================================
+
 const generateDepositAccount = asyncHandler(async (req, res) => {
   try {
     // =========================
@@ -40,6 +41,10 @@ const generateDepositAccount = asyncHandler(async (req, res) => {
         message: "Authenticated user ID is missing",
       });
     }
+
+    console.log("========== GENERATE DEPOSIT ==========");
+    console.log("User:", userId.toString());
+    console.log("Body:", req.body);
 
     // =========================
     // INPUT
@@ -87,8 +92,13 @@ const generateDepositAccount = asyncHandler(async (req, res) => {
     // =========================
     // PAYMENT MODEL
     // =========================
+    console.log("Loading payment settings...");
+
     const payment = await Payment.findOne()
-      .sort({ updatedAt: -1 });
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    console.log("Payment settings found:", !!payment);
 
     if (!payment) {
       return res.status(400).json({
@@ -112,6 +122,13 @@ const generateDepositAccount = asyncHandler(async (req, res) => {
 
     const paymentLink =
       String(payment.paymentLink || "").trim();
+
+    console.log("Payment configuration:", {
+      bankName: !!bankName,
+      accountName: !!accountName,
+      accountNumber: !!accountNumber,
+      paymentLink: !!paymentLink,
+    });
 
     // =========================
     // VALIDATE PAYMENT SETTINGS
@@ -139,12 +156,12 @@ const generateDepositAccount = asyncHandler(async (req, res) => {
     // REFERENCE
     // =========================
     const reference =
-      `${normalizedMethod}-${userId}-${Date.now()}`;
+      `${normalizedMethod}-${userId.toString()}-${Date.now()}`;
 
     // =========================
-    // CREATE USER DEPOSIT
+    // CREATE DEPOSIT DATA
     // =========================
-    const deposit = await Deposit.create({
+    const depositData = {
       user: userId,
 
       bankName:
@@ -167,7 +184,25 @@ const generateDepositAccount = asyncHandler(async (req, res) => {
       status: "PENDING",
 
       reviewStatus: "NONE",
+    };
+
+    console.log("Creating deposit:", {
+      user: userId.toString(),
+      amount: numericAmount,
+      method: normalizedMethod,
+      reference,
     });
+
+    // =========================
+    // CREATE DEPOSIT
+    // =========================
+    const deposit =
+      await Deposit.create(depositData);
+
+    console.log(
+      "Deposit created:",
+      deposit._id.toString()
+    );
 
     // =========================
     // RESPONSE
@@ -200,6 +235,16 @@ const generateDepositAccount = asyncHandler(async (req, res) => {
     );
 
     console.error(
+      "Code:",
+      error.code
+    );
+
+    console.error(
+      "Errors:",
+      error.errors
+    );
+
+    console.error(
       "Stack:",
       error.stack
     );
@@ -213,6 +258,8 @@ const generateDepositAccount = asyncHandler(async (req, res) => {
       message:
         "Server error creating deposit",
       error: error.message,
+      name: error.name,
+      code: error.code,
     });
   }
 });

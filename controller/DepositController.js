@@ -32,14 +32,29 @@ const generateDepositAccount = asyncHandler(async (req, res) => {
       });
     }
 
+    const userId = req.user._id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authenticated user ID is missing",
+      });
+    }
+
     // =========================
-    // USER INPUT
+    // INPUT
     // =========================
-    const { amount, method = "bank" } = req.body || {};
+    const {
+      amount,
+      method = "bank",
+    } = req.body || {};
 
     const numericAmount = Number(amount);
 
-    if (!Number.isFinite(numericAmount) || numericAmount < 500) {
+    if (
+      !Number.isFinite(numericAmount) ||
+      numericAmount < 500
+    ) {
       return res.status(400).json({
         success: false,
         message: "Minimum deposit is ₦500",
@@ -70,29 +85,36 @@ const generateDepositAccount = asyncHandler(async (req, res) => {
     }
 
     // =========================
-    // GET ADMIN PAYMENT SETTINGS
+    // PAYMENT MODEL
     // =========================
-    const payment = await Payment.findOne().sort({
-      updatedAt: -1,
-    });
+    const payment = await Payment.findOne()
+      .sort({ updatedAt: -1 });
 
     if (!payment) {
       return res.status(400).json({
         success: false,
-        message: "Payment account has not been configured by admin",
+        message:
+          "Payment account has not been configured by admin",
       });
     }
 
     // =========================
     // PAYMENT DETAILS
     // =========================
-    const bankName = String(payment.bankName || "").trim();
-    const accountName = String(payment.accountName || "").trim();
-    const accountNumber = String(payment.accountNumber || "").trim();
-    const paymentLink = String(payment.paymentLink || "").trim();
+    const bankName =
+      String(payment.bankName || "").trim();
+
+    const accountName =
+      String(payment.accountName || "").trim();
+
+    const accountNumber =
+      String(payment.accountNumber || "").trim();
+
+    const paymentLink =
+      String(payment.paymentLink || "").trim();
 
     // =========================
-    // VALIDATE SETTINGS
+    // VALIDATE PAYMENT SETTINGS
     // =========================
     if (!accountNumber && !paymentLink) {
       return res.status(400).json({
@@ -102,7 +124,10 @@ const generateDepositAccount = asyncHandler(async (req, res) => {
       });
     }
 
-    if (accountNumber && (!bankName || !accountName)) {
+    if (
+      accountNumber &&
+      (!bankName || !accountName)
+    ) {
       return res.status(400).json({
         success: false,
         message:
@@ -111,34 +136,86 @@ const generateDepositAccount = asyncHandler(async (req, res) => {
     }
 
     // =========================
-    // RETURN PAYMENT ACCOUNT
+    // REFERENCE
     // =========================
-    return res.status(200).json({
+    const reference =
+      `${normalizedMethod}-${userId}-${Date.now()}`;
+
+    // =========================
+    // CREATE USER DEPOSIT
+    // =========================
+    const deposit = await Deposit.create({
+      user: userId,
+
+      bankName:
+        bankName ||
+        (paymentLink ? "Payment Link" : ""),
+
+      accountName:
+        accountName ||
+        (paymentLink ? "Payment Link" : ""),
+
+      accountNumber,
+      paymentLink,
+
+      expectedAmount: numericAmount,
+
+      method: normalizedMethod,
+
+      reference,
+
+      status: "PENDING",
+
+      reviewStatus: "NONE",
+    });
+
+    // =========================
+    // RESPONSE
+    // =========================
+    return res.status(201).json({
       success: true,
-      message: "Payment account loaded successfully",
+      message:
+        "Deposit account generated successfully",
 
-      deposit: {
-        amount: numericAmount,
-        method: normalizedMethod,
-
-        bankName: bankName || "Payment Link",
-        accountName: accountName || "Payment Link",
-        accountNumber,
-        paymentLink,
-      },
+      deposit,
     });
 
   } catch (error) {
-    console.error("GENERATE PAYMENT ERROR:", error);
+    console.error(
+      "===================================="
+    );
+
+    console.error(
+      "GENERATE DEPOSIT ERROR"
+    );
+
+    console.error(
+      "Message:",
+      error.message
+    );
+
+    console.error(
+      "Name:",
+      error.name
+    );
+
+    console.error(
+      "Stack:",
+      error.stack
+    );
+
+    console.error(
+      "===================================="
+    );
 
     return res.status(500).json({
       success: false,
-      message: "Failed to load payment account",
+      message:
+        "Server error creating deposit",
       error: error.message,
     });
   }
 });
-
 
 // ============================================================
 const confirmDeposit = asyncHandler(
@@ -697,26 +774,6 @@ const getPaymentSettings =
     }
   });
 
-// ============================================================
-// ADMIN: UPDATE PAYMENT SETTINGS
-// ============================================================
-// This is where the admin enters:
-//
-// Bank Name
-// Account Name
-// Account Number
-// Payment Link
-//
-// Example:
-//
-// PUT /admin/payment-settings
-//
-// {
-//   "bankName": "OPay",
-//   "accountName": "Theophilus Telecom",
-//   "accountNumber": "1234567890",
-//   "paymentLink": "https://..."
-// }
 // ============================================================
 const updatePaymentSettings =
   asyncHandler(async (req, res) => {

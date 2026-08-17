@@ -1,6 +1,4 @@
 const asyncHandler = require("express-async-handler");
-
-const Deposit = require("../models/DepositModel");
 const Payment = require("../models/PaymentModel");
 
 const { updateCoins } = require("./AccountController");
@@ -21,32 +19,11 @@ const getUserFromRequest = (req) => {
 };
 
 // ============================================================
-// GENERATE DEPOSIT ACCOUNT
-// ============================================================
-// USER ONLY SENDS:
-//
-// {
-//   amount: 5000,
-//   method: "bank"
-// }
-//
-// Payment details come ONLY from PaymentModel.
-//
-// This means a user cannot submit:
-//
-// bankName
-// accountName
-// accountNumber
-// paymentLink
-//
-// from the frontend and change the admin's payment account.
-// ============================================================
 const generateDepositAccount = asyncHandler(async (req, res) => {
   try {
-    // ============================================================
+    // =========================
     // AUTH
-    // ============================================================
-
+    // =========================
     if (!req.user) {
       return res.status(401).json({
         success: false,
@@ -54,44 +31,23 @@ const generateDepositAccount = asyncHandler(async (req, res) => {
       });
     }
 
-    const userId = req.user.id || req.user._id;
-
-    // ============================================================
+    // =========================
     // USER INPUT
-    // ============================================================
-
-    const {
-      amount,
-      method = "bank",
-    } = req.body || {};
-
-    console.log("====================================");
-    console.log("GENERATE DEPOSIT");
-    console.log("User:", userId);
-    console.log("Amount:", amount);
-    console.log("Method:", method);
-    console.log("====================================");
-
-    // ============================================================
-    // VALIDATE AMOUNT
-    // ============================================================
+    // =========================
+    const { amount, method = "bank" } = req.body || {};
 
     const numericAmount = Number(amount);
 
-    if (
-      !Number.isFinite(numericAmount) ||
-      numericAmount < 500
-    ) {
+    if (!Number.isFinite(numericAmount) || numericAmount < 500) {
       return res.status(400).json({
         success: false,
         message: "Minimum deposit is ₦500",
       });
     }
 
-    // ============================================================
-    // NORMALIZE METHOD
-    // ============================================================
-
+    // =========================
+    // METHOD
+    // =========================
     const normalizedMethod = String(method)
       .trim()
       .toLowerCase();
@@ -112,66 +68,31 @@ const generateDepositAccount = asyncHandler(async (req, res) => {
       });
     }
 
-    // ============================================================
+    // =========================
     // GET ADMIN PAYMENT SETTINGS
-    // ============================================================
-
-    let payment;
-
-    try {
-      payment = await Payment.findOne();
-    } catch (paymentError) {
-      console.error(
-        "PAYMENT MODEL ERROR:",
-        paymentError
-      );
-
-      return res.status(500).json({
-        success: false,
-        message: "Failed to load payment settings",
-        error: paymentError.message,
-      });
-    }
-
-    // ============================================================
-    // CHECK PAYMENT CONFIGURATION
-    // ============================================================
+    // =========================
+    const payment = await Payment.findOne().sort({
+      updatedAt: -1,
+    });
 
     if (!payment) {
       return res.status(400).json({
         success: false,
-        message:
-          "Payment account has not been configured by admin",
+        message: "Payment account has not been configured by admin",
       });
     }
 
-    // ============================================================
-    // READ ADMIN SETTINGS
-    // ============================================================
+    // =========================
+    // PAYMENT DETAILS
+    // =========================
+    const bankName = String(payment.bankName || "").trim();
+    const accountName = String(payment.accountName || "").trim();
+    const accountNumber = String(payment.accountNumber || "").trim();
+    const paymentLink = String(payment.paymentLink || "").trim();
 
-    const bankName =
-      String(payment.bankName || "").trim();
-
-    const accountName =
-      String(payment.accountName || "").trim();
-
-    const accountNumber =
-      String(payment.accountNumber || "").trim();
-
-    const paymentLink =
-      String(payment.paymentLink || "").trim();
-
-    console.log("PAYMENT SETTINGS:", {
-      bankName,
-      accountName,
-      accountNumber,
-      paymentLink,
-    });
-
-    // ============================================================
-    // VALIDATE ADMIN SETTINGS
-    // ============================================================
-
+    // =========================
+    // VALIDATE SETTINGS
+    // =========================
     if (!accountNumber && !paymentLink) {
       return res.status(400).json({
         success: false,
@@ -184,101 +105,34 @@ const generateDepositAccount = asyncHandler(async (req, res) => {
       return res.status(400).json({
         success: false,
         message:
-          "Payment bank name and account name are required when using an account number",
+          "Payment bank name and account name are required",
       });
     }
 
-    const safeBankName =
-      bankName || (paymentLink ? "Payment Link" : "");
-    const safeAccountName =
-      accountName || (paymentLink ? "Payment Link" : "");
-
-    // ============================================================
-    // CREATE REFERENCE
-    // ============================================================
-
-    const reference =
-      `${normalizedMethod}-${userId}-${Date.now()}`;
-
-    // ============================================================
-    // CREATE DEPOSIT
-    // ============================================================
-
-    const depositData = {
-      user: userId,
-
-      bankName: safeBankName,
-      accountName: safeAccountName,
-      accountNumber: accountNumber || "",
-      paymentLink: paymentLink || "",
-
-      expectedAmount: numericAmount,
-
-      method: normalizedMethod,
-
-      reference,
-
-      status: "PENDING",
-
-      reviewStatus: "NONE",
-    };
-
-    console.log(
-      "CREATING DEPOSIT:",
-      depositData
-    );
-
-    const deposit =
-      await Deposit.create(depositData);
-
-    // ============================================================
-    // SUCCESS
-    // ============================================================
-
-    return res.status(201).json({
+    // =========================
+    // RETURN PAYMENT ACCOUNT
+    // =========================
+    return res.status(200).json({
       success: true,
-      message:
-        "Deposit account generated successfully",
-      deposit,
+      message: "Payment account loaded successfully",
+
+      deposit: {
+        amount: numericAmount,
+        method: normalizedMethod,
+
+        bankName: bankName || "Payment Link",
+        accountName: accountName || "Payment Link",
+        accountNumber,
+        paymentLink,
+      },
     });
 
   } catch (error) {
-
-    // ============================================================
-    // IMPORTANT ERROR LOG
-    // ============================================================
-
-    console.error(
-      "===================================="
-    );
-
-    console.error(
-      "GENERATE DEPOSIT ERROR"
-    );
-
-    console.error(
-      "Message:",
-      error.message
-    );
-
-    console.error(
-      "Name:",
-      error.name
-    );
-
-    console.error(
-      "Stack:",
-      error.stack
-    );
-
-    console.error(
-      "===================================="
-    );
+    console.error("GENERATE PAYMENT ERROR:", error);
 
     return res.status(500).json({
       success: false,
-      message:
-        "Server error creating deposit",
+      message: "Failed to load payment account",
       error: error.message,
     });
   }

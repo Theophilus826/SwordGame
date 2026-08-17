@@ -9,7 +9,7 @@ const Deposit = require("../models/DepositModel");
 const CoinTransaction = require("../models/CoinTransaction");
 const Slide = require("../models/Slide");
 const Withdrawal = require("../models/Withdrawal");
-const {AppVersion} = require("../models/AppVersion");
+const AppVersion = require("../models/AppVersion");
   // UTILS
 const cloudinary = require("../config/Cloudinary");
 const { playersByUser } = require("../games/gameState");

@@ -1,4 +1,5 @@
 const asyncHandler = require("express-async-handler");
+const Deposit = require("../models/DepositModel");
 const Payment = require("../models/PaymentModel");
 
 const { updateCoins } = require("./AccountController");

@@ -1,12 +1,16 @@
+
 const express = require("express");
 const multer = require("multer");
 const asyncHandler = require("express-async-handler");
-const { CloudinaryStorage } = require("multer-storage-cloudinary");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
 
 const { protect } = require("../middleware/AuthMiddleware");
 const cloudinary = require("../config/Cloudinary");
 const Post = require("../models/PostModel");
-
+const watermarkVideo = require("../middleware/videoWatermark");
+const logoPath = path.join(__dirname, "../assets/logos.png");
 const {
   createPost,
   uploadMedia,
@@ -17,6 +21,34 @@ const {
 } = require("../controller/PostController");
 
 const router = express.Router();
+
+/* ================= TEMPORARY LOCAL STORAGE ================= */
+
+const tempDir = path.join(os.tmpdir(), "webgame-post-uploads");
+fs.mkdirSync(tempDir, { recursive: true });
+
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    cb(null, tempDir);
+  },
+
+  filename: (_req, file, cb) => {
+    cb(
+      null,
+      `${Date.now()}-${Math.random().toString(36).slice(2)}${path.extname(file.originalname)}`
+    );
+  },
+});
+
+/* ================= VIDEO EFFECTS ================= */
+
+const ALLOWED_EFFECTS = [
+  "original",
+  "cinematic",
+  "vibrant",
+  "bw",
+  "vintage",
+];
 
 /* ================= FILE FILTER ================= */
 
@@ -38,21 +70,6 @@ const fileFilter = (req, file, cb) => {
   cb(new Error("Only images and videos are allowed"), false);
 };
 
-/* ================= CLOUDINARY STORAGE ================= */
-
-const storage = new CloudinaryStorage({
-  cloudinary,
-  params: async (req, file) => {
-    const isVideo = file.mimetype.startsWith("video");
-
-    return {
-      folder: "posts",
-      resource_type: isVideo ? "video" : "image",
-      public_id: `${Date.now()}-${file.originalname}`,
-    };
-  },
-});
-
 /* ================= MULTER ================= */
 
 const upload = multer({
@@ -63,32 +80,105 @@ const upload = multer({
   },
 });
 
-/* ================= MULTI FILE WRAPPER ================= */
+/* ================= CLEANUP ================= */
+
+async function removeTempFiles(files) {
+  await Promise.all(
+    files.map(file => fs.promises.unlink(file).catch(() => {}))
+  );
+}
+
+/* ================= PROCESS AND UPLOAD ================= */
 
 const handleUpload = (fieldName, maxCount = 10) => (req, res, next) => {
-  upload.array(fieldName, maxCount)(req, res, (err) => {
-    if (err instanceof multer.MulterError) {
-      return res.status(400).json({
-        success: false,
-        message: err.message,
-        code: err.code,
-      });
-    }
-
+  upload.array(fieldName, maxCount)(req, res, async err => {
     if (err) {
       return res.status(400).json({
         success: false,
         message: err.message,
+        ...(err.code ? { code: err.code } : {}),
       });
     }
 
-    next();
+    const files = req.files || [];
+    const tempFiles = files.map(file => file.path);
+
+    // Validate the effect sent by the frontend.
+    const effect =
+      typeof req.body.effect === "string"
+        ? req.body.effect
+        : "original";
+
+    if (!ALLOWED_EFFECTS.includes(effect)) {
+      await removeTempFiles(tempFiles);
+
+      return res.status(400).json({
+        success: false,
+        message: "Invalid video effect selected.",
+        allowedEffects: ALLOWED_EFFECTS,
+      });
+    }
+
+    try {
+      for (const file of files) {
+        const isVideo = file.mimetype.startsWith("video/");
+        let uploadPath = file.path;
+
+        // Apply the selected effect and permanent watermark to videos.
+        // Images bypass FFmpeg and are uploaded unchanged.
+        if (isVideo) {
+          const outputPath = path.join(
+            tempDir,
+            `watermarked-${Date.now()}-${Math.random()
+              .toString(36)
+              .slice(2)}.mp4`
+          );
+
+          tempFiles.push(outputPath);
+
+          await watermarkVideo(file.path, outputPath, effect);
+          uploadPath = outputPath;
+        }
+
+        const safeName =
+          path
+            .basename(
+              file.originalname,
+              path.extname(file.originalname)
+            )
+            .replace(/[^a-zA-Z0-9_-]/g, "-")
+            .slice(0, 80) || "upload";
+
+        const result = await cloudinary.uploader.upload(uploadPath, {
+          folder: "posts",
+          resource_type: isVideo ? "video" : "image",
+          public_id: `${Date.now()}-${safeName}`,
+        });
+
+        // Controllers use file.path as the Cloudinary URL.
+        file.path = result.secure_url;
+        file.filename = result.public_id;
+        file.cloudinary = result;
+        file.size = result.bytes;
+      }
+
+      return next();
+    } catch (uploadError) {
+      console.error("Post media upload failed:", uploadError);
+
+      return res.status(500).json({
+        success: false,
+        message: "Failed to process or upload media.",
+      });
+    } finally {
+      await removeTempFiles(tempFiles);
+    }
   });
 };
 
 /* ================= ROUTES ================= */
 
-// Create post (multiple images/videos)
+// Create post
 router.post(
   "/",
   protect,

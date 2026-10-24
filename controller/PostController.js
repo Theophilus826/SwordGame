@@ -1,7 +1,6 @@
 const asyncHandler = require("express-async-handler");
 
 const Post = require("../models/PostModel");
-const cloudinary = require("../config/Cloudinary");
 
 // ✅ NEW (centralized notifications)
 const { notifyPostReaction } = require("../config/NotificationService");
@@ -16,16 +15,17 @@ const createPost = asyncHandler(async (req, res) => {
 
   if (req.files && req.files.length > 0) {
     for (const file of req.files) {
-      const isVideo = file.mimetype.startsWith("video");
+      // The upload middleware has already uploaded the file
+      // to Cloudinary and stored its URL in file.path.
+      if (typeof file.path !== "string" || !file.path.startsWith("https://")) {
+        res.status(400);
+        throw new Error("Uploaded media URL is missing");
+      }
 
-      const result = await cloudinary.uploader.upload(file.path, {
-        folder: "posts",
-        resource_type: isVideo ? "video" : "image",
-        public_id: `${Date.now()}-${file.originalname}`,
-      });
+      const isVideo = file.mimetype.startsWith("video/");
 
       media.push({
-        url: result.secure_url,
+        url: file.path,
         type: isVideo ? "video" : "image",
       });
     }
@@ -57,6 +57,7 @@ const createPost = asyncHandler(async (req, res) => {
 /* =========================
    UPLOAD MEDIA
 ========================= */
+
 const uploadMedia = asyncHandler(async (req, res) => {
   const post = await Post.findById(req.params.postId);
 
@@ -78,16 +79,16 @@ const uploadMedia = asyncHandler(async (req, res) => {
   post.media = Array.isArray(post.media) ? post.media : [];
 
   for (const file of req.files) {
-    const isVideo = file.mimetype.startsWith("video");
+    // The route middleware already processed and uploaded this file.
+    if (typeof file.path !== "string" || !file.path.startsWith("https://")) {
+      res.status(400);
+      throw new Error("Uploaded media URL is missing");
+    }
 
-    const result = await cloudinary.uploader.upload(file.path, {
-      folder: "posts",
-      resource_type: isVideo ? "video" : "image",
-      public_id: `${Date.now()}-${file.originalname}`,
-    });
+    const isVideo = file.mimetype.startsWith("video/");
 
     post.media.push({
-      url: result.secure_url,
+      url: file.path,
       type: isVideo ? "video" : "image",
     });
   }
@@ -127,12 +128,8 @@ const getPosts = asyncHandler(async (req, res) => {
 
   const formattedPosts = populatedPosts.map((post) => ({
     ...post,
-    liked: userId
-      ? post.likedBy.some((id) => id.toString() === userId)
-      : false,
-    loved: userId
-      ? post.lovedBy.some((id) => id.toString() === userId)
-      : false,
+    liked: userId ? post.likedBy.some((id) => id.toString() === userId) : false,
+    loved: userId ? post.lovedBy.some((id) => id.toString() === userId) : false,
   }));
 
   res.json({
@@ -159,12 +156,8 @@ const getPostById = asyncHandler(async (req, res) => {
 
   const formattedPost = {
     ...post,
-    liked: userId
-      ? post.likedBy.some((id) => id.toString() === userId)
-      : false,
-    loved: userId
-      ? post.lovedBy.some((id) => id.toString() === userId)
-      : false,
+    liked: userId ? post.likedBy.some((id) => id.toString() === userId) : false,
+    loved: userId ? post.lovedBy.some((id) => id.toString() === userId) : false,
   };
 
   res.json({ success: true, post: formattedPost });
@@ -188,9 +181,7 @@ const reactPost = async (req, res) => {
 
     /* ================= LIKE ================= */
     if (type === "like") {
-      const index = post.likedBy.findIndex(
-        (id) => id.toString() === userId
-      );
+      const index = post.likedBy.findIndex((id) => id.toString() === userId);
 
       if (index > -1) {
         // unlike
@@ -219,9 +210,7 @@ const reactPost = async (req, res) => {
 
     /* ================= LOVE ================= */
     if (type === "love") {
-      const index = post.lovedBy.findIndex(
-        (id) => id.toString() === userId
-      );
+      const index = post.lovedBy.findIndex((id) => id.toString() === userId);
 
       if (index > -1) {
         // unlove
@@ -283,9 +272,7 @@ const commentPost = asyncHandler(async (req, res) => {
     throw new Error("Post not found");
   }
 
-  post.comments = Array.isArray(post.comments)
-    ? post.comments
-    : [];
+  post.comments = Array.isArray(post.comments) ? post.comments : [];
 
   post.comments.push({
     user: req.user._id,

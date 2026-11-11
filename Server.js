@@ -25,6 +25,12 @@ const shareRoutes = require("./routes/ShareRoute");
 const shareTaskRoutes = require("./routes/ShareTaskRoutes");
 const callRoutes = require("./routes/callRoutes");
 const IceServerRoutes = require("./routes/IceServerRoutes");
+const TournamentRoutes = require("./routes/TournamentRoutes");
+const tournamentTeamRoutes = require("./routes/TournamentTeamRoutes");
+const tournamentMatchRoutes = require("./routes/TournamentMatchRoutes");
+const walletRoutes = require("./routes/walletRoutes");
+const tournamentPaymentRoutes = require("./routes/TournamentPaymentRoutes");
+
 // ==========================
 // LOAD ENV
 // ==========================
@@ -197,6 +203,9 @@ app.get("/", (req, res) => {
   res.status(200).json({ message: "Welcome to Game Backend API" });
 });
 
+app.use("/api/wallet/paystack", walletRoutes);
+app.use("/api/auth/biometric", require("./routes/BiometricRoutes"));
+
 app.use("/api/users", require("./routes/UserRoutes"));
 app.use("/api/coins", require("./routes/AccountRoutes"));
 app.use("/api/admin", require("./routes/AdminRoutes"));
@@ -214,6 +223,11 @@ app.use("/api/group", GroupRoute);
 app.use("/api/bubble", require("./routes/BubbleRoutes"));
 app.use("/api/call", require("./routes/callRoutes"));
 app.use("/api/ice", IceServerRoutes);
+app.use("/api/tournament", TournamentRoutes);
+app.use("/api/tournament/teams", tournamentTeamRoutes);
+app.use("/api/tournament/matches", tournamentMatchRoutes);
+app.use("/api/tournament/payments", tournamentPaymentRoutes);
+
 // Route to get posts by a specific user
 
 // ==========================
